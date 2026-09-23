@@ -5,6 +5,7 @@
 // ProductVariant sin dos caminos de código distintos.
 const prisma = require('../../../core/database/prisma');
 const AppError = require('../../../core/utils/AppError');
+const auditService = require('../../../core/audit/audit.service');
 
 async function assertAccountUsable(companyId, accountId) {
   if (!accountId) return;
@@ -22,7 +23,7 @@ async function assertVendorUsable(companyId, vendorId) {
   }
 }
 
-async function createProduct(companyId, data) {
+async function createProduct(companyId, data, userId = null) {
   const baseUnit = await prisma.unitOfMeasure.findFirst({ where: { id: data.baseUnitOfMeasureId, companyId } });
   if (!baseUnit) {
     throw new AppError('La unidad de medida base indicada no existe en esta empresa.', 400, 'UNIT_OF_MEASURE_NOT_FOUND');
@@ -46,31 +47,42 @@ async function createProduct(companyId, data) {
     ? data.unitConversions.map((c) => ({ unitOfMeasureId: c.unitOfMeasureId, conversionFactor: c.conversionFactor }))
     : [];
 
-  return prisma.product.create({
-    data: {
-      companyId,
-      sku: data.sku,
-      name: data.name,
-      description: data.description || null,
-      categoryId: data.categoryId || null,
-      valuationMethod: data.valuationMethod || null,
-      baseUnitOfMeasureId: data.baseUnitOfMeasureId,
-      inventoryAssetAccountId: data.inventoryAssetAccountId || null,
-      cogsExpenseAccountId: data.cogsExpenseAccountId || null,
-      isService: data.isService ?? false,
-      trackLots: data.trackLots ?? false,
-      trackExpiration: data.trackExpiration ?? false,
-      minStock: data.minStock ?? null,
-      maxStock: data.maxStock ?? null,
-      preferredVendorId: data.preferredVendorId || null,
-      variants: { create: variants },
-      unitConversions: { create: unitConversions },
-    },
-    include: { variants: true, unitConversions: true },
+  return prisma.$transaction(async (tx) => {
+    const product = await tx.product.create({
+      data: {
+        companyId,
+        sku: data.sku,
+        name: data.name,
+        description: data.description || null,
+        categoryId: data.categoryId || null,
+        valuationMethod: data.valuationMethod || null,
+        baseUnitOfMeasureId: data.baseUnitOfMeasureId,
+        inventoryAssetAccountId: data.inventoryAssetAccountId || null,
+        cogsExpenseAccountId: data.cogsExpenseAccountId || null,
+        isService: data.isService ?? false,
+        trackLots: data.trackLots ?? false,
+        trackExpiration: data.trackExpiration ?? false,
+        minStock: data.minStock ?? null,
+        maxStock: data.maxStock ?? null,
+        preferredVendorId: data.preferredVendorId || null,
+        variants: { create: variants },
+        unitConversions: { create: unitConversions },
+      },
+      include: { variants: true, unitConversions: true },
+    });
+    await auditService.log(
+      { companyId, userId, action: 'product.created', entityType: 'Product', entityId: product.id, newValue: { sku: product.sku, name: product.name } },
+      tx
+    );
+    return product;
   });
 }
 
-async function updateProduct(companyId, id, changes) {
+// Fase 2 (maestros): antes de esto, modificar un producto (incluida su
+// activación/desactivación, cambio de cuentas contables o proveedor
+// preferido) no dejaba ningún rastro auditable — regla explícita de
+// "cambios sensibles de maestros deben ser auditables".
+async function updateProduct(companyId, id, changes, userId = null) {
   const product = await prisma.product.findFirst({ where: { id, companyId } });
   if (!product) {
     throw new AppError('El producto indicado no existe.', 404, 'PRODUCT_NOT_FOUND');
@@ -78,15 +90,38 @@ async function updateProduct(companyId, id, changes) {
   await assertAccountUsable(companyId, changes.inventoryAssetAccountId);
   await assertAccountUsable(companyId, changes.cogsExpenseAccountId);
   await assertVendorUsable(companyId, changes.preferredVendorId);
-  return prisma.product.update({ where: { id }, data: changes });
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.product.update({ where: { id }, data: changes });
+    await auditService.log(
+      {
+        companyId,
+        userId,
+        action: 'product.updated',
+        entityType: 'Product',
+        entityId: id,
+        oldValue: changes.isActive !== undefined ? { isActive: product.isActive } : undefined,
+        newValue: changes,
+      },
+      tx
+    );
+    return updated;
+  });
 }
 
-async function addVariant(companyId, productId, data) {
+async function addVariant(companyId, productId, data, userId = null) {
   const product = await prisma.product.findFirst({ where: { id: productId, companyId } });
   if (!product) {
     throw new AppError('El producto indicado no existe.', 404, 'PRODUCT_NOT_FOUND');
   }
-  return prisma.productVariant.create({ data: { productId, sku: data.sku, attributes: data.attributes || null } });
+  return prisma.$transaction(async (tx) => {
+    const variant = await tx.productVariant.create({ data: { productId, sku: data.sku, attributes: data.attributes || null } });
+    await auditService.log(
+      { companyId, userId, action: 'product.variant_added', entityType: 'Product', entityId: productId, newValue: { sku: variant.sku } },
+      tx
+    );
+    return variant;
+  });
 }
 
 async function listProducts(companyId, { isActive, categoryId } = {}) {

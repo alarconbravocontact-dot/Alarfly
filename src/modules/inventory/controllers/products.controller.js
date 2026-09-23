@@ -2,17 +2,17 @@ const asyncHandler = require('../../../core/utils/asyncHandler');
 const productsService = require('../services/products.service');
 
 const create = asyncHandler(async (req, res) => {
-  const product = await productsService.createProduct(req.auth.companyId, req.body);
+  const product = await productsService.createProduct(req.auth.companyId, req.body, req.auth.userId);
   res.status(201).json(product);
 });
 
 const update = asyncHandler(async (req, res) => {
-  const product = await productsService.updateProduct(req.auth.companyId, req.params.id, req.body);
+  const product = await productsService.updateProduct(req.auth.companyId, req.params.id, req.body, req.auth.userId);
   res.json(product);
 });
 
 const addVariant = asyncHandler(async (req, res) => {
-  const variant = await productsService.addVariant(req.auth.companyId, req.params.id, req.body);
+  const variant = await productsService.addVariant(req.auth.companyId, req.params.id, req.body, req.auth.userId);
   res.status(201).json(variant);
 });
 

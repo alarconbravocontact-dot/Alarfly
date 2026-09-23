@@ -6,13 +6,15 @@ export const inventorySettingsApi = {
 };
 
 export const unitsOfMeasureApi = {
-  list: () => api.get('/inventory/units-of-measure'),
+  list: (query) => api.get('/inventory/units-of-measure', query),
   create: (data) => api.post('/inventory/units-of-measure', data),
+  update: (id, data) => api.patch(`/inventory/units-of-measure/${id}`, data),
 };
 
 export const productCategoriesApi = {
-  list: () => api.get('/inventory/categories'),
+  list: (query) => api.get('/inventory/categories', query),
   create: (data) => api.post('/inventory/categories', data),
+  update: (id, data) => api.patch(`/inventory/categories/${id}`, data),
 };
 
 export const warehousesApi = {

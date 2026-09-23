@@ -2,29 +2,54 @@ const prisma = require('../../../core/database/prisma');
 const AppError = require('../../../core/utils/AppError');
 const auditService = require('../../../core/audit/audit.service');
 
-async function createCustomer(companyId, data) {
-  return prisma.customer.create({
-    data: {
-      companyId,
-      name: data.name,
-      taxId: data.taxId || null,
-      email: data.email || null,
-      phone: data.phone || null,
-      paymentTermsDays: data.paymentTermsDays ?? 30,
-      creditLimit: data.creditLimit ?? null,
-      maxOverdueDaysAllowed: data.maxOverdueDaysAllowed ?? null,
-      isForeign: data.isForeign ?? false,
-      billingCurrency: data.billingCurrency || null,
-    },
+async function createCustomer(companyId, data, userId = null) {
+  return prisma.$transaction(async (tx) => {
+    const customer = await tx.customer.create({
+      data: {
+        companyId,
+        name: data.name,
+        taxId: data.taxId || null,
+        email: data.email || null,
+        phone: data.phone || null,
+        paymentTermsDays: data.paymentTermsDays ?? 30,
+        creditLimit: data.creditLimit ?? null,
+        maxOverdueDaysAllowed: data.maxOverdueDaysAllowed ?? null,
+        isForeign: data.isForeign ?? false,
+        billingCurrency: data.billingCurrency || null,
+      },
+    });
+    await auditService.log(
+      { companyId, userId, action: 'customer.created', entityType: 'Customer', entityId: customer.id, newValue: { name: customer.name, taxId: customer.taxId } },
+      tx
+    );
+    return customer;
   });
 }
 
-async function updateCustomer(companyId, id, changes) {
+// Fase 2 (maestros): antes de esto, modificar los datos fiscales o las
+// condiciones comerciales de un cliente (o activarlo/desactivarlo) no
+// quedaba auditado — solo bloquear/desbloquear lo estaba.
+async function updateCustomer(companyId, id, changes, userId = null) {
   const customer = await prisma.customer.findFirst({ where: { id, companyId } });
   if (!customer) {
     throw new AppError('El cliente indicado no existe.', 404, 'CUSTOMER_NOT_FOUND');
   }
-  return prisma.customer.update({ where: { id }, data: changes });
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.customer.update({ where: { id }, data: changes });
+    await auditService.log(
+      {
+        companyId,
+        userId,
+        action: 'customer.updated',
+        entityType: 'Customer',
+        entityId: id,
+        oldValue: changes.isActive !== undefined ? { isActive: customer.isActive } : undefined,
+        newValue: changes,
+      },
+      tx
+    );
+    return updated;
+  });
 }
 
 // Bloqueo manual (ej. decisión del área de cobranza). El bloqueo

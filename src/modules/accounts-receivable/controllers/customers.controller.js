@@ -2,12 +2,12 @@ const asyncHandler = require('../../../core/utils/asyncHandler');
 const customersService = require('../services/customers.service');
 
 const create = asyncHandler(async (req, res) => {
-  const customer = await customersService.createCustomer(req.auth.companyId, req.body);
+  const customer = await customersService.createCustomer(req.auth.companyId, req.body, req.auth.userId);
   res.status(201).json(customer);
 });
 
 const update = asyncHandler(async (req, res) => {
-  const customer = await customersService.updateCustomer(req.auth.companyId, req.params.id, req.body);
+  const customer = await customersService.updateCustomer(req.auth.companyId, req.params.id, req.body, req.auth.userId);
   res.json(customer);
 });
 

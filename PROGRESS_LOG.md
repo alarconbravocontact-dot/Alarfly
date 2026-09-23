@@ -243,3 +243,239 @@ operación crítica nueva (`SalesOrder → Reserva → Entrega`, `GoodsReceipt`,
 etc.) en vez de repetir el patrón antiguo de dos transacciones. Cualquier
 fase que toque pagos debe partir del inventario de duplicación
 documentado arriba (pendiente #1) antes de crear nada nuevo.
+
+---
+
+## Fase 2 — Maestros y Datos Base
+
+**Estado: FASE COMPLETA**
+
+### Objetivo de la fase
+
+Auditar y preparar los datos maestros transversales (Producto,
+Variantes, Categorías, UOM, Clientes, Proveedores, Empresa/Sucursales,
+Monedas, Dimensiones) para que las fases posteriores (Ventas/Facturación
+en Fase 3) los usen sin duplicarlos. No crear módulos nuevos: garantizar
+una sola fuente de verdad por entidad.
+
+### Qué existía antes (auditoría, sin asumir nada — código leído primero)
+
+- `Product`/`ProductVariant`/`ProductCategory`/`UnitOfMeasure` ya eran
+  maestros únicos y transversales (Inventario, Fiscal vía AR/AP,
+  Contabilidad vía cuentas de inventario/COGS, FP&A vía
+  `Product.fpaDimensionId`, Reportes de rentabilidad). Sin duplicados
+  conceptuales: una sola tabla de categorías, una sola de UOM.
+- `Customer`/`Vendor` ya eran catálogos únicos y transversales (AR/CxC/
+  Fiscal/Analítica; AP/CxP/Fiscal/Analítica respectivamente) — sin
+  modelos alternativos en ningún otro módulo.
+- `ArApSettings` (en `core/ar-ap-settings`) ya era la única fuente de
+  configuración compartida entre AR y AP.
+- Sucursales: sin modelo `Branch` propio — se representan con
+  `Dimension` tipo `BRANCH`, ya usada de forma consistente por
+  `Warehouse`, `TreasuryAccount` y `PettyCashFund`.
+- Monedas: sin modelo `Currency` propio — `Company.baseCurrency` (texto
+  ISO) + `ExchangeRate` (histórico companyId+currency+date+rate) ya
+  cubren lo que existe hoy.
+- Dos sistemas de dimensiones ya coexistían a propósito, documentados
+  desde antes de esta fase: `Dimension` (plano, con código, usado por
+  Tesorería/Inventario/Fiscal) y `FpaDimension` (jerárquico, sin
+  código, usado por FP&A/Presupuestos/Rentabilidad/`Product.fpaDimensionId`),
+  cada uno con su propia tabla puente hacia `JournalEntryLine`.
+- Gaps reales encontrados (no supuestos — confirmados leyendo servicios,
+  rutas, validators y el frontend):
+  1. `createProduct`/`updateProduct`/`addVariant`, `createCustomer`/
+     `updateCustomer`, `createVendor`/`updateVendor` **no auditaban
+     nada** (Customer solo auditaba bloquear/desbloquear; Vendor no
+     auditaba absolutamente nada, ni siquiera activar/desactivar, que
+     el frontend de `VendorsPage` ya permitía hacer sin dejar rastro).
+  2. `ProductCategory`/`UnitOfMeasure` no tenían **ni edición ni
+     estado activo/inactivo** — una vez creadas, vivían para siempre
+     (solo existía `POST`/`GET`, ninguna ruta `PATCH`).
+  3. `core/middlewares/errorHandler.js` no traducía `P2002` (violación
+     de restricción única) — cualquier intento de crear un
+     cliente/proveedor/producto/categoría/UOM duplicado por la vía
+     normal (no la de importación, que sí tenía su propio traductor
+     ad-hoc) caía en el 500 genérico ("error inesperado"), en vez de
+     un 409 claro. Confirmado en vivo antes del fix: `POST
+     /accounts-receivable/customers` con un nombre repetido devolvía
+     500; después del fix, 409 `DUPLICATE_VALUE`.
+  4. Cero tests unitarios para `products.service.js`,
+     `vendors.service.js`, `product-categories.service.js`,
+     `units-of-measure.service.js` (`customers.service.test.js` solo
+     cubría `importCustomers`).
+  5. Frontend: `productsApi.update`/`customersApi.update` ya existían
+     en el cliente HTTP y el backend, pero ninguna pantalla ofrecía un
+     botón para usarlos (a diferencia de `VendorsPage`, que sí tenía
+     el botón Activar/Desactivar).
+
+### Qué se reutilizó (sin tocar)
+
+- El motor de valoración de Inventario (FIFO/LIFO/PMP), BOM, el motor
+  fiscal, el motor de asientos (`core/ledger`), `core/audit` (mismo
+  servicio de siempre, sin cambios), `ArApSettings`, `core/fx`, ambos
+  sistemas de `Dimension`/`FpaDimension` — nada de esto se tocó ni se
+  reconstruyó.
+- El patrón `tx` opcional de la Fase 1 (`withTransaction`/transacción
+  de Prisma) para que cada creación/modificación con auditoría nueva
+  quede atómica junto con su registro de `AuditLog` — mismo criterio
+  que ya se usó en Fase 1, no un mecanismo nuevo.
+
+### Qué se modificó / extendió
+
+1. **Auditoría agregada** a `createProduct`/`updateProduct`/
+   `addVariant` (`product.created`/`product.updated`/
+   `product.variant_added`), `createCustomer`/`updateCustomer`
+   (`customer.created`/`customer.updated`), `createVendor`/
+   `updateVendor` (`vendor.created`/`vendor.updated`) — cada
+   creación/modificación queda ahora en `AuditLog`, con el estado
+   anterior cuando el cambio es `isActive`.
+2. **CRUD completado** para `ProductCategory`/`UnitOfMeasure`:
+   `updateCategory`/`updateUnitOfMeasure` (nuevas), con auditoría y
+   validación de existencia — mismo patrón que ya usaban Product/
+   Customer/Vendor.
+3. **`core/middlewares/errorHandler.js`** ganó manejo genérico de
+   `P2002` → 409 `DUPLICATE_VALUE` con mensaje claro. Beneficia a los
+   5 maestros (y cualquier otro modelo con restricción única) sin
+   duplicar la traducción servicio por servicio.
+4. **Frontend**: `unitsOfMeasureApi.update`/`productCategoriesApi.update`
+   agregados al cliente HTTP; botón Activar/Desactivar agregado a
+   `CatalogPage` (productos, que no lo tenía) y a `CustomersPage`
+   (clientes, que tampoco lo tenía) — mismo patrón visual ya usado en
+   `VendorsPage`, sin ningún rediseño.
+
+### Qué se creó
+
+- `isActive Boolean @default(true)` en `ProductCategory` y
+  `UnitOfMeasure` (migración `20260923012625_master_data_category_uom_isactive`,
+  puramente aditiva: dos `ALTER TABLE ... ADD COLUMN ... DEFAULT true`,
+  sin pérdida de datos ni downtime).
+- Rutas `PATCH /inventory/categories/:id` y
+  `PATCH /inventory/units-of-measure/:id` (+ filtro `?isActive=` en
+  ambos `GET /`, mismo patrón que ya usaban Product/Customer/Vendor).
+- 5 archivos de test nuevos: `products.service.test.js`,
+  `vendors.service.test.js`, `product-categories.service.test.js`,
+  `units-of-measure.service.test.js`, `errorHandler.test.js`.
+
+### Qué se fusionó / eliminó
+
+Nada. La auditoría no encontró ningún maestro duplicado que fusionar
+(Product/Customer/Vendor/Category/UOM ya eran fuente única desde antes)
+ni ningún código muerto que eliminar.
+
+### Decisión explícita: NO fusionar `Dimension` y `FpaDimension`
+
+Evaluado y descartado a propósito. Fusionarlos tocaría el Ledger (dos
+tablas puente distintas — `JournalEntryLineDimension` y
+`JournalEntryLineFpaDimension` — ambas colgando de `JournalEntryLine`)
+y decenas de consumidores ya probados (Tesorería/Inventario/Fiscal por
+un lado; FP&A/Presupuestos/Rentabilidad/`Product.fpaDimensionId` por
+el otro). Es una decisión ya documentada como consciente antes de esta
+fase, y la regla 17 de este mismo prompt de Fase 2 pide explícitamente
+no tocar el Ledger salvo estrictamente necesario — no lo era: ambos
+sistemas funcionan, cada uno resuelve un problema distinto (etiquetado
+operacional plano vs. analítico jerárquico), y no hay ningún módulo
+que hoy necesite mezclarlos.
+
+### Pendiente documentado, no implementado (con justificación)
+
+- **Precio/costo/impuesto por defecto en `Product`**: hoy ningún
+  consumidor real los necesita (AR/AP toman `unitPrice` manual por
+  línea de factura; el costo real ya lo resuelve el motor de
+  valoración; el impuesto se resuelve por jurisdicción en la
+  transacción fiscal, no por producto). Agregar estos campos ahora
+  violaría la regla explícita de "no agregar campos sin justificación
+  funcional". Cuando Fase 3 defina cómo funciona Venta Rápida, ahí se
+  sabrá si de verdad hace falta un precio de lista por producto — se
+  deja documentado para no perder el razonamiento.
+- **Unicidad de `taxId`** en `Customer`/`Vendor`: hoy solo `name` es
+  único por empresa; `taxId` puede repetirse o quedar vacío (permite
+  crear un cliente antes de tener su NIT/RFC completo, decisión ya
+  documentada en `CLAUDE.md`). No se impuso una restricción nueva sin
+  evidencia de duplicados reales en producción — queda como riesgo
+  menor a vigilar, no como bug.
+- **Frontend de Categorías/UOM**: el backend quedó completo (`PATCH`,
+  auditoría, `isActive`), pero la sección de Categorías/UOM en
+  `CatalogPage` sigue mostrando una lista de texto plano (nombres
+  separados por comas), no una tabla por fila — agregar un botón
+  Activar/Desactivar ahí exige restructurar esa presentación, que va
+  más allá de "conectar un botón ya existente" (lo que sí se hizo para
+  Producto/Cliente) y roza el rediseño visual que esta fase pidió
+  explícitamente no hacer todavía. Documentado como pendiente de una
+  pasada de frontend futura, no como incompleto de datos/contratos.
+
+### Migraciones
+
+Una migración nueva, mínima y aditiva (ver arriba). Se evaluó primero
+si era necesaria (regla 22): sin ella, `ProductCategory`/
+`UnitOfMeasure` seguirían sin ninguna forma de desactivarse, la única
+inconsistencia real de estado encontrada frente al resto de maestros
+del proyecto (Product/Customer/Vendor/Warehouse/TreasuryAccount ya
+tenían `isActive`). Aplicada y verificada con `prisma migrate dev`
+contra Postgres real, sin pérdida de datos (default `true` para las
+filas existentes).
+
+### APIs
+
+Ninguna ruta existente cambió de comportamiento. Nuevas: `PATCH
+/inventory/categories/:id`, `PATCH /inventory/units-of-measure/:id`.
+Ampliadas de forma compatible (parámetro opcional): `GET
+/inventory/categories?isActive=`, `GET
+/inventory/units-of-measure?isActive=`.
+
+### Auditoría
+
+Verificado en vivo contra Postgres real: crear/desactivar un proveedor
+ahora deja `vendor.created`/`vendor.updated` en `AuditLog` (antes, cero
+filas). Mismo patrón confirmado para Producto/Cliente/Categoría/UOM.
+
+### Tests y resultado
+
+87 suites, 535 tests, todos en verde (514 preexistentes de Fase 1 +
+tests nuevos de esta fase, sin ninguna regresión). `eslint` sobre el
+backend sin advertencias. Frontend: `npm run lint` (oxlint) sin
+advertencias nuevas (mismas 8 preexistentes de los archivos de
+contexto) y `npm run build` sin errores.
+
+Verificado además a mano contra Postgres real (no solo con mocks):
+categoría duplicada → 409 `DUPLICATE_VALUE` (antes 500); `PATCH` de
+categoría/proveedor funcionando; filtro `?isActive=true` excluyendo
+correctamente una categoría recién desactivada; `AuditLog` con las
+filas nuevas de proveedor.
+
+### Riesgos
+
+- Ninguno nuevo introducido por esta fase (cambios aditivos, sin tocar
+  Ledger, sin tocar lógica de negocio existente).
+- Persisten los riesgos ya documentados en Fase 1 (TOCTOU de período,
+  `reverseMatch` sin revertir saldo, crons sin `lastRunAt`).
+
+### Impacto sobre Fase 3 (Ventas, Facturación, Venta Rápida y CxC)
+
+- `Product`/`Customer`/`Vendor` están listos para usarse tal cual —
+  **no reconstruirlos**. Si Venta Rápida necesita un precio de lista
+  por producto, es el primer lugar donde ese campo tendría
+  justificación funcional real; agregarlo ahí, no antes.
+- Cualquier operación nueva de Fase 3 que escriba un documento +
+  postee un asiento debe usar el mismo patrón `tx`/`withTransaction`
+  de Fase 1, no dos transacciones separadas.
+- El manejo genérico de `P2002` en `errorHandler.js` ya cubre
+  cualquier restricción única nueva que Fase 3 agregue (ej. número de
+  pedido de venta) — no hace falta traducirlo a mano de nuevo.
+- No usar `Dimension` para algo jerárquico ni `FpaDimension` para
+  etiquetar movimientos operacionales planos — cada uno tiene su rol ya
+  fijado, ver la decisión de no fusión arriba.
+
+### Qué debe recordar Fase 3 (regla de memoria entre fases)
+
+- Los 5 maestros (`Product`/`ProductVariant`/`ProductCategory`/
+  `UnitOfMeasure`/`Customer`/`Vendor`) son fuente única, con auditoría
+  completa desde esta fase — no crear un segundo catálogo de ninguno.
+- `ArApSettings` sigue siendo la única configuración compartida AR/AP.
+- Sucursales = `Dimension` tipo `BRANCH`; monedas = `Company.baseCurrency`
+  + `ExchangeRate`; no crear modelos `Branch`/`Currency` nuevos sin una
+  necesidad real que estos no cubran.
+- No fusionar `Dimension`/`FpaDimension` (decisión explícita de esta
+  fase, ver arriba).
+- Pendientes explícitos, no bloqueantes: precio/costo/impuesto por
+  defecto en `Product` (evaluar solo cuando Venta Rápida defina si
+  hace falta), unicidad de `taxId`, frontend de Categorías/UOM.

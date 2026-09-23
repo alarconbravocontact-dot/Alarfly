@@ -5,4 +5,17 @@ const createUnitOfMeasureSchema = z.object({
   name: z.string().min(1),
 });
 
-module.exports = { createUnitOfMeasureSchema };
+const updateUnitOfMeasureSchema = z.object({
+  code: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  isActive: z.boolean().optional(),
+});
+
+const listUnitsOfMeasureQuerySchema = z.object({
+  isActive: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
+});
+
+module.exports = { createUnitOfMeasureSchema, updateUnitOfMeasureSchema, listUnitsOfMeasureQuerySchema };

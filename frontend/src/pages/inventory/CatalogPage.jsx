@@ -49,6 +49,7 @@ export default function CatalogPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   const [variantForms, setVariantForms] = useState({});
+  const [rowErrors, setRowErrors] = useState({});
 
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [categoryName, setCategoryName] = useState('');
@@ -134,6 +135,24 @@ export default function CatalogPage() {
 
   function toggleExpand(product) {
     setExpandedId((prev) => (prev === product.id ? null : product.id));
+  }
+
+  // Fase 2 (maestros): el backend y el cliente HTTP ya tenían el
+  // endpoint de actualización (usado para editar cuentas/proveedor
+  // preferido), pero esta pantalla nunca ofrecía un botón para
+  // activar/desactivar un producto — mismo patrón ya usado en
+  // VendorsPage.
+  async function handleToggleProductActive(product) {
+    setRowErrors((prev) => ({ ...prev, [product.id]: '' }));
+    try {
+      await productsApi.update(product.id, { isActive: !product.isActive });
+      await loadAll();
+    } catch (err) {
+      setRowErrors((prev) => ({
+        ...prev,
+        [product.id]: err instanceof ApiError ? err.message : 'No se pudo actualizar el producto.',
+      }));
+    }
   }
 
   function updateVariantForm(productId, changes) {
@@ -330,6 +349,7 @@ export default function CatalogPage() {
                 <th>Valoración</th>
                 <th>Estado</th>
                 <th></th>
+                {canManage && <th></th>}
               </tr>
             </thead>
             <tbody>
@@ -348,10 +368,22 @@ export default function CatalogPage() {
                         {expandedId === p.id ? 'Ocultar' : 'Ver variantes'}
                       </button>
                     </td>
+                    {canManage && (
+                      <td>
+                        <button type="button" className="btn btn-small" onClick={() => handleToggleProductActive(p)}>
+                          {p.isActive ? 'Desactivar' : 'Activar'}
+                        </button>
+                        {rowErrors[p.id] && (
+                          <p className="alert-box alert-box-error" style={{ marginTop: 6 }}>
+                            {rowErrors[p.id]}
+                          </p>
+                        )}
+                      </td>
+                    )}
                   </tr>
                   {expandedId === p.id && (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={canManage ? 7 : 6}>
                         <table className="data-table">
                           <thead>
                             <tr>

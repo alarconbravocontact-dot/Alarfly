@@ -2733,6 +2733,11 @@ model UnitOfMeasure {
   code      String
   name      String
 
+  // Fase 2 (maestros): antes de esto no existía forma de retirar una
+  // unidad de medida obsoleta — mismo campo que ya tienen el resto de
+  // maestros transversales (Product/Customer/Vendor/Warehouse).
+  isActive Boolean @default(true)
+
   conversions    ProductUnitConversion[]
   productsAsBase Product[]
 
@@ -2745,6 +2750,9 @@ model ProductCategory {
   company                Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name                   String
   defaultValuationMethod ValuationMethod?
+
+  // Fase 2 (maestros): mismo motivo que UnitOfMeasure.isActive arriba.
+  isActive Boolean @default(true)
 
   products Product[]
 

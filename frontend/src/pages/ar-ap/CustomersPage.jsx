@@ -187,6 +187,24 @@ export default function CustomersPage() {
     }
   }
 
+  // Fase 2 (maestros): el backend y el cliente HTTP ya tenían el
+  // endpoint de actualización, pero esta pantalla nunca ofrecía un
+  // botón para activar/desactivar un cliente (solo bloquear/desbloquear,
+  // un concepto distinto: crédito vencido vs. dejó de operar con
+  // nosotros) — mismo patrón ya usado en VendorsPage.
+  async function handleToggleActive(customer) {
+    setRowErrors((prev) => ({ ...prev, [customer.id]: '' }));
+    try {
+      await customersApi.update(customer.id, { isActive: !customer.isActive });
+      await loadCustomers();
+    } catch (err) {
+      setRowErrors((prev) => ({
+        ...prev,
+        [customer.id]: err instanceof ApiError ? err.message : 'No se pudo actualizar el cliente.',
+      }));
+    }
+  }
+
   return (
     <div className="page">
       <div className="panel">
@@ -368,6 +386,11 @@ export default function CustomersPage() {
                       {c.isBlocked && (
                         <button type="button" className="btn btn-small" onClick={() => handleUnblock(c)}>
                           Desbloquear
+                        </button>
+                      )}
+                      {!c.isBlocked && blockingId !== c.id && (
+                        <button type="button" className="btn btn-small" style={{ marginLeft: 6 }} onClick={() => handleToggleActive(c)}>
+                          {c.isActive ? 'Desactivar' : 'Activar'}
                         </button>
                       )}
                       {rowErrors[c.id] && (

@@ -1,0 +1,96 @@
+.setup-progress-bar {
+  border: 1px solid var(--color-silver-dim);
+  border-left: 3px solid var(--color-silver);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.setup-progress-bar-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.setup-progress-bar-header h2 {
+  margin: 0 0 4px;
+  font-size: var(--text-md);
+  color: var(--color-text-primary);
+}
+
+.setup-progress-bar-header p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.setup-progress-bar-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--text-2xs);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.setup-progress-bar-dismiss:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-silver-dim);
+}
+
+.setup-progress-bar-steps {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.setup-progress-bar-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.setup-progress-bar-check {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-2xs);
+  color: transparent;
+  margin-top: 1px;
+}
+
+.setup-progress-bar-steps li.is-done .setup-progress-bar-check {
+  border-color: var(--color-positive);
+  background: rgba(var(--color-positive-rgb), 0.16);
+  color: var(--color-positive);
+}
+
+.setup-progress-bar-step-label {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+}
+
+.setup-progress-bar-steps li.is-done .setup-progress-bar-step-label {
+  color: var(--color-text-secondary);
+  text-decoration: line-through;
+}
+
+.setup-progress-bar-step-description {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: var(--text-2xs);
+}

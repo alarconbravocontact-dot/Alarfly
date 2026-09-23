@@ -1,0 +1,112 @@
+.ui-entity-autocomplete {
+  position: relative;
+}
+
+.ui-entity-autocomplete input {
+  width: 100%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.ui-entity-autocomplete input:focus {
+  border-color: var(--color-silver-dim);
+}
+
+.ui-entity-autocomplete-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  padding: 4px;
+}
+
+.ui-entity-autocomplete-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.ui-entity-autocomplete-option.is-highlighted {
+  background: var(--color-surface-hover);
+}
+
+.ui-entity-autocomplete-option.is-selected {
+  color: var(--color-silver-strong);
+  font-weight: 600;
+}
+
+.ui-entity-autocomplete-recent-tag {
+  flex-shrink: 0;
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.ui-entity-autocomplete-empty {
+  padding: 8px 10px;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.ui-entity-autocomplete-create {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--color-silver-rgb), 0.1);
+  color: var(--color-silver-strong);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ui-entity-autocomplete-create:hover,
+.ui-entity-autocomplete-create.is-highlighted {
+  background: rgba(var(--color-silver-rgb), 0.2);
+}
+
+/* Resalte breve al cerrar el modal de creación rápida (innovación
+   pedida explícitamente): un brillo que se desvanece solo, sin quedar
+   permanente ni requerir que el usuario lo descarte. */
+.ui-entity-autocomplete-flash input {
+  animation: ui-entity-autocomplete-flash-pulse 1.4s ease-out;
+}
+
+@keyframes ui-entity-autocomplete-flash-pulse {
+  0% {
+    border-color: var(--color-silver-strong);
+    box-shadow: 0 0 0 3px rgba(var(--color-silver-rgb), 0.35);
+    background: rgba(var(--color-silver-rgb), 0.14);
+  }
+  100% {
+    border-color: var(--color-border);
+    box-shadow: 0 0 0 0 rgba(var(--color-silver-rgb), 0);
+    background: var(--color-bg);
+  }
+}

@@ -1,0 +1,17 @@
+.conditional-field {
+  display: grid;
+  grid-template-rows: 1fr;
+  grid-column: 1 / -1;
+  opacity: 1;
+  transition: grid-template-rows 0.25s ease, opacity 0.2s ease;
+}
+
+.conditional-field.is-hidden {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.conditional-field-inner {
+  overflow: hidden;
+  min-height: 0;
+}

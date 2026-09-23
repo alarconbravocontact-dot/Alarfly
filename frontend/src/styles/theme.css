@@ -1,0 +1,250 @@
+:root {
+  /* Superficies: "Tinta" — negro mate con un dejo azulado, nunca negro puro */
+  --color-bg: #0b0d10;
+  --color-surface: #14171c;
+  --color-surface-raised: #1b1f26;
+  --color-surface-hover: #232830;
+  --color-border: #2a2f38;
+  --color-border-strong: #3a4049;
+
+  /* Texto: "Hueso" (principal) y "Plomo" (secundario) — nunca #fff puro */
+  --color-text-primary: #edeff2;
+  --color-text-secondary: #8b93a1;
+  --color-text-muted: #6b7280;
+
+  /* "Sello": el único acento cálido del sistema — reservado para CTA
+     principal, montos destacados y el Sello de Estado. Nunca decorativo. */
+  --color-silver: #c9a227;
+  --color-silver-strong: #ddb84a;
+  --color-silver-dim: #8b93a1;
+  /* Color del texto/ícono que va ENCIMA de un fondo --color-silver (el
+     botón principal). No es lo mismo que --color-bg: en el tema oscuro
+     el dorado es claro y necesita texto oscuro (coinciden), pero en el
+     tema claro el dorado se oscureció para tener contraste sobre el
+     fondo hueso — ahí ese mismo botón necesita texto claro. Por eso es
+     su propia variable, no un alias de --color-bg. */
+  --color-on-accent: #0b0d10;
+
+  /* Estados: siempre apagados, nunca verde/rojo de semáforo */
+  --color-positive: #6e9b7b;
+  --color-negative: #b4695e;
+  --color-warning: #c9a227;
+
+  /* Mismos colores de arriba, pero como tripleta "R, G, B" (sin
+     "rgb(...)" alrededor) — así cualquier estilo que necesite una
+     versión translúcida (ej. el fondo tenue de un badge o un cuadro de
+     alerta) arma su propio rgba(var(--color-negative-rgb), 0.1) en vez
+     de escribir el color de nuevo a mano. Es lo que hace que el tema
+     claro de abajo alcance también a esos fondos translúcidos, no solo
+     al texto y los bordes. */
+  --color-positive-rgb: 110, 155, 123;
+  --color-negative-rgb: 180, 105, 94;
+  --color-warning-rgb: 201, 162, 39;
+  --color-silver-rgb: 201, 162, 39;
+
+  /* Fondo oscuro semitransparente detrás de un diálogo — mismo tono en
+     los dos temas a propósito (siempre debe verse como "apagar" el
+     resto de la pantalla, sin importar si esa pantalla es clara u
+     oscura). */
+  --color-overlay: rgba(6, 6, 7, 0.6);
+
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-family-serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-family-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+
+  /* Escala tipográfica: pocos tamaños, usados siempre igual, para que
+     cada pantalla nueva se sienta parte del mismo sistema. */
+  --text-hero: 34px;
+  --text-h1: 26px;
+  --text-h2: 18px;
+  --text-h3: 13px;
+  --text-2xl: 26px;
+  --text-xl: 20px;
+  --text-lg: 16px;
+  --text-md: 14px;
+  --text-sm: 13px;
+  --text-xs: 12px;
+  --text-2xs: 11px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 4px 10px rgba(0, 0, 0, 0.5), 0 14px 32px rgba(0, 0, 0, 0.4);
+
+  --transition-fast: 140ms ease;
+}
+
+/* Tema claro: mismos nombres de variable de arriba, valores distintos
+   — así ninguna pantalla ni componente nuevo necesita saber que existe
+   un tema claro, con tal de que use var(--color-*) en vez de un color
+   fijo. Se activa poniendo data-theme="light" en <html> (lo hace
+   ThemeContext, nunca CSS puro, porque el modo "Automático" necesita
+   poder reevaluarse en cualquier momento si cambia el horario/ajuste
+   del sistema operativo del usuario). "Papel" (el fondo) es un hueso
+   cálido, nunca blanco puro; "Tinta" (el texto) es un carbón cálido,
+   nunca negro puro — mismo criterio que ya se usó para el tema oscuro. */
+:root[data-theme='light'] {
+  --color-bg: #f6f4ef;
+  --color-surface: #fdfcf9;
+  --color-surface-raised: #ffffff;
+  --color-surface-hover: #eeebe2;
+  --color-border: #ddd7c9;
+  --color-border-strong: #c7bfab;
+
+  --color-text-primary: #1e1c18;
+  --color-text-secondary: #5c574a;
+  --color-text-muted: #8a8371;
+
+  --color-silver: #96721c;
+  --color-silver-strong: #7a5c16;
+  --color-silver-dim: #8a8371;
+  /* El dorado se oscureció para tener contraste sobre el fondo hueso
+     claro — como fondo de botón ya no es "claro", así que el texto
+     encima pasa a ser claro, no oscuro. */
+  --color-on-accent: #fdfcf9;
+
+  --color-positive: #3f7a53;
+  --color-negative: #a1453a;
+  --color-warning: #96721c;
+
+  --color-positive-rgb: 63, 122, 83;
+  --color-negative-rgb: 161, 69, 58;
+  --color-warning-rgb: 150, 114, 28;
+  --color-silver-rgb: 150, 114, 28;
+
+  /* Sombras mucho más suaves que en el tema oscuro: una sombra tan
+     oscura como la de arriba, sobre un fondo claro, se ve como una
+     mancha en vez de una elevación sutil. */
+  --shadow-card: 0 1px 2px rgba(30, 28, 24, 0.06), 0 6px 16px rgba(30, 28, 24, 0.08);
+  --shadow-elevated: 0 4px 10px rgba(30, 28, 24, 0.1), 0 14px 32px rgba(30, 28, 24, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-family);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-family: var(--font-family-serif);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+h1 {
+  font-size: var(--text-h1);
+}
+
+h2 {
+  font-size: var(--text-h2);
+}
+
+h3 {
+  font-family: var(--font-family);
+  font-size: var(--text-h3);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+h4 {
+  font-family: var(--font-family);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.text-hero {
+  font-family: var(--font-family-serif);
+  font-size: var(--text-hero);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+/* Números tabulares en todas las cifras monetarias: alinean en
+   columna aunque cambien de dígito, más fáciles de comparar de un
+   vistazo (una tabla de montos no debe "bailar"). */
+.num,
+td.num,
+th.num {
+  font-variant-numeric: tabular-nums;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+::selection {
+  background: var(--color-silver-dim);
+  color: var(--color-bg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-silver);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-silver-dim);
+}

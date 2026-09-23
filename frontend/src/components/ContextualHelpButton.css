@@ -1,0 +1,132 @@
+.contextual-help {
+  position: fixed;
+  left: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 150;
+}
+
+.contextual-help-fab {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-raised);
+  color: var(--color-silver);
+  font-family: var(--font-family-serif);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow-elevated);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.contextual-help-fab:hover {
+  background: var(--color-surface-hover);
+}
+
+.contextual-help-panel {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  width: 340px;
+  max-height: 460px;
+  overflow-y: auto;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+}
+
+.contextual-help-title {
+  margin: 0;
+  padding: 10px 12px;
+  font-weight: 700;
+  font-size: var(--text-sm, 0.875rem);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  background: var(--color-surface-raised);
+}
+
+.contextual-help-body {
+  padding: 10px 12px;
+}
+
+.contextual-help-prior {
+  background: rgba(var(--color-silver-rgb), 0.1);
+  border: 1px solid rgba(var(--color-silver-rgb), 0.35);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 12px;
+}
+
+.contextual-help-prior-label {
+  margin: 0 0 4px;
+  font-size: var(--text-2xs, 0.75rem);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-silver-strong);
+  font-weight: 700;
+}
+
+.contextual-help-prior-question {
+  margin: 0 0 6px;
+  font-size: var(--text-xs, 0.8125rem);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.contextual-help-ask-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.contextual-help-ask-row input {
+  flex: 1;
+}
+
+.contextual-help-answer {
+  background: var(--color-surface-hover);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin: 8px 0;
+}
+
+.contextual-help-no-answer {
+  font-size: var(--text-xs, 0.8125rem);
+  margin: 8px 0;
+}
+
+.contextual-help-section-title {
+  margin: 14px 0 4px;
+  font-size: var(--text-2xs, 0.75rem);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.contextual-help-article {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.contextual-help-article:last-child {
+  border-bottom: none;
+}
+
+.contextual-help-article-title {
+  margin: 0 0 4px;
+  font-size: var(--text-xs, 0.8125rem);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.contextual-help-article-body {
+  margin: 0;
+  font-size: var(--text-xs, 0.8125rem);
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+}

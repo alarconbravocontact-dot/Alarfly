@@ -1,0 +1,17 @@
+.validated-field-input-error {
+  border-color: var(--color-negative) !important;
+}
+
+.validated-field-message {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: var(--text-2xs, 0.75rem);
+  color: var(--color-negative);
+}
+
+.validated-field-autofix {
+  white-space: nowrap;
+}

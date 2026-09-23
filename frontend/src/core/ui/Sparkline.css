@@ -1,0 +1,5 @@
+.ui-sparkline {
+  display: block;
+  margin-top: var(--space-2);
+  overflow: visible;
+}

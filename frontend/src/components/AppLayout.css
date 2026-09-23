@@ -1,0 +1,369 @@
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5) var(--space-3);
+  transition: width var(--transition-fast);
+}
+
+/* Menú colapsable a íconos (Feature M) */
+.app-sidebar.is-collapsed {
+  width: 68px;
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
+}
+
+.app-sidebar.is-collapsed .app-nav-link {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.app-sidebar.is-collapsed .app-sidebar-brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.app-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-2);
+  margin-bottom: var(--space-6);
+}
+
+.app-sidebar-mark {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(155deg, var(--color-silver-strong), var(--color-silver));
+  color: var(--color-bg);
+  font-family: var(--font-family-serif);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.app-sidebar-name {
+  font-family: var(--font-family-serif);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.app-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+}
+
+.app-nav-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.app-nav-icon {
+  font-size: 13px;
+  width: 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.app-nav-link:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.app-nav-link.is-active {
+  background: var(--color-surface-raised);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-strong);
+}
+
+.app-nav-link.is-active .app-nav-icon {
+  color: var(--color-silver);
+}
+
+/* Sección "Anclados" (Feature K): reportes/vistas filtradas fijados
+   arriba del menú principal — no debe crecer para ocupar el espacio
+   libre como el `<nav>` principal, solo el alto de su contenido. */
+.app-nav-pinned {
+  flex: none;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.app-nav-section-title {
+  margin: 0 0 4px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-2xs, 0.75rem);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.app-nav-pinned-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-nav-pinned-link {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-nav-pinned-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-nav-pinned-suggest {
+  flex-shrink: 0;
+  color: var(--color-warning);
+  font-size: 8px;
+}
+
+.app-nav-pinned-unpin {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.app-nav-pinned-unpin:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-negative);
+}
+
+.app-sidebar-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.app-nav-logout-zone {
+  flex: none;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.app-nav-logout {
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.app-nav-logout:hover {
+  color: var(--color-negative);
+}
+
+.app-sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-2) 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.app-sidebar-collapse-toggle {
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.app-sidebar-collapse-toggle:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-silver-dim);
+}
+
+/* Mini-panel ("flyout") de un ítem del menú colapsado: aparece al
+   pasar el mouse o al recibir foco por teclado (accesible sin mouse),
+   solo se renderiza en el DOM cuando el menú está contraído. Para
+   los 8 módulos con pestañas propias reutiliza la MISMA lista `TABS`
+   que ya usa cada Layout (y ModuleBreadcrumb) — nunca una segunda
+   declaración de submenú que se pudiera desincronizar. */
+.app-nav-item-wrap {
+  position: relative;
+}
+
+.app-nav-flyout {
+  display: none;
+  position: absolute;
+  left: 100%;
+  top: 0;
+  margin-left: 8px;
+  min-width: 200px;
+  max-width: 260px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-elevated);
+  padding: var(--space-2);
+  z-index: 40;
+}
+
+.app-nav-item-wrap:hover .app-nav-flyout,
+.app-nav-item-wrap:focus-within .app-nav-flyout {
+  display: block;
+}
+
+.app-nav-flyout-title {
+  margin: 0 0 var(--space-2);
+  padding: 0 var(--space-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.app-nav-flyout-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app-nav-flyout-link {
+  padding: 7px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.app-nav-flyout-link:hover,
+.app-nav-flyout-link.is-active {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.app-nav-flyout-unpin {
+  width: 100%;
+  text-align: left;
+  padding: 7px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  border: none;
+  background: transparent;
+  color: var(--color-negative);
+  cursor: pointer;
+}
+
+.app-nav-flyout-unpin:hover {
+  background: var(--color-surface-hover);
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.app-topbar {
+  height: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.app-topbar-user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.app-topbar-user-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.3;
+}
+
+.app-topbar-user-name {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.app-topbar-user-role {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.app-topbar-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-silver);
+}
+
+.app-topbar-logout {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.app-topbar-logout:hover {
+  border-color: var(--color-silver-dim);
+  color: var(--color-text-primary);
+}
+
+.app-content {
+  flex: 1;
+  padding: var(--space-6);
+  overflow-y: auto;
+}

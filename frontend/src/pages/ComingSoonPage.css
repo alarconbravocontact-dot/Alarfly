@@ -1,0 +1,38 @@
+.coming-soon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+.coming-soon-card {
+  max-width: 420px;
+  text-align: center;
+  padding: var(--space-6);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.coming-soon-tag {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-silver);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  padding: 4px 12px;
+  margin-bottom: var(--space-4);
+}
+
+.coming-soon-card h1 {
+  font-size: var(--text-h2);
+  margin-bottom: var(--space-2);
+}
+
+.coming-soon-card p {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}

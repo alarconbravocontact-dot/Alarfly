@@ -1,0 +1,44 @@
+.income-expense-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.income-expense-chart-label {
+  font-size: 10px;
+  fill: var(--color-text-secondary);
+  text-transform: capitalize;
+}
+
+.income-expense-chart-bar {
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.income-expense-chart-bar:hover {
+  opacity: 0.75;
+}
+
+.income-expense-legend {
+  display: flex;
+  gap: var(--space-5);
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+
+.income-expense-legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.income-expense-legend-dot-positive {
+  background: var(--color-positive);
+}
+
+.income-expense-legend-dot-negative {
+  background: var(--color-negative);
+}

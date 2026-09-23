@@ -1,0 +1,13 @@
+.sales-trend-chart {
+  overflow-x: auto;
+}
+
+.sales-trend-chart-label {
+  font-size: 10px;
+  fill: var(--color-text-secondary);
+  text-transform: capitalize;
+}
+
+.sales-trend-chart-hit {
+  cursor: pointer;
+}

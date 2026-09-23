@@ -1,0 +1,3582 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================================
+// CORE — Empresas y Usuarios
+// Mínimo necesario para que Contabilidad tenga a quién pertenecer
+// (multi-empresa) y quién hizo cada cosa (auditoría). La autenticación
+// completa (login, permisos finos) se construye más adelante; esto es
+// solo el modelo de datos base.
+// =====================================================================
+
+// Niveles de Acceso (módulo core/rbac): reemplaza los 4 roles anteriores
+// (ADMIN/ACCOUNTANT/APPROVER/VIEWER) por los 4 roles de negocio reales
+// de la empresa. ADMIN sin cambios de nombre (sigue siendo el rol sin
+// restricciones). ACCOUNTANT se queda pero su alcance ahora es angosto
+// (solo Contabilidad completo + Fiscal de solo lectura, ya no todo el
+// sistema como antes). FINANCE y COLLABORATOR son roles nuevos — ver
+// core/rbac/module-access.js para el mapa completo de qué módulo puede
+// tocar cada uno.
+enum UserRole {
+  ADMIN
+  ACCOUNTANT
+  FINANCE
+  COLLABORATOR
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  INVITED
+}
+
+model Company {
+  id           String   @id @default(cuid())
+  name         String
+  taxId        String?
+  baseCurrency String   @default("USD")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Perfil de empresa (Mi Cuenta, sección Perfil): "rif" es el mismo
+  // concepto que taxId, pero se guarda aparte porque taxId ya se usa
+  // como el NIT/RFC fiscal en Fiscal/AR/AP y no queremos pisar ese
+  // significado — un campo de presentación, el otro de cálculo fiscal.
+  rif        String?
+  website    String?
+  address    String?
+  postalCode String?
+
+  // Barra de progreso de configuración inicial (Panel principal): no
+  // existe un concepto de "módulo activado" en el sistema (todos los
+  // módulos están siempre disponibles, solo restringidos por rol) — se
+  // pregunta una sola vez, explícito, en vez de intentar adivinarlo con
+  // datos que todavía no existen para una empresa nueva (ver
+  // setup-status.service.js). Default true: no oculta nada hasta que el
+  // Administrador lo desactive a propósito.
+  usesInventory Boolean @default(true)
+
+  // Etiqueta de Estado de Vencimiento (componente `DueDateStatus`,
+  // reutilizado por AR/AP/Deuda/Fiscal): cuántos días antes de la
+  // fecha de vencimiento un documento pasa de "al día" (verde) a
+  // "próximo a vencer" (amarillo). Pasada la fecha de vencimiento
+  // siempre es "vencido" (rojo) sin necesidad de configurar nada más
+  // — ese límite es objetivo, no hace falta un segundo umbral.
+  dueDateWarningThresholdDays Int @default(7)
+
+  // Selector de rango de fechas con atajos ("Año fiscal actual"): mes
+  // en que arranca el año fiscal del negocio (1 = enero, el default
+  // más común, hasta 12). No todos los negocios cierran en diciembre
+  // — este campo evita que el atajo asuma siempre calendario natural.
+  fiscalYearStartMonth Int @default(1)
+
+  // Selector unificado de idioma/huso horario/formato regional: valores
+  // por defecto de la empresa, editables solo por el Administrador. El
+  // ajuste de cada usuario (UserPreference.language/dateFormat/timeZone,
+  // todos nullable) tiene prioridad sobre estos — un usuario con el
+  // campo en null "hereda" el valor de la empresa; en cuanto lo elige
+  // explícitamente, el suyo manda. `defaultTimeZone` no tiene default
+  // forzado (nadie puede adivinar el huso horario correcto de una
+  // empresa nueva) — el Administrador lo configura a propósito.
+  defaultLanguage   String  @default("es")
+  defaultDateFormat String  @default("DD/MM/YYYY")
+  defaultTimeZone   String?
+
+  // Grupo empresarial: una empresa matriz puede tener subsidiarias, para
+  // poder generar reportes consolidados (ver Consolidación Multi-empresa).
+  parentCompanyId String?
+  parentCompany   Company?  @relation("CompanyGroup", fields: [parentCompanyId], references: [id])
+  subsidiaries    Company[] @relation("CompanyGroup")
+
+  users                   User[]
+  accounts                Account[]
+  accountTemplatesApplied AccountTemplate[]
+  accountingPeriods       AccountingPeriod[]
+  journalEntries          JournalEntry[]
+  accountingRules         AccountingRule[]
+  dimensions              Dimension[]
+  auditLogs               AuditLog[]
+  accountingSettings      AccountingSettings?
+  exchangeRates           ExchangeRate[]
+  fixedAssets             FixedAsset[]
+  intercompanyAccounts    Account[]           @relation("IntercompanyAccounts")
+
+  treasuryAccounts       TreasuryAccount[]
+  statementImports       StatementImport[]
+  bankTransactions       BankTransaction[]
+  bankReconciliations    BankReconciliation[]
+  creditCardTransactions CreditCardTransaction[]
+  treasurySettings       TreasurySettings?
+
+  paymentApprovalRules PaymentApprovalRule[]
+  paymentOrders        PaymentOrder[]
+  paymentBatches       PaymentBatch[]
+
+  debts             Debt[]
+  pettyCashFunds    PettyCashFund[]
+  pettyCashExpenses PettyCashExpense[]
+  alertRules        AlertRule[]
+  alerts            Alert[]
+
+  fpaDimensions          FpaDimension[]
+  budgets                Budget[]
+  fpaSettings            FpaSettings?
+  varianceJustifications BudgetVarianceJustification[]
+  whatIfScenarios        WhatIfScenario[]
+  kpiDefinitions         KpiDefinition[]
+
+  taxJurisdictions   TaxJurisdiction[]
+  taxRates           TaxRate[]
+  fiscalTransactions FiscalTransaction[]
+  fiscalRiskRules    FiscalRiskRule[]
+  fiscalRiskAlerts   FiscalRiskAlert[]
+
+  fiscalElectronicDocuments FiscalElectronicDocument[]
+  fiscalObligations         FiscalObligation[]
+  fiscalDocumentFiles       FiscalDocumentFile[]
+
+  dashboardWidgetPreferences DashboardWidgetPreference[]
+  scheduledReports           ScheduledReport[]
+
+  customers          Customer[]
+  arInvoices         ArInvoice[]
+  arPayments         ArPayment[]
+  arCreditNotes      ArCreditNote[]
+  arRecurringTemplates ArRecurringInvoiceTemplate[]
+  vendors            Vendor[]
+  apBills            ApBill[]
+  apPayments         ApPayment[]
+  arApSettings  ArApSettings?
+
+  inventorySettings  InventorySettings?
+  unitsOfMeasure     UnitOfMeasure[]
+  productCategories  ProductCategory[]
+  products           Product[]
+  billsOfMaterial    BillOfMaterial[]
+  warehouses         Warehouse[]
+  stockLevels        StockLevel[]
+  stockCostLayers    StockCostLayer[]
+  inventoryLots      InventoryLot[]
+  inventoryMovements InventoryMovement[]
+  inventoryTransfers InventoryTransfer[]
+  physicalCounts     PhysicalCount[]
+  purchaseOrders     PurchaseOrder[]
+
+  stockCostLayerConsumptions StockCostLayerConsumption[]
+
+  businessMetrics BusinessMetric[]
+
+  delegatedPermissions DelegatedPermission[]
+  juntaMessages        JuntaMessage[]
+
+  userCompanyAccess       UserCompanyAccess[]
+  notificationPreferences UserNotificationPreference[]
+  accountDeletionRequests AccountDeletionRequest[]
+
+  analysisAutomationConfigs AnalysisAutomationConfig[]
+  analysisReports           AnalysisReport[]
+  analysisBenchmarkValues   AnalysisBenchmarkValue[]
+  analysisCostClassifications AnalysisCostClassification[]
+  savedViews                SavedView[]
+  tableColumnPreferences    TableColumnPreference[]
+  recentlyUsedEntities      RecentlyUsedEntity[]
+  panelCollapsePreferences  PanelCollapsePreference[]
+  importTemplates           ImportTemplate[]
+  viewModePreferences       ViewModePreference[]
+  pinnedItems               PinnedItem[]
+  supportQuestions          SupportQuestion[]
+}
+
+model User {
+  id           String     @id @default(cuid())
+  companyId    String
+  company      Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name         String
+  email        String     @unique
+  passwordHash String? // null mientras el usuario está INVITED (todavía no puso su contraseña)
+  role         UserRole   @default(COLLABORATOR)
+  isActive     Boolean    @default(true) // sigue siendo lo que revisa el login — se mantiene sincronizado con `status`
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Invitación (módulo Niveles de Acceso): quién invitó a este usuario y
+  // el token de un solo uso para que acepte y ponga su contraseña.
+  invitedByUserId     String?
+  invitedByUser       User?     @relation("UserInvitedBy", fields: [invitedByUserId], references: [id])
+  usersInvited        User[]    @relation("UserInvitedBy")
+  invitationToken     String?   @unique
+  invitationExpiresAt DateTime?
+
+  // Mi Cuenta (core/account): perfil personal, 2FA y firma de aprobación.
+  phone                    String?
+  avatarFileName           String?
+  avatarMimeType           String?
+  avatarContentBase64      String? // mismo criterio de siempre: no hay almacenamiento de archivos real todavía
+  approvalSignature        String? // texto que se registra al aprobar un pago/asiento
+  twoFactorEnabled         Boolean   @default(false)
+  twoFactorSecretEncrypted String? // cifrado con AES-256-GCM (core/utils/crypto.js), nunca en texto plano
+  twoFactorEnabledAt       DateTime?
+
+  preference UserPreference?
+  sessions   UserSession[]
+
+  entriesCreated  JournalEntry[]     @relation("EntryCreatedBy")
+  entriesApproved JournalEntry[]     @relation("EntryApprovedBy")
+  periodsClosed   AccountingPeriod[] @relation("PeriodClosedBy")
+  auditLogs       AuditLog[]
+
+  statementImportsDone       StatementImport[]
+  bankReconciliationsCreated BankReconciliation[]
+  reconciliationMatchesMade  ReconciliationMatch[]
+
+  paymentOrdersCreated  PaymentOrder[]    @relation("PaymentOrderCreatedBy")
+  paymentApprovalsMade  PaymentApproval[] @relation("PaymentApprovalBy")
+  paymentBatchesCreated PaymentBatch[]
+
+  debtsCreated                Debt[]
+  debtMovementsCreated        DebtMovement[]
+  pettyCashFundsAsCustodian   PettyCashFund[]          @relation("PettyCashCustodian")
+  pettyCashFundsCreated       PettyCashFund[]          @relation("PettyCashFundCreatedBy")
+  pettyCashExpensesRegistered PettyCashExpense[]       @relation("PettyCashExpenseRegisteredBy")
+  pettyCashExpensesApproved   PettyCashExpense[]       @relation("PettyCashExpenseApprovedBy")
+  pettyCashReplenishmentsMade PettyCashReplenishment[]
+  alertsAcknowledged          Alert[]
+
+  budgetsCreated  Budget[] @relation("BudgetCreatedBy")
+  budgetsApproved Budget[] @relation("BudgetApprovedBy")
+
+  varianceJustificationsMade BudgetVarianceJustification[]
+  whatIfScenariosCreated     WhatIfScenario[]
+
+  fiscalTransactionsCreated   FiscalTransaction[]
+  fiscalDocumentsGenerated    FiscalElectronicDocument[]
+  fiscalDocumentFilesUploaded FiscalDocumentFile[]
+
+  dashboardWidgetPreferences DashboardWidgetPreference[]
+  scheduledReportsCreated    ScheduledReport[]
+
+  arInvoicesCreated    ArInvoice[]    @relation("ArInvoiceCreatedBy")
+  arPaymentsCreated    ArPayment[]    @relation("ArPaymentCreatedBy")
+  arCreditNotesCreated ArCreditNote[]
+  apBillsCreated       ApBill[]       @relation("ApBillCreatedBy")
+  apPaymentsCreated    ApPayment[]    @relation("ApPaymentCreatedBy")
+
+  inventoryMovementsCreated InventoryMovement[]
+  inventoryTransfersCreated InventoryTransfer[]
+  physicalCountsCounted     PhysicalCount[]     @relation("PhysicalCountCountedBy")
+  physicalCountsApproved    PhysicalCount[]     @relation("PhysicalCountApprovedBy")
+  purchaseOrdersCreated     PurchaseOrder[]
+
+  businessMetricsCreated      BusinessMetric[]
+  businessMetricEntriesLogged BusinessMetricEntry[]
+
+  delegatedPermissionsOwned   DelegatedPermission[] @relation("DelegatedPermissionUser")
+  delegatedPermissionsGranted DelegatedPermission[] @relation("DelegatedPermissionGrantedBy")
+
+  juntaMessagesSent     JuntaMessage[] @relation("JuntaMessageSender")
+  juntaMessagesReviewed JuntaMessage[] @relation("JuntaMessageReviewedBy")
+
+  companyAccess              UserCompanyAccess[]
+  deletionRequestsMade       AccountDeletionRequest[]     @relation("DeletionRequestedBy")
+  deletionRequestsDecided    AccountDeletionRequest[]     @relation("DeletionDecidedBy")
+  UserNotificationPreference UserNotificationPreference[]
+
+  analysisAutomationConfigsUpdated AnalysisAutomationConfig[]
+  analysisReportsTriggered         AnalysisReport[]
+  analysisBenchmarkValuesUpdated   AnalysisBenchmarkValue[]
+  analysisCostClassificationsSet   AnalysisCostClassification[]
+  savedViewsCreated                SavedView[]
+  tableColumnPreferences           TableColumnPreference[]
+  recentlyUsedEntities             RecentlyUsedEntity[]
+  panelCollapsePreferences         PanelCollapsePreference[]
+  importTemplatesCreated           ImportTemplate[]
+  viewModePreferences              ViewModePreference[]
+  arRecurringTemplatesCreated       ArRecurringInvoiceTemplate[]
+  pinnedItems                       PinnedItem[]
+  supportQuestions                  SupportQuestion[]
+
+  @@index([companyId])
+}
+
+// =====================================================================
+// CORE / RBAC — src/core/rbac (Niveles de Acceso)
+// Permisos base por rol viven en código (core/rbac/module-access.js),
+// no en esta tabla — son fijos, no algo que el Administrador edite
+// desde la pantalla. Lo único que SÍ es dato de negocio, y por eso
+// tiene tabla propia, es la excepción puntual: un permiso extra que el
+// Administrador le regala a un usuario concreto sin cambiarle el rol.
+// =====================================================================
+
+model DelegatedPermission {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("DelegatedPermissionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Texto libre a propósito (mismo criterio que DashboardWidgetPreference.widgetKey):
+  // hoy solo existe "ACCESS_LEVELS" (entrar a Niveles de Acceso), pero
+  // agregar un permiso delegado nuevo más adelante no debe pedir migración.
+  permissionKey String
+  isActive      Boolean @default(true)
+
+  grantedByUserId String
+  grantedByUser   User     @relation("DelegatedPermissionGrantedBy", fields: [grantedByUserId], references: [id])
+  grantedAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, permissionKey])
+}
+
+enum JuntaTopic {
+  INVENTORY
+  ACCOUNTING
+  PROJECTIONS
+  GENERAL
+}
+
+// "Junta": mensajes cortos con un adjunto que Contador/Financiero/
+// Colaborador le mandan al Administrador como reporte de trabajo.
+// Contenido del archivo en base64 (mismo criterio que los comprobantes
+// de Caja Chica y los documentos de Fiscal — no hay almacenamiento de
+// archivos todavía en el proyecto).
+model JuntaMessage {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  senderUserId String
+  sender       User       @relation("JuntaMessageSender", fields: [senderUserId], references: [id])
+  message      String
+  topic        JuntaTopic @default(GENERAL)
+
+  fileName          String
+  fileMimeType      String
+  fileSizeBytes     Int
+  fileContentBase64 String
+
+  isRead           Boolean   @default(false)
+  reviewedByUserId String?
+  reviewedByUser   User?     @relation("JuntaMessageReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt       DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
+}
+
+// =====================================================================
+// CORE / ACCOUNT — src/core/account ("Mi Cuenta")
+// Todo lo que un usuario administra sobre sí mismo: preferencias,
+// seguridad (contraseña, 2FA, sesiones), a qué empresas tiene acceso,
+// qué notificaciones quiere recibir, y su propia solicitud de baja.
+// Vive en core (no en modules/) porque aplica a cualquier usuario del
+// sistema, sin importar su rol o módulo — regla 1 de la arquitectura
+// maestra: "todo lo usado por 2+ módulos vive en /core".
+// =====================================================================
+
+model UserPreference {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  displayCurrency  String? // null = usar la moneda base de la empresa activa
+  // Selector unificado de idioma/huso horario/formato regional: null en
+  // cualquiera de estos tres significa "usar el valor por defecto de la
+  // empresa" (Company.defaultLanguage/defaultDateFormat/defaultTimeZone)
+  // — el usuario tiene prioridad sobre la empresa solo cuando elige un
+  // valor propio explícito.
+  dateFormat       String?
+  language         String?
+  timeZone         String?
+  decimalSeparator String  @default(",")
+  theme            String  @default("dark") // "dark" | "light" | "auto" (sigue el sistema operativo)
+
+  // Modo incógnito global: si está activo, el ícono de ojo de la barra
+  // superior se activa solo cuando ESTA pestaña del navegador se
+  // comparte (Screen Capture API, `getDisplayMedia`) — el modo
+  // incógnito en sí (`isIncognito`) nunca se guarda acá a propósito:
+  // es un estado transitorio de la sesión del navegador (sessionStorage),
+  // no una preferencia que deba seguir al usuario entre dispositivos.
+  autoIncognitoOnScreenShare Boolean @default(false)
+
+  // Sistema de iconografía consistente (Feature Y): modo "principiante"
+  // — mientras está activo, cada ícono de la app que use el componente
+  // compartido `Icon` muestra también su etiqueta de texto al lado (no
+  // solo el ícono solo). Empieza en `true` (ayuda a un usuario nuevo a
+  // aprender qué hace cada ícono) y cualquier usuario lo puede
+  // desactivar una vez que ya los reconoce, sin perder accesibilidad —
+  // el ícono conserva su `aria-label`/`title` en los dos modos.
+  beginnerIconLabels Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+}
+
+// A qué empresas tiene acceso un usuario. Hoy cada usuario nace con
+// exactamente una fila (su companyId original, isDefault: true) — no
+// existe todavía ningún flujo que le otorgue una segunda empresa; la
+// tabla queda lista para cuando se construya ese flujo, sin inventarlo
+// ahora. El selector de "empresa activa" de Mi Cuenta lee de acá.
+model UserCompanyAccess {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  isDefault Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, companyId])
+  @@index([userId])
+}
+
+// Sesión real (no solo el JWT): permite listar "dónde tengo la sesión
+// iniciada" y cerrar una sesión remota de verdad. requireAuth valida
+// en cada petición que la sesión referenciada en el JWT no esté
+// revocada — ver core/auth/auth.middleware.js.
+model UserSession {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceInfo String? // User-Agent del navegador/dispositivo
+  ipAddress  String?
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+  // "Ubicación aproximada" del pedido original no se guarda: no hay
+  // ningún servicio de geolocalización por IP integrado en el
+  // proyecto — inventar una ciudad sería un dato simulado.
+
+  @@index([userId, revokedAt])
+}
+
+// Preferencia de notificación por tipo de alerta (el mismo AlertType
+// que ya usa core/alerts para Tesorería/Fiscal/Inventario/AR) — no se
+// crea una tabla de "tipos de alerta" nueva, se reutiliza el enum.
+model UserNotificationPreference {
+  id           String    @id @default(cuid())
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alertType    AlertType
+  emailEnabled Boolean   @default(false) // sin efecto todavía: no hay envío de correo real (ver core/alerts.notifyAlert)
+  pushEnabled  Boolean   @default(false) // sin efecto todavía: no hay envío push real (mismo motivo que emailEnabled)
+  inAppEnabled Boolean   @default(true)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, alertType])
+}
+
+enum AccountDeletionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Solicitud de baja de cuenta: nunca borra nada por sí sola. Si el
+// Administrador la aprueba, desactiva al usuario con el mismo
+// mecanismo que ya existe en access-levels.deactivateUser — no se
+// duplica esa lógica.
+model AccountDeletionRequest {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation("DeletionRequestedBy", fields: [userId], references: [id])
+  reason    String?
+
+  status      AccountDeletionStatus @default(PENDING)
+  requestedAt DateTime              @default(now())
+
+  decidedByUserId String?
+  decidedByUser   User?     @relation("DeletionDecidedBy", fields: [decidedByUserId], references: [id])
+  decidedAt       DateTime?
+  decisionNote    String?
+
+  @@index([companyId, status])
+}
+
+// =====================================================================
+// CORE / AUDIT — src/core/audit
+// Log de auditoría inmutable y genérico: lo usa Contabilidad y, más
+// adelante, cualquier otro módulo (Tesorería, AP, AR, etc.).
+// =====================================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String // ej: "journal_entry.approved", "period.reopened"
+  entityType String // ej: "JournalEntry", "AccountingPeriod", "Account"
+  entityId   String
+  oldValue   Json?
+  newValue   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([companyId, entityType, entityId])
+}
+
+// =====================================================================
+// CORE / PERIOD-LOCK — src/core/period-lock
+// Cualquier módulo que registre asientos (vía el motor de asientos)
+// debe validar contra el periodo antes de escribir.
+// =====================================================================
+
+enum PeriodStatus {
+  OPEN
+  CLOSED
+}
+
+model AccountingPeriod {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name           String // ej: "Enero 2026"
+  startDate      DateTime
+  endDate        DateTime
+  status         PeriodStatus @default(OPEN)
+  closedAt       DateTime?
+  closedByUserId String?
+  closedByUser   User?        @relation("PeriodClosedBy", fields: [closedByUserId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  journalEntries JournalEntry[]
+
+  @@unique([companyId, startDate, endDate])
+  @@index([companyId, status])
+}
+
+// =====================================================================
+// CORE / DIMENSIONS — src/core/dimensions
+// Valores de dimensiones analíticas (centro de costo, proyecto,
+// sucursal). Los módulos dueños de cada concepto (que no existen
+// todavía) se conectarán aquí más adelante; por ahora esta tabla
+// genérica permite etiquetar asientos sin acoplarse a módulos que
+// aún no se han construido.
+// =====================================================================
+
+enum DimensionType {
+  COST_CENTER
+  PROJECT
+  BRANCH
+}
+
+model Dimension {
+  id        String        @id @default(cuid())
+  companyId String
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type      DimensionType
+  code      String
+  name      String
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  lineTags         JournalEntryLineDimension[]
+  treasuryAccounts TreasuryAccount[]
+  pettyCashFunds   PettyCashFund[]
+  warehouses       Warehouse[]
+
+  @@unique([companyId, type, code])
+}
+
+// =====================================================================
+// CORE / FX — src/core/fx
+// Tasas de cambio con histórico. Cualquier módulo que necesite convertir
+// entre la moneda base de la empresa y una moneda extranjera consulta
+// esta tabla; el motor de asientos la usa para guardar la tasa de cada
+// movimiento en moneda extranjera (ver JournalEntryLine más abajo).
+// =====================================================================
+
+model ExchangeRate {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  currency  String // código ISO de la moneda extranjera, ej: "EUR"
+  rate      Decimal  @db.Decimal(18, 6) // unidades de la moneda base por 1 unidad de `currency`
+  date      DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, currency, date])
+  @@index([companyId, currency, date])
+}
+
+// =====================================================================
+// CORE / LEDGER — src/core/ledger
+// El motor de asientos contables: lo usa Contabilidad directamente y,
+// más adelante, todos los módulos que generan movimientos de dinero
+// (Tesorería, AR, AP, Inventario) a través del servicio de posteo,
+// nunca escribiendo estas tablas directamente.
+// =====================================================================
+
+enum JournalEntryOrigin {
+  MANUAL
+  AUTOMATIC
+  RULE
+}
+
+enum JournalEntryStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+}
+
+model JournalEntry {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  entryNumber Int // consecutivo por empresa (ver AccountingSettings)
+  date        DateTime // fecha contable del asiento
+  description String
+
+  origin          JournalEntryOrigin @default(MANUAL)
+  sourceModule    String? // ej: "accounts-payable", cuando origin != MANUAL
+  sourceReference String? // ej: id de la factura que originó el asiento
+
+  status JournalEntryStatus @default(DRAFT)
+
+  periodId String
+  period   AccountingPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+
+  ruleId String?
+  rule   AccountingRule? @relation(fields: [ruleId], references: [id])
+
+  createdByUserId String
+  createdByUser   User   @relation("EntryCreatedBy", fields: [createdByUserId], references: [id])
+
+  approvedByUserId String?
+  approvedByUser   User?     @relation("EntryApprovedBy", fields: [approvedByUserId], references: [id])
+  approvedAt       DateTime?
+
+  // Un asiento aprobado nunca se edita ni se borra: solo se reversa
+  // creando OTRO asiento que apunta de vuelta al original.
+  reversalOfId String?
+  reversalOf   JournalEntry?  @relation("EntryReversal", fields: [reversalOfId], references: [id])
+  reversals    JournalEntry[] @relation("EntryReversal")
+
+  paymentOrdersPaid       PaymentOrder[]
+  debtInstallmentsPaid    DebtInstallment[]
+  debtMovements           DebtMovement[]
+  pettyCashExpensesPaid   PettyCashExpense[]
+  pettyCashReplenishments PettyCashReplenishment[]
+
+  fiscalTransaction FiscalTransaction?
+
+  arPayments ArPayment[]
+  apPayments ApPayment[]
+
+  inventoryMovements InventoryMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines        JournalEntryLine[]
+  ArCreditNote ArCreditNote[]
+
+  @@unique([companyId, entryNumber])
+  @@index([companyId, date])
+  @@index([companyId, status])
+}
+
+model JournalEntryLine {
+  id             String       @id @default(cuid())
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  // Nunca float: precisión decimal exacta para dinero. debit/credit
+  // siempre están en la moneda base de la empresa (para que todos los
+  // reportes existentes sigan sumando igual); si el movimiento original
+  // fue en moneda extranjera, se guarda además el monto y la tasa usada.
+  debit  Decimal @default(0) @db.Decimal(18, 2)
+  credit Decimal @default(0) @db.Decimal(18, 2)
+
+  // Mismo par debit/credit de arriba pero en la moneda original (mismo
+  // lado: si debit>0 en base, foreignDebit>0 es su equivalente original).
+  foreignCurrency String? // ej: "EUR"; null si ya estaba en moneda base
+  foreignDebit    Decimal? @db.Decimal(18, 2)
+  foreignCredit   Decimal? @db.Decimal(18, 2)
+  exchangeRate    Decimal? @db.Decimal(18, 6) // tasa histórica usada al momento de contabilizar
+
+  description String?
+  order       Int     @default(0)
+
+  dimensionTags    JournalEntryLineDimension[]
+  fpaDimensionTags JournalEntryLineFpaDimension[]
+
+  // Tesorería concilia movimientos bancarios contra estas líneas, sin que
+  // Contabilidad necesite saber que Tesorería existe.
+  matchedByBankTransactions BankTransaction[]
+  reconciliationMatches     ReconciliationMatch[]
+
+  @@index([accountId])
+}
+
+// Tabla puente: una línea puede llevar cero, una o varias etiquetas
+// analíticas (ej: centro de costo Y proyecto al mismo tiempo).
+model JournalEntryLineDimension {
+  id          String           @id @default(cuid())
+  lineId      String
+  line        JournalEntryLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  dimensionId String
+  dimension   Dimension        @relation(fields: [dimensionId], references: [id], onDelete: Restrict)
+
+  @@unique([lineId, dimensionId])
+}
+
+// =====================================================================
+// MÓDULO CONTABILIDAD — src/modules/accounting
+// Lo específico de este módulo: plan de cuentas, plantillas y el
+// motor de reglas que decide qué asiento automático generar.
+// =====================================================================
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+enum NormalBalance {
+  DEBIT
+  CREDIT
+}
+
+// Clasificación para armar Balance General y Estado de Resultados
+// automáticamente a partir del Plan de Cuentas.
+enum FinancialStatementSection {
+  ACTIVO_CORRIENTE
+  ACTIVO_NO_CORRIENTE
+  PASIVO_CORRIENTE
+  PASIVO_NO_CORRIENTE
+  PATRIMONIO
+  INGRESO_OPERACIONAL
+  INGRESO_NO_OPERACIONAL
+  COSTO_VENTAS
+  GASTO_OPERACIONAL
+  GASTO_NO_OPERACIONAL
+}
+
+model Account {
+  id            String        @id @default(cuid())
+  companyId     String
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code          String
+  name          String
+  type          AccountType
+  normalBalance NormalBalance
+
+  parentId String?
+  parent   Account?  @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children Account[] @relation("AccountHierarchy")
+
+  // Solo una cuenta "postable" (sin hijos, de detalle) puede recibir
+  // movimientos; las cuentas padre son solo agrupadoras.
+  isPostable Boolean @default(true)
+  isActive   Boolean @default(true)
+
+  description               String?
+  financialStatementSection FinancialStatementSection?
+
+  // Multi-moneda: marca cuentas cuyo saldo real está en otra moneda
+  // (ej: "Bancos USD" en una empresa cuya moneda base es EUR), para que
+  // el job de revaluación sepa cuáles recalcular.
+  isForeignCurrency   Boolean @default(false)
+  foreignCurrencyCode String?
+
+  // Consolidación multi-empresa: marca cuentas que representan un saldo
+  // con OTRA empresa del mismo grupo (ej: "Cuentas por Cobrar - Empresa B"),
+  // para que se puedan excluir automáticamente al consolidar.
+  isIntercompany        Boolean  @default(false)
+  intercompanyCompanyId String?
+  intercompanyCompany   Company? @relation("IntercompanyAccounts", fields: [intercompanyCompanyId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  journalEntryLines             JournalEntryLine[]
+  fxGainLossFor                 AccountingSettings[] @relation("FxGainLossAccount")
+  fixedAssetsAsAsset            FixedAsset[]         @relation("FixedAssetAssetAccount")
+  fixedAssetsAsExpenseAccount   FixedAsset[]         @relation("FixedAssetExpenseAccount")
+  fixedAssetsAsAccumDepAccount  FixedAsset[]         @relation("FixedAssetAccumDepAccount")
+  treasuryAccounts              TreasuryAccount[]
+  paymentOrders                 PaymentOrder[]
+  debtsAsLiabilityAccount       Debt[]               @relation("DebtLiabilityAccount")
+  debtsAsInterestExpenseAccount Debt[]               @relation("DebtInterestExpenseAccount")
+  pettyCashFunds                PettyCashFund[]
+  pettyCashExpenses             PettyCashExpense[]
+
+  budgetLines BudgetLine[]
+
+  taxRates TaxRate[]
+
+  arInvoicesAsIncomeAccount ArInvoice[]    @relation("ArInvoiceIncomeAccount")
+  apBillsAsExpenseAccount   ApBill[]       @relation("ApBillExpenseAccount")
+  arRecurringTemplates      ArRecurringInvoiceTemplate[]
+  arApSettingsAsReceivable  ArApSettings[] @relation("ArApSettingsReceivableAccount")
+  arApSettingsAsPayable     ArApSettings[] @relation("ArApSettingsPayableAccount")
+
+  inventorySettingsAsAssetAccount     InventorySettings[] @relation("InvSettingsAssetAccount")
+  inventorySettingsAsCogsAccount      InventorySettings[] @relation("InvSettingsCogsAccount")
+  inventorySettingsAsShrinkageAccount InventorySettings[] @relation("InvSettingsShrinkageAccount")
+  productsAsAssetAccount              Product[]           @relation("ProductAssetAccount")
+  productsAsCogsAccount               Product[]           @relation("ProductCogsAccount")
+
+  analysisCostClassification AnalysisCostClassification?
+
+  @@unique([companyId, code])
+  @@index([companyId, type])
+}
+
+// Plantillas reutilizables (activo, pasivo, patrimonio, ingreso, gasto)
+// que se "aplican" a una empresa nueva para generarle su Plan de
+// Cuentas inicial. No pertenecen a ninguna empresa en particular.
+model AccountTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  country     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lines            AccountTemplateLine[]
+  appliedToCompany Company[]
+}
+
+model AccountTemplateLine {
+  id         String          @id @default(cuid())
+  templateId String
+  template   AccountTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  code                      String
+  name                      String
+  type                      AccountType
+  parentCode                String? // código de otra línea de la misma plantilla (jerarquía)
+  normalBalance             NormalBalance
+  isPostable                Boolean                    @default(true)
+  financialStatementSection FinancialStatementSection?
+  order                     Int                        @default(0)
+
+  @@unique([templateId, code])
+}
+
+// Motor de reglas: qué evento dispara qué asiento automático. La
+// definición de las líneas se guarda en formato flexible (JSON) porque
+// todavía no existen los módulos (AP, AR, Inventario...) que van a
+// disparar estas reglas; normalizar esto ahora sería adivinar. Cuando
+// tengamos 2-3 reglas reales funcionando podemos evaluar si conviene
+// una tabla estructurada.
+model AccountingRule {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name         String
+  triggerEvent String // nombre del evento del bus, ej: "ar.invoice.created"
+  description  String?
+  isActive     Boolean  @default(true)
+  definition   Json // qué cuentas y montos arma el asiento generado
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  journalEntries JournalEntry[]
+
+  @@unique([companyId, name])
+}
+
+// Configuración del módulo de Contabilidad por empresa.
+model AccountingSettings {
+  id                               String  @id @default(cuid())
+  companyId                        String  @unique
+  company                          Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  requiresApprovalForManualEntries Boolean @default(false)
+  entryNumberPrefix                String?
+  currentEntryNumberSequence       Int     @default(0)
+
+  // A qué cuenta va la diferencia cuando se revalúan saldos en moneda
+  // extranjera (ver src/core/fx). Sin configurar, la revaluación no corre.
+  fxGainLossAccountId String?
+  fxGainLossAccount   Account? @relation("FxGainLossAccount", fields: [fxGainLossAccountId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =====================================================================
+// MÓDULO CONTABILIDAD / ACTIVOS FIJOS
+// CRUD de activos y depreciación automática. Cada corrida de
+// depreciación genera un asiento a través del motor de asientos del
+// core (nunca escribe JournalEntry directamente).
+// =====================================================================
+
+enum DepreciationMethod {
+  STRAIGHT_LINE // lineal
+  DECLINING_BALANCE // acelerada (saldo decreciente doble)
+  UNITS_OF_PRODUCTION // por unidades de producción
+}
+
+enum FixedAssetStatus {
+  ACTIVE
+  FULLY_DEPRECIATED
+  DISPOSED
+}
+
+model FixedAsset {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code          String
+  name          String
+  description   String?
+  purchaseDate  DateTime
+  purchaseValue Decimal  @db.Decimal(18, 2)
+  salvageValue  Decimal  @default(0) @db.Decimal(18, 2) // valor residual
+
+  usefulLifeMonths       Int
+  depreciationMethod     DepreciationMethod
+  totalUnitsOfProduction Int? // solo para el método por unidades de producción
+
+  assetAccountId String
+  assetAccount   Account @relation("FixedAssetAssetAccount", fields: [assetAccountId], references: [id], onDelete: Restrict)
+
+  depreciationExpenseAccountId String
+  depreciationExpenseAccount   Account @relation("FixedAssetExpenseAccount", fields: [depreciationExpenseAccountId], references: [id], onDelete: Restrict)
+
+  accumulatedDepreciationAccountId String
+  accumulatedDepreciationAccount   Account @relation("FixedAssetAccumDepAccount", fields: [accumulatedDepreciationAccountId], references: [id], onDelete: Restrict)
+
+  accumulatedDepreciation Decimal          @default(0) @db.Decimal(18, 2)
+  lastDepreciationDate    DateTime?
+  status                  FixedAssetStatus @default(ACTIVE)
+  disposedAt              DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+}
+
+// =====================================================================
+// MÓDULO TESORERÍA — src/modules/treasury (puntos 1-4)
+// Cuentas bancarias/tarjetas, importación de movimientos y conciliación.
+// Todo movimiento que afecta el saldo termina como asiento contable vía
+// core/ledger — Tesorería nunca escribe JournalEntry directamente, igual
+// que Contabilidad. Referencia de vuelta: cuando concilia, guarda a qué
+// JournalEntryLine corresponde cada movimiento bancario, para no volver
+// a generar el mismo asiento dos veces.
+// =====================================================================
+
+enum TreasuryAccountType {
+  BANK_ACCOUNT
+  CREDIT_CARD
+}
+
+model TreasuryAccount {
+  id        String              @id @default(cuid())
+  companyId String
+  company   Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type      TreasuryAccountType
+  name      String // ej: "Banco Nación - Cuenta Corriente USD"
+  currency  String // código ISO, ej: "USD"
+
+  bankName      String?
+  accountNumber String? // o IBAN
+  creditLimit   Decimal? @db.Decimal(18, 2) // solo aplica si type = CREDIT_CARD
+
+  // Umbral para el Motor de Alertas (punto 9): null = sin alerta de saldo
+  // bajo configurada para esta cuenta.
+  lowBalanceThreshold Decimal? @db.Decimal(18, 2)
+
+  // Saldo denormalizado (se actualiza al conciliar), igual que
+  // FixedAsset.accumulatedDepreciation en Contabilidad — evita recalcular
+  // sumando todo el histórico cada vez que se consulta.
+  currentBalance Decimal @default(0) @db.Decimal(18, 2)
+
+  // A qué cuenta del Plan de Cuentas de Contabilidad corresponde este
+  // banco/tarjeta en el libro mayor (ej: código 1110 "Bancos").
+  glAccountId String
+  glAccount   Account @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+
+  // Sucursal asociada: reutiliza las Dimension tipo BRANCH que ya existen
+  // en el core (creadas desde Contabilidad) — no se duplica un modelo
+  // de "sucursal" nuevo.
+  branchDimensionId String?
+  branchDimension   Dimension? @relation(fields: [branchDimensionId], references: [id])
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statementImports StatementImport[]
+  bankTransactions BankTransaction[]
+  reconciliations  BankReconciliation[]
+  cardTransactions CreditCardTransaction[]
+  paymentOrders    PaymentOrder[]
+  paymentBatches   PaymentBatch[]
+  debts            Debt[]
+  pettyCashFunds   PettyCashFund[]
+  arPayments       ArPayment[]
+  apPayments       ApPayment[]
+
+  @@unique([companyId, name])
+  @@index([companyId, type])
+}
+
+enum StatementSource {
+  CSV
+  OFX
+  MT940
+}
+
+enum StatementImportStatus {
+  PROCESSED
+  FAILED
+}
+
+// Una "corrida" de importación de archivo, para cuenta bancaria O
+// tarjeta (TreasuryAccount.type ya dice cuál es). `source` es el
+// discriminador que la capa de servicio usa para elegir qué parser
+// (patrón adapter/strategy) aplicar — CSV/OFX/MT940 hoy, Open
+// Banking/Plaid más adelante — sin tocar el resto del sistema, porque
+// todos los parsers producen el mismo formato de salida normalizado
+// (BankTransaction o CreditCardTransaction).
+model StatementImport {
+  id                String                @id @default(cuid())
+  companyId         String
+  company           Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  treasuryAccountId String
+  treasuryAccount   TreasuryAccount       @relation(fields: [treasuryAccountId], references: [id], onDelete: Cascade)
+  source            StatementSource
+  fileName          String?
+  status            StatementImportStatus @default(PROCESSED)
+  errorMessage      String?
+  importedByUserId  String
+  importedByUser    User                  @relation(fields: [importedByUserId], references: [id])
+  createdAt         DateTime              @default(now())
+
+  bankTransactions       BankTransaction[]
+  creditCardTransactions CreditCardTransaction[]
+
+  @@index([companyId])
+}
+
+enum BankTransactionStatus {
+  UNMATCHED
+  MATCHED
+  IGNORED
+}
+
+// El formato único interno al que se normaliza cualquier fuente
+// (CSV/OFX/MT940/API futura) — la "salida" del patrón adapter.
+model BankTransaction {
+  id                String           @id @default(cuid())
+  companyId         String
+  company           Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  treasuryAccountId String
+  treasuryAccount   TreasuryAccount  @relation(fields: [treasuryAccountId], references: [id], onDelete: Cascade)
+  importId          String?
+  import            StatementImport? @relation(fields: [importId], references: [id])
+
+  externalId  String? // id que trae el archivo (ej. FITID de OFX), para no duplicar al reimportar
+  date        DateTime
+  description String
+  reference   String? // número de cheque/referencia, usado para emparejar
+  amount      Decimal  @db.Decimal(18, 2) // signado: positivo = entrada, negativo = salida
+  currency    String
+  rawPayload  Json? // campos originales del archivo, para depurar/auditar
+
+  status                    BankTransactionStatus @default(UNMATCHED)
+  matchedJournalEntryLineId String?
+  matchedJournalEntryLine   JournalEntryLine?     @relation(fields: [matchedJournalEntryLineId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  matches   ReconciliationMatch[]
+  arPayment ArPayment?
+
+  @@unique([treasuryAccountId, externalId])
+  @@index([companyId, treasuryAccountId, status])
+}
+
+enum ReconciliationStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+// Una sesión de conciliación (ej: "Julio 2026" para una cuenta). Queda
+// como histórico permanente para poder auditar después — nunca se borra.
+model BankReconciliation {
+  id                String          @id @default(cuid())
+  companyId         String
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  treasuryAccountId String
+  treasuryAccount   TreasuryAccount @relation(fields: [treasuryAccountId], references: [id], onDelete: Cascade)
+
+  periodStart              DateTime
+  periodEnd                DateTime
+  statementStartingBalance Decimal  @db.Decimal(18, 2)
+  statementEndingBalance   Decimal  @db.Decimal(18, 2)
+
+  status          ReconciliationStatus @default(IN_PROGRESS)
+  createdByUserId String
+  createdByUser   User                 @relation(fields: [createdByUserId], references: [id])
+  completedAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  matches ReconciliationMatch[]
+
+  @@index([companyId, treasuryAccountId])
+}
+
+enum MatchType {
+  AUTOMATIC
+  MANUAL
+}
+
+enum MatchStatus {
+  ACTIVE
+  REVERSED
+}
+
+// Registro inmutable de cada emparejamiento (auditable): qué movimiento
+// bancario se conectó con qué línea del libro mayor, cuándo, quién y con
+// qué criterio. Nunca se borra: si se deshace, queda status=REVERSED,
+// igual que un asiento se reversa en vez de editarse.
+model ReconciliationMatch {
+  id               String             @id @default(cuid())
+  reconciliationId String
+  reconciliation   BankReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+
+  bankTransactionId  String
+  bankTransaction    BankTransaction  @relation(fields: [bankTransactionId], references: [id], onDelete: Restrict)
+  journalEntryLineId String
+  journalEntryLine   JournalEntryLine @relation(fields: [journalEntryLineId], references: [id], onDelete: Restrict)
+
+  matchType         MatchType
+  status            MatchStatus @default(ACTIVE)
+  toleranceDaysUsed Int? // con cuántos días de tolerancia se emparejó (si fue automático)
+  matchedByUserId   String?
+  matchedByUser     User?       @relation(fields: [matchedByUserId], references: [id])
+  matchedAt         DateTime    @default(now())
+
+  @@index([reconciliationId])
+  @@index([bankTransactionId])
+}
+
+// Punto 4: conciliación de tarjetas. Reutiliza StatementImport (arriba)
+// para el archivo, y tiene su propio modelo de transacción porque lo
+// que cruza (gastos de caja chica) todavía no existe como tabla — se
+// deja el estado listo (matchStatus/hasReceipt/isPolicyViolation) y se
+// conecta con una relación real cuando se construya el punto 8 (Caja
+// Chica), igual que se hizo con Dimension en el Módulo Contabilidad.
+enum CreditCardTransactionMatchStatus {
+  UNMATCHED
+  MATCHED
+}
+
+model CreditCardTransaction {
+  id                String           @id @default(cuid())
+  companyId         String
+  company           Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  treasuryAccountId String
+  treasuryAccount   TreasuryAccount  @relation(fields: [treasuryAccountId], references: [id], onDelete: Cascade)
+  importId          String?
+  import            StatementImport? @relation(fields: [importId], references: [id])
+
+  date       DateTime
+  merchant   String
+  amount     Decimal  @db.Decimal(18, 2)
+  currency   String
+  rawPayload Json?
+
+  matchStatus       CreditCardTransactionMatchStatus @default(UNMATCHED)
+  hasReceipt        Boolean                          @default(false)
+  isPolicyViolation Boolean                          @default(false)
+
+  // Cruce contra el gasto de caja chica reportado (punto 8), ahora que
+  // esa tabla ya existe — la conexión que se dejó preparada en el
+  // punto 4.
+  matchedPettyCashExpenseId String?
+  matchedPettyCashExpense   PettyCashExpense? @relation(fields: [matchedPettyCashExpenseId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, treasuryAccountId, matchStatus])
+}
+
+// Configuración del módulo de Tesorería por empresa.
+model TreasurySettings {
+  id                            String   @id @default(cuid())
+  companyId                     String   @unique
+  company                       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  reconciliationToleranceDays   Int      @default(3)
+  reconciliationAmountTolerance Decimal  @default(0) @db.Decimal(18, 2)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+}
+
+// =====================================================================
+// MÓDULO TESORERÍA / ÓRDENES DE PAGO Y LOTES (punto 6)
+// Simplificación consciente: como el módulo de Cuentas por Pagar (AP)
+// todavía no existe, una orden de pago no referencia una factura real
+// — el beneficiario se guarda como texto libre y el usuario elige a
+// mano la cuenta contable a debitar. Cuando exista AP, se agrega una
+// relación real sin romper esto (mismo patrón que Dimension/FixedAsset).
+// =====================================================================
+
+// Regla configurable: para un rango de monto, cuántos niveles de
+// aprobación hacen falta y qué roles pueden aprobar cada nivel.
+model PaymentApprovalRule {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  minAmount Decimal  @db.Decimal(18, 2)
+  maxAmount Decimal? @db.Decimal(18, 2) // null = sin tope superior
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  levels        PaymentApprovalLevel[]
+  paymentOrders PaymentOrder[]
+
+  @@index([companyId, isActive])
+}
+
+model PaymentApprovalLevel {
+  id           String              @id @default(cuid())
+  ruleId       String
+  rule         PaymentApprovalRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  level        Int // 1, 2, 3...
+  allowedRoles UserRole[] // qué roles pueden aprobar en este nivel
+
+  @@unique([ruleId, level])
+}
+
+enum PaymentOrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  PAID
+  CANCELLED
+}
+
+model PaymentOrder {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  treasuryAccountId String
+  treasuryAccount   TreasuryAccount @relation(fields: [treasuryAccountId], references: [id], onDelete: Restrict)
+
+  // Cuenta contable a debitar (gasto o pasivo) cuando el pago se aprueba.
+  glAccountId String
+  glAccount   Account @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+
+  // Conexión con AP: si se paga una o más facturas de un proveedor del
+  // catálogo (en vez de un beneficiario libre), vendorId queda fijo y
+  // billApplications guarda qué factura recibe cuánto. Al completarse
+  // la última aprobación, se genera el ApPayment/ApPaymentApplication
+  // automáticamente — ver payment-orders.service.decideApproval.
+  vendorId String?
+  vendor   Vendor? @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  payeeName          String
+  payeeBankName      String?
+  payeeAccountNumber String?
+
+  amount        Decimal  @db.Decimal(18, 2)
+  currency      String
+  description   String
+  scheduledDate DateTime
+
+  status         PaymentOrderStatus   @default(DRAFT)
+  approvalRuleId String?
+  approvalRule   PaymentApprovalRule? @relation(fields: [approvalRuleId], references: [id])
+  requiredLevels Int                  @default(0)
+
+  batchId String?
+  batch   PaymentBatch? @relation(fields: [batchId], references: [id])
+
+  // El asiento contable que se genera al completarse la aprobación.
+  paidJournalEntryId String?
+  paidJournalEntry   JournalEntry? @relation(fields: [paidJournalEntryId], references: [id])
+
+  createdByUserId String
+  createdByUser   User   @relation("PaymentOrderCreatedBy", fields: [createdByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  approvals        PaymentApproval[]
+  billApplications PaymentOrderBillApplication[]
+
+  @@index([companyId, status])
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+}
+
+// Un registro por cada nivel decidido — nunca se edita ni se borra
+// (igual que un asiento contable): es el rastro de auditoría de la
+// aprobación multinivel.
+model PaymentApproval {
+  id             String           @id @default(cuid())
+  paymentOrderId String
+  paymentOrder   PaymentOrder     @relation(fields: [paymentOrderId], references: [id], onDelete: Cascade)
+  level          Int
+  decision       ApprovalDecision
+  comment        String?
+
+  approvedByUserId String
+  approvedByUser   User     @relation("PaymentApprovalBy", fields: [approvedByUserId], references: [id])
+  approvedAt       DateTime @default(now())
+
+  @@unique([paymentOrderId, level])
+}
+
+enum PaymentBatchStatus {
+  OPEN
+  EXPORTED
+  CANCELLED
+}
+
+// Agrupa órdenes de pago para exportarlas juntas. `exportFormat` es el
+// mismo tipo de discriminador que `StatementImport.source`: hoy solo
+// existe el exportador CSV genérico; ACH/SEPA se agregan como entradas
+// nuevas en el selector de estrategia cuando haga falta un banco/país
+// concreto, sin rediseñar esto.
+model PaymentBatch {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+
+  treasuryAccountId String
+  treasuryAccount   TreasuryAccount @relation(fields: [treasuryAccountId], references: [id], onDelete: Restrict)
+
+  status       PaymentBatchStatus @default(OPEN)
+  exportFormat String             @default("GENERIC_CSV")
+  exportedAt   DateTime?
+
+  createdByUserId String
+  createdByUser   User   @relation(fields: [createdByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  paymentOrders PaymentOrder[]
+
+  @@unique([companyId, name])
+}
+
+// =====================================================================
+// MÓDULO TESORERÍA / DEUDA Y LÍNEAS DE CRÉDITO (punto 7)
+// =====================================================================
+
+enum DebtType {
+  LOAN
+  CREDIT_LINE
+}
+
+enum DebtStatus {
+  ACTIVE
+  PAID_OFF
+  CANCELLED
+}
+
+model Debt {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type      DebtType
+  name      String
+  lender    String
+
+  principalAmount Decimal @db.Decimal(18, 2) // monto del préstamo, o límite si es línea de crédito
+  interestRate    Decimal @db.Decimal(8, 4) // tasa anual, ej 12.5000 = 12.5%
+  currency        String
+
+  startDate        DateTime
+  termMonths       Int? // solo LOAN
+  installmentCount Int? // solo LOAN
+
+  // Saldo pendiente (LOAN) o usado (CREDIT_LINE). El disponible de una
+  // línea de crédito es siempre principalAmount - outstandingBalance.
+  outstandingBalance Decimal @default(0) @db.Decimal(18, 2)
+  isDisbursed        Boolean @default(false) // solo LOAN
+
+  treasuryAccountId String
+  treasuryAccount   TreasuryAccount @relation(fields: [treasuryAccountId], references: [id], onDelete: Restrict)
+
+  liabilityAccountId String
+  liabilityAccount   Account @relation("DebtLiabilityAccount", fields: [liabilityAccountId], references: [id], onDelete: Restrict)
+
+  interestExpenseAccountId String
+  interestExpenseAccount   Account @relation("DebtInterestExpenseAccount", fields: [interestExpenseAccountId], references: [id], onDelete: Restrict)
+
+  status DebtStatus @default(ACTIVE)
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  installments DebtInstallment[]
+  movements    DebtMovement[]
+
+  @@unique([companyId, name])
+  @@index([companyId, type, status])
+}
+
+enum DebtInstallmentStatus {
+  PENDING
+  PAID
+}
+
+// Cronograma de cuotas (solo LOAN), generado al crear el préstamo por
+// el método de capital constante (cada cuota amortiza lo mismo de
+// capital; el interés baja porque se calcula sobre el saldo restante).
+model DebtInstallment {
+  id     String @id @default(cuid())
+  debtId String
+  debt   Debt   @relation(fields: [debtId], references: [id], onDelete: Cascade)
+
+  installmentNumber Int
+  dueDate           DateTime
+  principalPortion  Decimal  @db.Decimal(18, 2)
+  interestPortion   Decimal  @db.Decimal(18, 2)
+
+  status             DebtInstallmentStatus @default(PENDING)
+  paidJournalEntryId String?
+  paidJournalEntry   JournalEntry?         @relation(fields: [paidJournalEntryId], references: [id])
+  paidAt             DateTime?
+
+  @@unique([debtId, installmentNumber])
+  @@index([debtId, status])
+}
+
+enum DebtMovementType {
+  DISBURSEMENT
+  DRAWDOWN
+  REPAYMENT
+}
+
+// Rastro de cada desembolso/disposición/pago de una línea de crédito (o
+// el desembolso inicial de un préstamo), con el asiento que generó.
+model DebtMovement {
+  id     String           @id @default(cuid())
+  debtId String
+  debt   Debt             @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  type   DebtMovementType
+  amount Decimal          @db.Decimal(18, 2)
+  date   DateTime
+
+  journalEntryId String?
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+}
+
+// =====================================================================
+// MÓDULO TESORERÍA / CAJA CHICA Y LEGALIZACIÓN DE GASTOS (punto 8)
+// =====================================================================
+
+enum PettyCashFundStatus {
+  ACTIVE
+  CLOSED
+}
+
+model PettyCashFund {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String // ej: "Caja Chica Sucursal Centro"
+
+  custodianUserId String // el empleado responsable del fondo
+  custodianUser   User   @relation("PettyCashCustodian", fields: [custodianUserId], references: [id])
+
+  // Reutiliza las Dimension tipo BRANCH que ya existen — no se duplica
+  // un modelo de "sucursal" nuevo.
+  branchDimensionId String?
+  branchDimension   Dimension? @relation(fields: [branchDimensionId], references: [id])
+
+  initialAmount          Decimal @db.Decimal(18, 2)
+  currentBalance         Decimal @default(0) @db.Decimal(18, 2)
+  replenishmentThreshold Decimal @db.Decimal(18, 2) // umbral para el Motor de Alertas
+
+  glAccountId String
+  glAccount   Account @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+
+  treasuryAccountId String?
+  treasuryAccount   TreasuryAccount? @relation(fields: [treasuryAccountId], references: [id])
+
+  status PettyCashFundStatus @default(ACTIVE)
+
+  createdByUserId String
+  createdByUser   User     @relation("PettyCashFundCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  expenses       PettyCashExpense[]
+  replenishments PettyCashReplenishment[]
+
+  @@unique([companyId, name])
+}
+
+enum PettyCashExpenseStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+// Flujo maker-checker: registeredByUserId (empleado) y approvedByUserId
+// (supervisor) deben ser personas distintas — validado en el servicio,
+// no solo confiado a la UI.
+model PettyCashExpense {
+  id        String        @id @default(cuid())
+  companyId String
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fundId    String
+  fund      PettyCashFund @relation(fields: [fundId], references: [id], onDelete: Restrict)
+
+  amount      Decimal  @db.Decimal(18, 2)
+  description String
+  expenseDate DateTime
+  category    String?
+
+  // Comprobante: como no hay almacenamiento de archivos (S3/etc.)
+  // todavía, se guarda como texto base64 dentro del registro — igual
+  // que los archivos de feeds bancarios viajan como texto en el body.
+  receiptFileName String?
+  receiptMimeType String?
+  receiptContent  String?
+
+  expenseGlAccountId String
+  expenseGlAccount   Account @relation(fields: [expenseGlAccountId], references: [id], onDelete: Restrict)
+
+  status PettyCashExpenseStatus @default(PENDING_APPROVAL)
+
+  registeredByUserId String
+  registeredByUser   User   @relation("PettyCashExpenseRegisteredBy", fields: [registeredByUserId], references: [id])
+
+  approvedByUserId String?
+  approvedByUser   User?     @relation("PettyCashExpenseApprovedBy", fields: [approvedByUserId], references: [id])
+  approvedAt       DateTime?
+  rejectionReason  String?
+
+  paidJournalEntryId String?
+  paidJournalEntry   JournalEntry? @relation(fields: [paidJournalEntryId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cardTransactionMatches CreditCardTransaction[]
+
+  @@index([companyId, fundId, status])
+}
+
+// Reposición del fondo: trae plata de una cuenta bancaria de vuelta a
+// caja chica hasta el monto inicial.
+model PettyCashReplenishment {
+  id     String        @id @default(cuid())
+  fundId String
+  fund   PettyCashFund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  amount Decimal  @db.Decimal(18, 2)
+  date   DateTime
+
+  journalEntryId String?
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+}
+
+// =====================================================================
+// MÓDULO TESORERÍA / MOTOR DE ALERTAS (punto 9)
+// No incluye "cliente con atraso recurrente": necesita Cuentas por
+// Cobrar (AR), que todavía no existe — mismo motivo que bloqueó el
+// punto 5 (Previsión de Liquidez).
+// =====================================================================
+
+enum AlertType {
+  LOW_BALANCE
+  CREDIT_CARD_NEAR_LIMIT
+  PAYMENT_DUE_SOON
+  FISCAL_OBLIGATION_DUE // agregado por el módulo Fiscal, punto 5 — reutiliza este mismo motor
+  CUSTOMER_RECURRING_LATE_PAYMENT // agregado al completar Fase 3 (AR): cliente con varias facturas vencidas a la vez
+  LOW_STOCK // agregado por Inventario, punto 5 — producto bajo el mínimo configurado
+  PRODUCT_EXPIRING_SOON // agregado por Inventario, punto 8 — lote próximo a vencer
+  AR_COLLECTION_ESCALATION // agregado por AR — cobranza escalonada (factura vencida, 3 niveles)
+  ADVANCED_ANALYSIS_ALERT // agregado por Análisis Avanzados — un análisis automático cruzó su condición de alerta configurada
+  BANK_ACCOUNT_DISCONNECTED // agregado por Tesorería — una cuenta bancaria lleva más de 48h sin un extracto importado
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum AlertStatus {
+  ACTIVE
+  ACKNOWLEDGED
+}
+
+// Configuración de cada tipo de alerta. `parameters` es JSON flexible
+// (mismo criterio que AccountingRule.definition) porque cada tipo
+// necesita datos distintos: PAYMENT_DUE_SOON usa {daysBefore},
+// CREDIT_CARD_NEAR_LIMIT usa {warningPercentage}; LOW_BALANCE reutiliza
+// el umbral que ya vive en cada TreasuryAccount/PettyCashFund.
+model AlertRule {
+  id         String    @id @default(cuid())
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type       AlertType
+  name       String
+  isActive   Boolean   @default(true)
+  parameters Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  alerts Alert[]
+
+  @@index([companyId, type, isActive])
+}
+
+// Punto de extensión para el futuro (no implementado todavía): cuando
+// se agregue envío por email/push, se dispara desde donde se crea el
+// Alert, sin cambiar este modelo.
+model Alert {
+  id        String     @id @default(cuid())
+  companyId String
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ruleId    String?
+  rule      AlertRule? @relation(fields: [ruleId], references: [id])
+
+  type     AlertType
+  severity AlertSeverity @default(WARNING)
+  message  String
+
+  entityType String // "TreasuryAccount", "PettyCashFund", "PaymentOrder", "DebtInstallment"
+  entityId   String
+
+  status               AlertStatus @default(ACTIVE)
+  acknowledgedByUserId String?
+  acknowledgedByUser   User?       @relation(fields: [acknowledgedByUserId], references: [id])
+  acknowledgedAt       DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, status])
+  @@index([companyId, entityType, entityId])
+}
+
+// =====================================================================
+// MÓDULO FP&A / DIMENSIONES ANALÍTICAS JERÁRQUICAS (punto 1)
+// La Dimension de core/dimensions (arriba) es plana y con código, y ya
+// la usa Tesorería (sucursal de una cuenta, de una caja chica). FP&A
+// necesita algo distinto: jerarquía multinivel (Departamento >
+// Sub-departamento, Línea de Negocio > Producto) y SIN código. En vez
+// de forzar esa jerarquía dentro de Dimension (rompería su uso actual
+// en Tesorería), se crea FpaDimension como modelo propio de este
+// módulo, con su propia tabla puente hacia JournalEntryLine — así la
+// tabla JournalEntryLineDimension y el Dimension existente quedan
+// intactos, tal como pide el requisito ("sin romper su estructura
+// actual").
+// =====================================================================
+
+enum FpaDimensionType {
+  DEPARTMENT
+  BUSINESS_LINE
+  COST_CENTER
+  PRODUCT // agregado por el módulo Reportes, punto 4 — rentabilidad por producto
+  CLIENT // agregado por el módulo Reportes, punto 4 — rentabilidad por cliente
+  OTHER
+}
+
+model FpaDimension {
+  id        String           @id @default(cuid())
+  companyId String
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type      FpaDimensionType
+  name      String
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  // Jerarquía multinivel: una dimensión puede tener una dimensión padre
+  // (ej: "Ventas Norte" cuelga de "Línea de Negocio Ventas").
+  parentId String?
+  parent   FpaDimension?  @relation("FpaDimensionHierarchy", fields: [parentId], references: [id])
+  children FpaDimension[] @relation("FpaDimensionHierarchy")
+
+  lineTags    JournalEntryLineFpaDimension[]
+  budgetLines BudgetLine[]
+  product     Product? // punto 7 de Inventario: producto que se autoetiqueta con esta dimensión
+
+  @@index([companyId, type])
+  @@index([companyId, parentId])
+}
+
+// Tabla puente propia de FP&A (paralela a JournalEntryLineDimension,
+// no la reemplaza): una línea de asiento puede llevar cero, una o
+// varias etiquetas de FP&A además de las etiquetas normales de
+// Tesorería/Contabilidad.
+model JournalEntryLineFpaDimension {
+  id             String           @id @default(cuid())
+  lineId         String
+  line           JournalEntryLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  fpaDimensionId String
+  fpaDimension   FpaDimension     @relation(fields: [fpaDimensionId], references: [id], onDelete: Restrict)
+
+  @@unique([lineId, fpaDimensionId])
+}
+
+// =====================================================================
+// MÓDULO FP&A / PRESUPUESTOS VERSIONADOS (punto 3)
+// Un Budget es una versión completa del presupuesto de un año fiscal
+// (ORIGINAL o REFORECAST); cada línea (BudgetLine) presupuesta una
+// cuenta contable (Account, la misma del Plan de Cuentas) para un mes
+// del año, opcionalmente etiquetada con una FpaDimension (departamento
+// o línea de negocio). Reutiliza Account existente en vez de duplicar
+// un catálogo de conceptos presupuestables.
+// =====================================================================
+
+enum BudgetVersionType {
+  ORIGINAL
+  REFORECAST
+}
+
+enum BudgetStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+}
+
+enum BudgetAmountType {
+  FIXED
+  FORMULA
+}
+
+model Budget {
+  id            String            @id @default(cuid())
+  companyId     String
+  company       Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name          String
+  fiscalYear    Int
+  versionNumber Int               @default(1)
+  versionType   BudgetVersionType @default(ORIGINAL)
+  status        BudgetStatus      @default(DRAFT)
+
+  // Un REFORECAST apunta a la versión que ajusta, para conservar el
+  // historial completo de cambios de un mismo año fiscal.
+  previousVersionId String?
+  previousVersion   Budget?  @relation("BudgetVersionHistory", fields: [previousVersionId], references: [id])
+  nextVersions      Budget[] @relation("BudgetVersionHistory")
+
+  createdByUserId  String
+  createdByUser    User      @relation("BudgetCreatedBy", fields: [createdByUserId], references: [id])
+  approvedByUserId String?
+  approvedByUser   User?     @relation("BudgetApprovedBy", fields: [approvedByUserId], references: [id])
+  approvedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines BudgetLine[]
+
+  @@unique([companyId, fiscalYear, versionNumber])
+  @@index([companyId, fiscalYear, status])
+}
+
+model BudgetLine {
+  id       String @id @default(cuid())
+  budgetId String
+  budget   Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  // Obligatoria a propósito: el punto 3 pide presupuestos "por
+  // Departamento/Línea de Negocio", así que toda línea presupuestal
+  // pertenece a una dimensión FP&A, nunca queda "sin asignar".
+  fpaDimensionId String
+  fpaDimension   FpaDimension @relation(fields: [fpaDimensionId], references: [id])
+
+  period Int // mes dentro del año fiscal del Budget: 1 a 12
+
+  amountType BudgetAmountType @default(FIXED)
+  amount     Decimal?         @db.Decimal(18, 2) // si amountType = FIXED
+  // si amountType = FORMULA: fórmula sobre otras líneas de monto fijo del
+  // mismo presupuesto, referenciadas como [código-de-cuenta_mes], ej:
+  // "[4135_1] * 0.05" (reparto por driver: 5% de Ventas del mes 1).
+  formula    String?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  varianceJustifications BudgetVarianceJustification[]
+
+  @@unique([budgetId, accountId, fpaDimensionId, period])
+  @@index([budgetId])
+}
+
+// =====================================================================
+// MÓDULO FP&A / ANÁLISIS DE DESVIACIONES EN TIEMPO REAL (punto 4)
+// Compara cada BudgetLine contra lo real (sumando JournalEntryLine de
+// la misma cuenta, etiquetadas con la misma FpaDimension vía
+// JournalEntryLineFpaDimension del punto 1 — así puntos 1 y 4 quedan
+// enganchados sin tablas nuevas para "lo real"). Cuando la desviación
+// supera el umbral configurado, se exige un comentario antes de poder
+// considerarla atendida; cada comentario queda como un registro
+// histórico inmutable (nunca se edita ni se borra), igual que AuditLog.
+// =====================================================================
+
+// Configuración del módulo FP&A por empresa (mismo patrón que
+// AccountingSettings/TreasurySettings).
+model FpaSettings {
+  id                          String  @id @default(cuid())
+  companyId                   String  @unique
+  company                     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  varianceThresholdPercentage Decimal @default(10) @db.Decimal(5, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BudgetVarianceJustification {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  budgetLineId String
+  budgetLine   BudgetLine @relation(fields: [budgetLineId], references: [id], onDelete: Cascade)
+
+  // Se guarda una "foto" de los montos en el momento de justificar: así
+  // se sabe si la justificación sigue vigente (los montos no cambiaron)
+  // o si hay que pedir una nueva porque lo real se movió otra vez.
+  budgetedAmount     Decimal @db.Decimal(18, 2)
+  actualAmount       Decimal @db.Decimal(18, 2)
+  variancePercentage Decimal @db.Decimal(7, 2)
+
+  comment String
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@index([budgetLineId, createdAt])
+}
+
+// =====================================================================
+// MÓDULO FP&A / SIMULADOR DE ESCENARIOS "WHAT-IF" (punto 5)
+// Una simulación NUNCA escribe datos reales (ni asientos ni saldos):
+// solo calcula y devuelve un resultado. Si el usuario decide guardarla,
+// esta tabla guarda el escenario (parámetros + resultado) como
+// referencia, nunca como algo que se vaya a "aplicar" después.
+// =====================================================================
+
+model WhatIfScenario {
+  id          String  @id @default(cuid())
+  companyId   String
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+
+  // Ambos en JSON flexible (mismo criterio que AccountingRule.definition):
+  // cada tipo de ajuste (gasto recurrente, variación de ventas, nueva
+  // contratación...) tiene una forma de parámetros distinta.
+  parameters      Json
+  projectedResult Json
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@index([companyId])
+}
+
+// =====================================================================
+// MÓDULO FP&A / TABLERO DE KPIS CONFIGURABLE (punto 6)
+// EBITDA/Burn Rate/Runway se calculan al vuelo (no se guardan) a partir
+// de Contabilidad y Tesorería, igual que los reportes de Contabilidad.
+// Lo único que se persiste es la DEFINICIÓN de un KPI personalizado.
+// =====================================================================
+
+model KpiDefinition {
+  id          String  @id @default(cuid())
+  companyId   String
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  // Fórmula sobre cuentas contables referenciadas como [código], ej:
+  // "([4135] - [5310]) / [4135]" para margen bruto. Se evalúa con un
+  // intérprete propio (sin eval): ver fpa/services/formula-engine.js.
+  formula     String
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name])
+}
+
+// =====================================================================
+// MÓDULO FISCAL / MOTOR DE IMPUESTOS, TASAS Y RETENCIONES (punto 1)
+// No duplica nada de Contabilidad: una transacción fiscal se liga 1 a 1
+// a un JournalEntry que ya pasó por el motor de asientos del core
+// (partida doble ya validada ahí, no se vuelve a validar aquí).
+// AccountingPeriod (ya existente) se reutiliza para reportes fiscales
+// por periodo (punto 3) — no se crea un "periodo fiscal" aparte.
+// =====================================================================
+
+enum TaxType {
+  VAT // IVA / impuesto al valor agregado
+  WITHHOLDING // retención en la fuente
+  OTHER
+}
+
+// A qué tipo de transacción le aplica una tasa: solo ventas, solo
+// compras, o ambas (ej: el IVA normalmente aplica a ambas; una
+// retención suele ser solo de un lado).
+enum TaxApplicability {
+  SALE
+  PURCHASE
+  BOTH
+}
+
+model TaxJurisdiction {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code      String // ej: "CO", "MX-CDMX"
+  name      String // ej: "Colombia", "México - CDMX"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  taxRates            TaxRate[]
+  fiscalTransactions  FiscalTransaction[]
+  fiscalObligations   FiscalObligation[]
+  arInvoices          ArInvoice[]
+  apBills             ApBill[]
+  arRecurringTemplates ArRecurringInvoiceTemplate[]
+
+  @@unique([companyId, code])
+}
+
+// Cada tasa tiene vigencia (validFrom/validTo): una transacción
+// histórica siempre debe resolver la tasa que aplicaba en SU fecha, no
+// la tasa vigente hoy — por eso nunca se edita una tasa vencida, se
+// cierra (validTo) y se crea una nueva.
+model TaxRate {
+  id             String           @id @default(cuid())
+  companyId      String
+  company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  jurisdictionId String
+  jurisdiction   TaxJurisdiction  @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+  type           TaxType
+  code           String // ej: "IVA_19", "RETEFUENTE_SERVICIOS"
+  name           String
+  rate           Decimal          @db.Decimal(7, 4) // porcentaje, ej: 19.0000
+  appliesTo      TaxApplicability @default(BOTH)
+  validFrom      DateTime
+  validTo        DateTime? // null = sigue vigente
+  isActive       Boolean          @default(true)
+
+  // Cuenta contable donde se registra este impuesto/retención por
+  // defecto (ej: "IVA por Pagar", "Retención por Cobrar"), para no
+  // tener que indicarla a mano en cada transacción fiscal. Sigue
+  // siendo posible pasar una cuenta distinta puntualmente.
+  glAccountId String?
+  glAccount   Account? @relation(fields: [glAccountId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactionsAsTax         FiscalTransaction[] @relation("FiscalTransactionTaxRate")
+  transactionsAsWithholding FiscalTransaction[] @relation("FiscalTransactionWithholdingRate")
+
+  @@index([companyId, jurisdictionId, type, appliesTo])
+}
+
+// Representa una venta o compra para efectos fiscales. Se liga 1 a 1 a
+// un JournalEntry ya contabilizado (Contabilidad es la única que
+// escribe asientos; este módulo solo agrega el detalle fiscal
+// alrededor). Emisor/receptor se guardan como texto (nombre + NIT/RFC),
+// no como llave foránea a un maestro de Clientes/Proveedores — ese
+// maestro pertenece a AR/AP, que todavía no existen (mismo patrón que
+// PaymentOrder.beneficiary en Tesorería).
+model FiscalTransaction {
+  id        String                @id @default(cuid())
+  companyId String
+  company   Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type      FiscalTransactionType
+
+  journalEntryId String       @unique
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  jurisdictionId String
+  jurisdiction   TaxJurisdiction @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+
+  counterpartyName  String
+  counterpartyTaxId String
+  documentNumber    String?
+
+  date DateTime
+
+  taxBase   Decimal  @db.Decimal(18, 2)
+  taxRateId String?
+  taxRate   TaxRate? @relation("FiscalTransactionTaxRate", fields: [taxRateId], references: [id], onDelete: SetNull)
+  taxAmount Decimal  @default(0) @db.Decimal(18, 2)
+
+  withholdingRateId String?
+  withholdingRate   TaxRate? @relation("FiscalTransactionWithholdingRate", fields: [withholdingRateId], references: [id], onDelete: SetNull)
+  withholdingAmount Decimal  @default(0) @db.Decimal(18, 2)
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  riskAlerts         FiscalRiskAlert[]
+  electronicDocument FiscalElectronicDocument?
+  documentFiles      FiscalDocumentFile[]
+  arInvoice          ArInvoice?
+  apBill             ApBill?
+
+  @@index([companyId, type, date])
+}
+
+enum FiscalTransactionType {
+  SALE
+  PURCHASE
+}
+
+// =====================================================================
+// MÓDULO FISCAL / VALIDACIONES FISCALES PREVENTIVAS (punto 2)
+// No crea un sistema de auditoría nuevo: cada alerta detectada también
+// se registra en el AuditLog ya existente de Contabilidad (mismo
+// auditService.log() que usan todos los módulos). FiscalRiskAlert
+// existe aparte de AuditLog porque una alerta tiene forma propia
+// (severidad, si bloqueó o no, a qué regla y transacción corresponde)
+// que no vale la pena forzar dentro de oldValue/newValue genéricos.
+// =====================================================================
+
+enum FiscalRiskSeverity {
+  WARNING
+  BLOCKING
+}
+
+model FiscalRiskRule {
+  id          String             @id @default(cuid())
+  companyId   String
+  company     Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  // Condición evaluada contra los datos de la transacción fiscal, en
+  // JSON flexible (mismo criterio que AccountingRule.definition): no
+  // hay todavía suficientes reglas reales para saber la forma correcta
+  // de normalizar esto en columnas.
+  condition   Json
+  severity    FiscalRiskSeverity @default(WARNING)
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  alerts FiscalRiskAlert[]
+
+  @@unique([companyId, name])
+}
+
+model FiscalRiskAlert {
+  id                  String             @id @default(cuid())
+  companyId           String
+  company             Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ruleId              String
+  rule                FiscalRiskRule     @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  fiscalTransactionId String
+  fiscalTransaction   FiscalTransaction  @relation(fields: [fiscalTransactionId], references: [id], onDelete: Cascade)
+  severity            FiscalRiskSeverity
+  message             String
+  wasBlocked          Boolean            @default(false)
+  createdAt           DateTime           @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+// =====================================================================
+// MÓDULO FISCAL / FACTURACIÓN ELECTRÓNICA (punto 4)
+// Patrón adapter: este modelo guarda el resultado de generar un
+// comprobante fiscal electrónico, sin importar qué proveedor lo generó
+// (hoy solo existe el adaptador MOCK — ver
+// fiscal/services/electronic-invoicing/providers/). Conectar un
+// proveedor real (DIAN, SAT, etc.) es agregar un adaptador nuevo al
+// registro, sin tocar este modelo ni el resto del módulo.
+// =====================================================================
+
+enum FiscalDocumentProvider {
+  MOCK
+}
+
+enum FiscalElectronicDocumentStatus {
+  GENERATED
+  REJECTED
+  CANCELLED
+}
+
+model FiscalElectronicDocument {
+  id                  String                         @id @default(cuid())
+  companyId           String
+  company             Company                        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fiscalTransactionId String                         @unique
+  fiscalTransaction   FiscalTransaction              @relation(fields: [fiscalTransactionId], references: [id], onDelete: Cascade)
+  provider            FiscalDocumentProvider         @default(MOCK)
+  status              FiscalElectronicDocumentStatus
+  externalDocumentId  String? // folio que devuelve el proveedor
+  validationCode      String? // ej: CUFE/timbre fiscal equivalente
+  requestPayload      Json // qué se le mandó al proveedor
+  responsePayload     Json? // qué devolvió el proveedor
+  errorMessage        String?
+  issuedAt            DateTime?
+
+  generatedByUserId String
+  generatedByUser   User     @relation(fields: [generatedByUserId], references: [id])
+  createdAt         DateTime @default(now())
+
+  @@index([companyId])
+}
+
+// =====================================================================
+// MÓDULO FISCAL / CALENDARIO FISCAL (punto 5)
+// No crea un motor de alertas nuevo: reutiliza AlertRule/Alert, ya
+// movidos a core/alerts porque ahora dos módulos los necesitan
+// (Tesorería y Fiscal) — ver core/alerts/alerts.service.js.
+// =====================================================================
+
+enum FiscalObligationRecurrence {
+  MONTHLY
+  BIMONTHLY
+  ANNUAL
+}
+
+model FiscalObligation {
+  id             String                     @id @default(cuid())
+  companyId      String
+  company        Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  jurisdictionId String
+  jurisdiction   TaxJurisdiction            @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+  name           String
+  description    String?
+  recurrence     FiscalObligationRecurrence
+  dueDayOfMonth  Int // 1-31, día del mes de vencimiento
+  dueMonth       Int? // 1-12: obligatorio si es ANNUAL; define la paridad de mes si es BIMONTHLY; se ignora si es MONTHLY
+  isActive       Boolean                    @default(true)
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  @@index([companyId, isActive])
+}
+
+// =====================================================================
+// MÓDULO FISCAL / REPOSITORIO DE DOCUMENTOS DIGITALES (punto 6)
+// Cada documento se liga a una FiscalTransaction (que a su vez ya está
+// ligada a un JournalEntry real) — así "buscar por cliente/proveedor/
+// periodo/tipo" y "bloquear si el periodo está cerrado" reutilizan
+// datos que ya existen, sin duplicar nada.
+// =====================================================================
+
+enum FiscalDocumentFileType {
+  PDF
+  XML
+  OTHER
+}
+
+model FiscalDocumentFile {
+  id                  String                 @id @default(cuid())
+  companyId           String
+  company             Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fiscalTransactionId String
+  fiscalTransaction   FiscalTransaction      @relation(fields: [fiscalTransactionId], references: [id], onDelete: Cascade)
+  fileType            FiscalDocumentFileType
+  fileName            String
+  mimeType            String
+  // Contenido en base64: no hay almacenamiento de archivos todavía,
+  // mismo criterio que los feeds bancarios y los comprobantes de caja
+  // chica de Tesorería.
+  content             String
+
+  uploadedByUserId String
+  uploadedByUser   User     @relation(fields: [uploadedByUserId], references: [id])
+  createdAt        DateTime @default(now())
+
+  @@index([companyId, fiscalTransactionId])
+}
+
+// =====================================================================
+// MÓDULO REPORTES / DASHBOARD EJECUTIVO (punto 6)
+// No guarda ningún dato financiero (eso se calcula al vuelo llamando a
+// accounting/treasury/fpa cada vez) — solo la preferencia de qué
+// widgets ve cada usuario y en qué orden.
+// =====================================================================
+
+model DashboardWidgetPreference {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Identifica el widget (ej: "cash_position", "ebitda", "income_statement").
+  // Texto libre en vez de enum a propósito: los widgets los define el
+  // código del dashboard, no la base de datos — agregar uno nuevo no
+  // debe pedir una migración.
+  widgetKey String
+  isVisible Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, widgetKey])
+}
+
+// =====================================================================
+// MÓDULO REPORTES / EXPORTACIÓN Y DISTRIBUCIÓN (punto 7)
+// Guarda solo la configuración de un envío periódico; el envío real
+// por correo es un punto de extensión sin implementar todavía (mismo
+// criterio que TreasuryAlert.notifyAlert en core/alerts).
+// =====================================================================
+
+enum ScheduledReportFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model ScheduledReport {
+  id         String                   @id @default(cuid())
+  companyId  String
+  company    Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Identifica qué reporte generar (ej: "income_statement", "cash_flow").
+  // Texto libre por el mismo motivo que DashboardWidgetPreference.widgetKey.
+  reportType String
+  parameters Json // ej: { from, to } o cualquier filtro que ese reporte necesite
+  frequency  ScheduledReportFrequency
+  recipients Json // lista de correos; el envío real todavía no está implementado
+  isActive   Boolean                  @default(true)
+  lastRunAt  DateTime?
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId, isActive])
+}
+
+// =====================================================================
+// MÓDULO CUENTAS POR COBRAR (AR) — src/modules/accounts-receivable
+// Fase 3, construida en paralelo con Cuentas por Pagar (espejo una de
+// otra). Cada factura de venta se contabiliza reutilizando el motor
+// fiscal ya existente (fiscal/services/fiscal-transactions.service —
+// resuelve impuesto/retención, corre validaciones preventivas y postea
+// el asiento vía core/ledger); AR solo agrega encima lo que Fiscal no
+// tenía: cliente real, fecha de vencimiento, y seguimiento de cobro.
+// Simplificación consciente: todas las líneas de una misma factura
+// usan la MISMA cuenta de ingreso, porque el motor fiscal calcula el
+// impuesto sobre un solo monto base y una sola cuenta contraparte —
+// evita duplicar ese cálculo en dos lugares. Si más adelante se
+// necesita mezclar cuentas de ingreso distintas en una factura, se
+// puede revisar sin romper esto (misma lógica que otras
+// simplificaciones documentadas en el proyecto, ej. costeo simple de
+// Rentabilidad en Reportes).
+// =====================================================================
+
+model Customer {
+  id               String   @id @default(cuid())
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name             String
+  taxId            String?
+  email            String?
+  phone            String?
+  paymentTermsDays Int      @default(30)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Control de crédito: ambos opcionales (null = sin límite / sin
+  // revisión de atraso). Se validan al crear una factura nueva.
+  creditLimit           Decimal? @db.Decimal(18, 2)
+  maxOverdueDaysAllowed Int?
+
+  // Cliente extranjero: solo cuando es true tiene sentido pedir en qué
+  // moneda se le factura (formulario condicional) — un cliente local
+  // siempre factura en la moneda base de la empresa.
+  isForeign        Boolean @default(false)
+  billingCurrency  String?
+
+  // Bloqueo (manual o automático por cobranza escalonada, nivel
+  // crítico): un cliente bloqueado no puede recibir facturas nuevas
+  // hasta que se desbloquee explícitamente.
+  isBlocked     Boolean   @default(false)
+  blockedReason String?
+  blockedAt     DateTime?
+
+  invoices           ArInvoice[]
+  payments           ArPayment[]
+  creditNotes        ArCreditNote[]
+  recurringTemplates ArRecurringInvoiceTemplate[]
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+}
+
+enum ArInvoiceStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+model ArInvoice {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  invoiceNumber Int // consecutivo por empresa (ver ArApSettings)
+  issueDate     DateTime
+  dueDate       DateTime // issueDate + Customer.paymentTermsDays, calculado al crear
+
+  jurisdictionId String
+  jurisdiction   TaxJurisdiction @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+
+  // Cuenta de ingreso única para todas las líneas de esta factura (ver
+  // nota de simplificación arriba) — es el `taxBaseAccountId` que se le
+  // pasa al motor fiscal.
+  incomeAccountId String
+  incomeAccount   Account @relation("ArInvoiceIncomeAccount", fields: [incomeAccountId], references: [id], onDelete: Restrict)
+
+  // La transacción fiscal (y su asiento contable) que YA calculó y
+  // registró el impuesto/retención — 1 a 1, igual que FiscalTransaction
+  // con JournalEntry.
+  fiscalTransactionId String            @unique
+  fiscalTransaction   FiscalTransaction @relation(fields: [fiscalTransactionId], references: [id], onDelete: Restrict)
+
+  subtotal          Decimal @db.Decimal(18, 2)
+  taxAmount         Decimal @default(0) @db.Decimal(18, 2)
+  withholdingAmount Decimal @default(0) @db.Decimal(18, 2)
+  totalAmount       Decimal @db.Decimal(18, 2) // subtotal + taxAmount - withholdingAmount
+  paidAmount        Decimal @default(0) @db.Decimal(18, 2)
+
+  status ArInvoiceStatus @default(OPEN)
+
+  createdByUserId String
+  createdByUser   User     @relation("ArInvoiceCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines               ArInvoiceLine[]
+  paymentApplications ArPaymentApplication[]
+  creditNotes         ArCreditNote[]
+
+  @@unique([companyId, invoiceNumber])
+  @@index([companyId, customerId, status])
+  @@index([companyId, dueDate])
+}
+
+model ArInvoiceLine {
+  id          String    @id @default(cuid())
+  invoiceId   String
+  invoice     ArInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Decimal   @default(1) @db.Decimal(18, 4)
+  unitPrice   Decimal   @db.Decimal(18, 2)
+  amount      Decimal   @db.Decimal(18, 2)
+  order       Int       @default(0)
+}
+
+// Un cobro puede aplicarse a una o varias facturas del mismo cliente
+// (ver ArPaymentApplication) — posteado vía core/ledger: débito la
+// cuenta de efectivo de la TreasuryAccount elegida, crédito la cuenta
+// de Cuentas por Cobrar configurada en ArApSettings. Si viene de un
+// movimiento bancario real (bankTransactionId), el monto y la cuenta
+// de tesorería se derivan de ese movimiento — nunca de un número
+// escrito a mano — y ese movimiento queda marcado como conciliado
+// (mismo mecanismo que ya usa Tesorería, sin tabla nueva). Si
+// `applications` queda vacío al registrarlo, es un anticipo sin
+// aplicar todavía.
+model ArPayment {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  date       DateTime
+  amount     Decimal  @db.Decimal(18, 2)
+
+  treasuryAccountId String
+  treasuryAccount   TreasuryAccount @relation(fields: [treasuryAccountId], references: [id], onDelete: Restrict)
+
+  bankTransactionId String?          @unique
+  bankTransaction   BankTransaction? @relation(fields: [bankTransactionId], references: [id], onDelete: Restrict)
+
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  createdByUserId String
+  createdByUser   User     @relation("ArPaymentCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  applications ArPaymentApplication[]
+
+  @@index([companyId, customerId])
+}
+
+model ArPaymentApplication {
+  id        String    @id @default(cuid())
+  paymentId String
+  payment   ArPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoiceId String
+  invoice   ArInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  amount    Decimal   @db.Decimal(18, 2)
+
+  @@unique([paymentId, invoiceId])
+}
+
+enum ArCreditNoteType {
+  CREDIT // reduce lo que el cliente debe (ej. devolución)
+  DEBIT // aumenta lo que el cliente debe (ej. cargo adicional)
+}
+
+// Siempre ligada a una factura original. Ajusta ArInvoice.totalAmount
+// (nunca el paidAmount, que es cobro real en efectivo) y postea su
+// propio asiento directo vía core/ledger — no vuelve a pasar por el
+// motor fiscal, es un ajuste simple sobre lo ya facturado.
+model ArCreditNote {
+  id         String    @id @default(cuid())
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  invoiceId  String
+  invoice    ArInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  noteNumber Int // consecutivo por empresa (ver ArApSettings)
+  type       ArCreditNoteType
+  reason     String
+  amount     Decimal          @db.Decimal(18, 2)
+  date       DateTime
+
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@unique([companyId, noteNumber])
+  @@index([companyId, customerId])
+  @@index([companyId, invoiceId])
+}
+
+// Plantilla de recurrencia automática (acción "Duplicar" de una factura,
+// innovación): en vez de que el usuario duplique manualmente cada mes
+// una factura con el mismo cliente y monto, esta plantilla guarda los
+// datos necesarios para volver a llamar a `ar-invoices.service.createInvoice`
+// — nunca escribe una factura directo, solo dispara el mismo flujo real
+// que ya calcula impuestos/retención y postea el asiento.
+model ArRecurringInvoiceTemplate {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  jurisdictionId    String
+  jurisdiction      TaxJurisdiction @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+  incomeAccountId   String
+  incomeAccount     Account         @relation(fields: [incomeAccountId], references: [id], onDelete: Restrict)
+  taxRateId         String?
+  withholdingRateId String?
+
+  // Mismo formato que `data.lines` de `createInvoice`
+  // ([{description, quantity, unitPrice}]) — se guarda tal cual para
+  // no duplicar la lógica de armar líneas, solo se reproduce.
+  linesSnapshot Json
+
+  isActive        Boolean   @default(true)
+  lastGeneratedAt DateTime?
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@index([companyId, isActive])
+}
+
+// =====================================================================
+// MÓDULO CUENTAS POR PAGAR (AP) — src/modules/accounts-payable
+// Espejo exacto de AR: mismas simplificaciones y mismo criterio de
+// reutilizar el motor fiscal para calcular impuesto/retención.
+// =====================================================================
+
+model Vendor {
+  id               String   @id @default(cuid())
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name             String
+  taxId            String?
+  email            String?
+  phone            String?
+  paymentTermsDays Int      @default(30)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  bills    ApBill[]
+  payments ApPayment[]
+
+  preferredForProducts Product[]       @relation("ProductPreferredVendor")
+  paymentOrders        PaymentOrder[]
+  purchaseOrders       PurchaseOrder[]
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+}
+
+enum ApBillStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+model ApBill {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendorId   String
+  vendor     Vendor   @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  billNumber Int // consecutivo por empresa (ver ArApSettings)
+  issueDate  DateTime
+  dueDate    DateTime // issueDate + Vendor.paymentTermsDays, calculado al crear
+
+  jurisdictionId String
+  jurisdiction   TaxJurisdiction @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+
+  expenseAccountId String
+  expenseAccount   Account @relation("ApBillExpenseAccount", fields: [expenseAccountId], references: [id], onDelete: Restrict)
+
+  fiscalTransactionId String            @unique
+  fiscalTransaction   FiscalTransaction @relation(fields: [fiscalTransactionId], references: [id], onDelete: Restrict)
+
+  subtotal          Decimal @db.Decimal(18, 2)
+  taxAmount         Decimal @default(0) @db.Decimal(18, 2)
+  withholdingAmount Decimal @default(0) @db.Decimal(18, 2)
+  totalAmount       Decimal @db.Decimal(18, 2) // subtotal + taxAmount - withholdingAmount
+  paidAmount        Decimal @default(0) @db.Decimal(18, 2)
+
+  status ApBillStatus @default(OPEN)
+
+  createdByUserId String
+  createdByUser   User     @relation("ApBillCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines                    ApBillLine[]
+  paymentApplications      ApPaymentApplication[]
+  paymentOrderApplications PaymentOrderBillApplication[]
+
+  @@unique([companyId, billNumber])
+  @@index([companyId, vendorId, status])
+  @@index([companyId, dueDate])
+}
+
+model ApBillLine {
+  id          String  @id @default(cuid())
+  billId      String
+  bill        ApBill  @relation(fields: [billId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Decimal @default(1) @db.Decimal(18, 4)
+  unitPrice   Decimal @db.Decimal(18, 2)
+  amount      Decimal @db.Decimal(18, 2)
+  order       Int     @default(0)
+}
+
+// Pago directo a proveedor, posteado vía core/ledger (débito Cuentas
+// por Pagar, crédito la cuenta de efectivo elegida). Pendiente
+// documentado: conectar esto con el flujo de aprobación multinivel de
+// Tesorería (PaymentOrder) queda para una siguiente pasada — por ahora
+// es un pago directo, sin maker-checker, para no bloquear el resto del
+// módulo con ese rediseño.
+model ApPayment {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendorId  String
+  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  date      DateTime
+  amount    Decimal  @db.Decimal(18, 2)
+
+  treasuryAccountId String
+  treasuryAccount   TreasuryAccount @relation(fields: [treasuryAccountId], references: [id], onDelete: Restrict)
+
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  createdByUserId String
+  createdByUser   User     @relation("ApPaymentCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  applications ApPaymentApplication[]
+
+  @@index([companyId, vendorId])
+}
+
+model ApPaymentApplication {
+  id        String    @id @default(cuid())
+  paymentId String
+  payment   ApPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  billId    String
+  bill      ApBill    @relation(fields: [billId], references: [id], onDelete: Restrict)
+  amount    Decimal   @db.Decimal(18, 2)
+
+  @@unique([paymentId, billId])
+}
+
+// Configuración de AR/AP por empresa (mismo patrón que
+// AccountingSettings/TreasurySettings/FpaSettings): a qué cuenta
+// contable van las Cuentas por Cobrar/Pagar por defecto (la
+// "contraparte neta" que arma el motor fiscal) y el consecutivo de
+// numeración de facturas/pagos.
+model ArApSettings {
+  id        String  @id @default(cuid())
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  receivableGlAccountId String?
+  receivableGlAccount   Account? @relation("ArApSettingsReceivableAccount", fields: [receivableGlAccountId], references: [id])
+  payableGlAccountId    String?
+  payableGlAccount      Account? @relation("ArApSettingsPayableAccount", fields: [payableGlAccountId], references: [id])
+
+  currentArInvoiceNumberSequence    Int @default(0)
+  currentApBillNumberSequence       Int @default(0)
+  currentArCreditNoteNumberSequence Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =====================================================================
+// MÓDULO INVENTARIO — src/modules/inventory (puntos 1-4)
+// Todo movimiento que afecta el VALOR del inventario postea su asiento
+// llamando a core/ledger.postEntry (nunca un motor de asientos propio).
+// Las alertas de stock bajo / vencimiento reutilizan core/alerts (el
+// mismo motor que ya usan Tesorería y Fiscal) — solo se agregan tipos
+// nuevos al enum AlertType compartido.
+// =====================================================================
+
+enum ValuationMethod {
+  FIFO
+  LIFO
+  WEIGHTED_AVERAGE // PMP
+}
+
+model InventorySettings {
+  id                               String          @id @default(cuid())
+  companyId                        String          @unique
+  company                          Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  defaultValuationMethod           ValuationMethod @default(WEIGHTED_AVERAGE)
+  defaultInventoryAssetAccountId   String?
+  defaultInventoryAssetAccount     Account?        @relation("InvSettingsAssetAccount", fields: [defaultInventoryAssetAccountId], references: [id])
+  defaultCogsExpenseAccountId      String?
+  defaultCogsExpenseAccount        Account?        @relation("InvSettingsCogsAccount", fields: [defaultCogsExpenseAccountId], references: [id])
+  defaultShrinkageExpenseAccountId String?
+  defaultShrinkageExpenseAccount   Account?        @relation("InvSettingsShrinkageAccount", fields: [defaultShrinkageExpenseAccountId], references: [id])
+  createdAt                        DateTime        @default(now())
+  updatedAt                        DateTime        @updatedAt
+}
+
+model UnitOfMeasure {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code      String
+  name      String
+
+  conversions    ProductUnitConversion[]
+  productsAsBase Product[]
+
+  @@unique([companyId, code])
+}
+
+model ProductCategory {
+  id                     String           @id @default(cuid())
+  companyId              String
+  company                Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name                   String
+  defaultValuationMethod ValuationMethod?
+
+  products Product[]
+
+  @@unique([companyId, name])
+}
+
+model Product {
+  id          String  @id @default(cuid())
+  companyId   String
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sku         String
+  name        String
+  description String?
+
+  categoryId String?
+  category   ProductCategory? @relation(fields: [categoryId], references: [id])
+
+  valuationMethod ValuationMethod?
+
+  baseUnitOfMeasureId String
+  baseUnitOfMeasure   UnitOfMeasure @relation(fields: [baseUnitOfMeasureId], references: [id])
+
+  inventoryAssetAccountId String?
+  inventoryAssetAccount   Account? @relation("ProductAssetAccount", fields: [inventoryAssetAccountId], references: [id])
+  cogsExpenseAccountId    String?
+  cogsExpenseAccount      Account? @relation("ProductCogsAccount", fields: [cogsExpenseAccountId], references: [id])
+
+  // Servicio (sin stock físico) vs. producto físico — puramente
+  // informativo para el frontend (formulario condicional): un servicio
+  // sigue pudiendo tener minStock/maxStock/trackLots/trackExpiration en
+  // la base de datos, el backend no los prohíbe ni los borra, solo el
+  // formulario los oculta cuando isService=true.
+  isService Boolean @default(false)
+
+  trackLots       Boolean @default(false)
+  trackExpiration Boolean @default(false)
+
+  minStock Decimal? @db.Decimal(18, 4)
+  maxStock Decimal? @db.Decimal(18, 4)
+
+  // Punto 5 (Reabastecimiento): proveedor sugerido para la orden de
+  // compra borrador que genera el escaneo de stock bajo. Reutiliza el
+  // catálogo de Vendor de AP (regla 1: no se duplica un catálogo).
+  preferredVendorId String?
+  preferredVendor   Vendor? @relation("ProductPreferredVendor", fields: [preferredVendorId], references: [id])
+
+  // Punto 7 (Costo real → Rentabilidad): dimensión analítica de FP&A
+  // que se crea/etiqueta sola la primera vez que el producto se vende,
+  // para que el reporte de Rentabilidad por Producto de Reportes lea
+  // el costo real vía JournalEntryLineFpaDimension sin recalcularlo.
+  fpaDimensionId String?       @unique
+  fpaDimension   FpaDimension? @relation(fields: [fpaDimensionId], references: [id])
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  variants        ProductVariant[]
+  unitConversions ProductUnitConversion[]
+
+  @@unique([companyId, sku])
+}
+
+model ProductUnitConversion {
+  id               String        @id @default(cuid())
+  productId        String
+  product          Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  unitOfMeasureId  String
+  unitOfMeasure    UnitOfMeasure @relation(fields: [unitOfMeasureId], references: [id])
+  conversionFactor Decimal       @db.Decimal(18, 6)
+
+  @@unique([productId, unitOfMeasureId])
+}
+
+model ProductVariant {
+  id         String  @id @default(cuid())
+  productId  String
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku        String
+  attributes Json?
+  isActive   Boolean @default(true)
+
+  stockLevels         StockLevel[]
+  movements           InventoryMovement[]
+  costLayers          StockCostLayer[]
+  bomAsParent         BillOfMaterial?     @relation("BomParent")
+  bomUsageAsComponent BomComponent[]
+  lots                InventoryLot[]
+  purchaseOrderLines  PurchaseOrderLine[]
+
+  @@unique([productId, sku])
+}
+
+model BillOfMaterial {
+  id              String         @id @default(cuid())
+  companyId       String
+  company         Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parentVariantId String         @unique
+  parentVariant   ProductVariant @relation("BomParent", fields: [parentVariantId], references: [id], onDelete: Cascade)
+  isActive        Boolean        @default(true)
+
+  components BomComponent[]
+}
+
+model BomComponent {
+  id                 String         @id @default(cuid())
+  bomId              String
+  bom                BillOfMaterial @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  componentVariantId String
+  componentVariant   ProductVariant @relation(fields: [componentVariantId], references: [id], onDelete: Restrict)
+  quantity           Decimal        @db.Decimal(18, 4)
+
+  @@unique([bomId, componentVariantId])
+}
+
+// =====================================================================
+// MULTI-ALMACÉN
+// =====================================================================
+
+model Warehouse {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code      String
+  name      String
+  address   String?
+
+  branchDimensionId String?
+  branchDimension   Dimension? @relation(fields: [branchDimensionId], references: [id])
+
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  stockLevels    StockLevel[]
+  movements      InventoryMovement[]
+  costLayers     StockCostLayer[]
+  physicalCounts PhysicalCount[]
+  transfersFrom  InventoryTransfer[] @relation("TransferFrom")
+  transfersTo    InventoryTransfer[] @relation("TransferTo")
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([companyId, code])
+}
+
+model StockLevel {
+  id          String         @id @default(cuid())
+  companyId   String
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  variantId   String
+  variant     ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  warehouseId String
+  warehouse   Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  quantityOnHand   Decimal @default(0) @db.Decimal(18, 4)
+  quantityReserved Decimal @default(0) @db.Decimal(18, 4)
+
+  averageCost Decimal @default(0) @db.Decimal(18, 6)
+
+  minStock Decimal? @db.Decimal(18, 4)
+  maxStock Decimal? @db.Decimal(18, 4)
+
+  @@unique([variantId, warehouseId])
+  @@index([companyId, warehouseId])
+}
+
+// =====================================================================
+// VALORACIÓN FIFO/LIFO (capas de costo) — PMP no necesita capas, se
+// calcula sobre StockLevel.averageCost en cada entrada.
+// =====================================================================
+
+model StockCostLayer {
+  id              String            @id @default(cuid())
+  companyId       String
+  company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  variantId       String
+  variant         ProductVariant    @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  warehouseId     String
+  warehouse       Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  entryMovementId String
+  entryMovement   InventoryMovement @relation("LayerEntryMovement", fields: [entryMovementId], references: [id], onDelete: Restrict)
+
+  entryDate         DateTime
+  unitCost          Decimal  @db.Decimal(18, 6)
+  originalQuantity  Decimal  @db.Decimal(18, 4)
+  remainingQuantity Decimal  @db.Decimal(18, 4)
+
+  consumptions StockCostLayerConsumption[]
+
+  @@index([companyId, variantId, warehouseId, entryDate])
+}
+
+// =====================================================================
+// MOVIMIENTOS (el libro de inventario, equivalente a JournalEntry en
+// Contabilidad — todo lo demás se reconstruye a partir de esto)
+// =====================================================================
+
+enum InventoryMovementType {
+  PURCHASE_ENTRY
+  PRODUCTION_ENTRY
+  SALE_EXIT
+  CONSUMPTION_EXIT
+  TRANSFER_OUT
+  TRANSFER_IN
+  ADJUSTMENT_INCREASE
+  ADJUSTMENT_DECREASE
+  PHYSICAL_COUNT_ADJUSTMENT
+}
+
+model InventoryLot {
+  id             String         @id @default(cuid())
+  companyId      String
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  variantId      String
+  variant        ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  lotNumber      String
+  isSerialNumber Boolean        @default(false)
+  expirationDate DateTime?
+
+  movements InventoryMovement[]
+
+  @@unique([variantId, lotNumber])
+  @@index([companyId])
+}
+
+model InventoryMovement {
+  id          String                @id @default(cuid())
+  companyId   String
+  company     Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  variantId   String
+  variant     ProductVariant        @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  warehouseId String
+  warehouse   Warehouse             @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  type        InventoryMovementType
+
+  quantity  Decimal @db.Decimal(18, 4)
+  unitCost  Decimal @db.Decimal(18, 6)
+  totalCost Decimal @db.Decimal(18, 2)
+
+  date DateTime
+
+  lotId String?
+  lot   InventoryLot? @relation(fields: [lotId], references: [id])
+
+  referenceType String?
+  referenceId   String?
+
+  journalEntryId String?
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  notes String?
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  costLayersCreated StockCostLayer[] @relation("LayerEntryMovement")
+
+  // Punto 8 (Trazabilidad): qué capas de costo (y por lo tanto qué
+  // lotes, vía costLayersCreated.entryMovement.lot) consumió esta
+  // salida — permite responder "¿en qué salidas se usó este lote?"
+  // sin recalcular el consumo FIFO/LIFO otra vez.
+  layerConsumptions StockCostLayerConsumption[] @relation("LayerConsumptionExit")
+
+  @@index([companyId, variantId, warehouseId, date])
+}
+
+// =====================================================================
+// TRANSFERENCIAS ENTRE ALMACENES
+// =====================================================================
+
+model InventoryTransfer {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fromWarehouseId String
+  fromWarehouse   Warehouse @relation("TransferFrom", fields: [fromWarehouseId], references: [id], onDelete: Restrict)
+  toWarehouseId   String
+  toWarehouse     Warehouse @relation("TransferTo", fields: [toWarehouseId], references: [id], onDelete: Restrict)
+  date            DateTime
+  createdByUserId String
+  createdByUser   User      @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime  @default(now())
+
+  lines InventoryTransferLine[]
+
+  @@index([companyId])
+}
+
+model InventoryTransferLine {
+  id            String            @id @default(cuid())
+  transferId    String
+  transfer      InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  variantId     String
+  quantity      Decimal           @db.Decimal(18, 4)
+  outMovementId String            @unique
+  inMovementId  String            @unique
+}
+
+// =====================================================================
+// CONTEO FÍSICO (maker-checker: quien cuenta no aprueba)
+// =====================================================================
+
+enum PhysicalCountStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+model PhysicalCount {
+  id          String              @id @default(cuid())
+  companyId   String
+  company     Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouseId String
+  warehouse   Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  status      PhysicalCountStatus @default(DRAFT)
+
+  countedByUserId String
+  countedByUser   User      @relation("PhysicalCountCountedBy", fields: [countedByUserId], references: [id])
+  countedAt       DateTime?
+
+  approvedByUserId String?
+  approvedByUser   User?     @relation("PhysicalCountApprovedBy", fields: [approvedByUserId], references: [id])
+  approvedAt       DateTime?
+  rejectionReason  String?
+
+  createdAt DateTime @default(now())
+
+  lines PhysicalCountLine[]
+
+  @@index([companyId])
+}
+
+model PhysicalCountLine {
+  id                   String        @id @default(cuid())
+  physicalCountId      String
+  physicalCount        PhysicalCount @relation(fields: [physicalCountId], references: [id], onDelete: Cascade)
+  variantId            String
+  systemQuantity       Decimal       @db.Decimal(18, 4)
+  countedQuantity      Decimal       @db.Decimal(18, 4)
+  adjustmentMovementId String?       @unique
+}
+
+// =====================================================================
+// TRAZABILIDAD DE LOTES (punto 8): qué cantidad de cada capa de costo
+// consumió cada salida. Una capa = una entrada = (si trackLots) un
+// lote, así que "¿dónde se usó este lote?" se resuelve uniendo esta
+// tabla con StockCostLayer.entryMovement.lot, sin recalcular el
+// consumo FIFO/LIFO otra vez.
+// =====================================================================
+
+model StockCostLayerConsumption {
+  id             String            @id @default(cuid())
+  companyId      String
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  layerId        String
+  layer          StockCostLayer    @relation(fields: [layerId], references: [id], onDelete: Restrict)
+  exitMovementId String
+  exitMovement   InventoryMovement @relation("LayerConsumptionExit", fields: [exitMovementId], references: [id], onDelete: Restrict)
+  quantity       Decimal           @db.Decimal(18, 4)
+  createdAt      DateTime          @default(now())
+
+  @@index([companyId, layerId])
+  @@index([companyId, exitMovementId])
+}
+
+// =====================================================================
+// REABASTECIMIENTO AUTOMÁTICO Y CICLO DE COMPRA (punto 5)
+// El escaneo de stock bajo (StockLevel.minStock) genera una orden de
+// compra borrador automática (isAutoGenerated=true) y una alerta
+// LOW_STOCK vía core/alerts — el mismo motor que ya usan Tesorería y
+// Fiscal. Recibir mercancía contra la orden reutiliza
+// inventory-movements.createEntry (nunca postea un asiento aparte).
+// =====================================================================
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SUBMITTED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  vendorId String?
+  vendor   Vendor? @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  status          PurchaseOrderStatus @default(DRAFT)
+  orderDate       DateTime
+  expectedDate    DateTime?
+  isAutoGenerated Boolean             @default(false)
+  notes           String?
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines PurchaseOrderLine[]
+
+  @@index([companyId, status])
+  @@index([companyId, warehouseId])
+}
+
+model PurchaseOrderLine {
+  id              String         @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder  @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  variantId       String
+  variant         ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  quantityOrdered  Decimal  @db.Decimal(18, 4)
+  unitCost         Decimal? @db.Decimal(18, 6) // estimado; el real se fija al recibir
+  quantityReceived Decimal  @default(0) @db.Decimal(18, 4)
+}
+
+// =====================================================================
+// CONEXIÓN AP <-> TESORERÍA: pago a proveedor vía PaymentOrder
+// PaymentOrder.vendorId + PaymentOrderBillApplication guardan la
+// intención ("este pago cubre estas facturas") desde que se crea la
+// orden; al completarse la última aprobación (mismo momento en que
+// payment-orders.service.decideApproval ya postea el asiento), se
+// crea el ApPayment/ApPaymentApplication reutilizando exactamente la
+// misma función pura (applyPaymentToBills) que ya usa el pago directo.
+// =====================================================================
+
+model PaymentOrderBillApplication {
+  id             String       @id @default(cuid())
+  paymentOrderId String
+  paymentOrder   PaymentOrder @relation(fields: [paymentOrderId], references: [id], onDelete: Cascade)
+  apBillId       String
+  apBill         ApBill       @relation(fields: [apBillId], references: [id], onDelete: Restrict)
+  amount         Decimal      @db.Decimal(18, 2)
+
+  @@unique([paymentOrderId, apBillId])
+}
+
+// =====================================================================
+// MÉTRICAS DE NEGOCIO (business-metrics) — a pedido explícito del
+// usuario. A diferencia de los KPIs de FP&A (que se calculan solos a
+// partir del mayor contable con una fórmula), acá el usuario define un
+// indicador libre (ej. "Ventas del día", "Clientes nuevos") y escribe
+// el número directamente, sin pasar por un asiento contable. El
+// sistema guarda la serie de valores y calcula estadísticas simples
+// (promedio, mínimo, máximo, total, variación) sobre lo que el usuario
+// fue registrando. Estándar PostgreSQL (compatible con Supabase, que
+// por dentro también es PostgreSQL) — no requiere nada especial.
+// =====================================================================
+
+model BusinessMetric {
+  id          String  @id @default(cuid())
+  companyId   String
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  unit        String? // ej: "US$", "%", "unidades" — solo para mostrarlo, no afecta el cálculo
+  description String?
+  isActive    Boolean @default(true)
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  entries BusinessMetricEntry[]
+
+  @@unique([companyId, name])
+}
+
+model BusinessMetricEntry {
+  id       String         @id @default(cuid())
+  metricId String
+  metric   BusinessMetric @relation(fields: [metricId], references: [id], onDelete: Cascade)
+
+  date  DateTime
+  value Decimal  @db.Decimal(18, 4)
+  note  String?
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@index([metricId, date])
+}
+
+// =====================================================================
+// ANÁLISIS AVANZADOS (advanced-analytics) — módulo nuevo, solo lectura
+// sobre datos de accounting/treasury/fpa/reports/inventory (nunca
+// recalcula lo que esos módulos ya calculan, solo lo consume y le
+// agrega la capa de explicación de 6 partes). El catálogo de los 16
+// tipos de análisis NO es una tabla — vive en código
+// (advanced-analytics/services/analysis-catalog.js), mismo patrón que
+// el registro de widgets del Dashboard Ejecutivo de Reportes: agregar
+// un análisis nuevo el día de mañana no debe pedir una migración.
+// =====================================================================
+
+enum AdvancedAnalysisType {
+  VERTICAL
+  HORIZONTAL
+  FINANCIAL_RATIOS
+  CASH_FLOW
+  BREAK_EVEN
+  CVU
+  WORKING_CAPITAL
+  PROFITABILITY_SEGMENT
+  BUDGET_VS_ACTUAL
+  DUPONT
+  TREND_ANALYSIS
+  WHAT_IF_SCENARIO
+  INVESTMENT_EVALUATION
+  FINANCIAL_RISK_LEVERAGE
+  BENCHMARKING
+  PREDICTIVE_FORECAST
+}
+
+// Los 3 tipos de gráfico que puede recomendar el motor de análisis —
+// ver tabla de asignación por tipo de análisis en CLAUDE.md.
+enum AnalysisChartType {
+  TREND_LINE // (a) línea/tendencia — series en el tiempo (o en volumen, para Punto de Equilibrio/CVU)
+  COMPOSITION // (b) barras o pastel — estructura/composición de un resultado
+  COMPARISON // (c) barras agrupadas — comparación entre 2+ periodos/escenarios
+}
+
+enum AnalysisFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum AnalysisTriggerSource {
+  AUTOMATIC
+  MANUAL
+}
+
+// Clasificación de costo fijo/variable, usada por Punto de Equilibrio y
+// CVU. Se guarda en una tabla propia de este módulo (no en Account) a
+// propósito: Account es un modelo compartido por los otros 8 módulos, y
+// esta clasificación es un dato de opinión del usuario para efectos de
+// análisis, no un hecho contable — aislarla evita cualquier riesgo de
+// tocar un modelo que usan todos los demás módulos.
+enum CostBehavior {
+  FIXED
+  VARIABLE
+}
+
+model AnalysisCostClassification {
+  id              String        @id @default(cuid())
+  companyId       String
+  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  accountId       String        @unique
+  account         Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  costBehavior    CostBehavior
+  updatedByUserId String
+  updatedByUser   User          @relation(fields: [updatedByUserId], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([companyId])
+}
+
+// Config de automatización: como máximo 1 fila por empresa+tipo de
+// análisis. Si no existe fila, o existe con isEnabled=false, ese
+// análisis nunca corre solo (el usuario siempre puede correrlo manual).
+model AnalysisAutomationConfig {
+  id                String                @id @default(cuid())
+  companyId         String
+  company           Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  analysisType      AdvancedAnalysisType
+  isEnabled         Boolean               @default(false)
+  frequency         AnalysisFrequency?
+  // Parámetros por defecto que usa el job al correr solo (ej. rango de
+  // meses a comparar, número de escenario de sensibilidad). Forma libre
+  // a propósito: cada tipo de análisis define su propia forma, validada
+  // por Zod en el servicio, no por Prisma.
+  defaultParameters Json?
+  // Condición que dispara una alerta si el resultado la cumple — mismo
+  // árbol JSON seguro {all/any/{field,op,value}} de core/utils/conditionEvaluator,
+  // evaluado contra el numericResult del reporte recién generado.
+  alertCondition    Json?
+  lastRunAt         DateTime?
+  updatedByUserId   String
+  updatedByUser     User                  @relation(fields: [updatedByUserId], references: [id])
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@unique([companyId, analysisType])
+  @@index([companyId])
+}
+
+// Un reporte archivado — automático o manual. Las 6 partes obligatorias
+// quedan modeladas explícitamente, cada una su propio campo (nunca un
+// bloque de texto libre sin estructura), para que se puedan archivar,
+// buscar y volver a mostrar de forma consistente.
+model AnalysisReport {
+  id                String                @id @default(cuid())
+  companyId         String
+  company           Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  analysisType      AdvancedAnalysisType
+  triggerSource     AnalysisTriggerSource
+  triggeredByUserId String? // null si fue automático
+  triggeredByUser   User?                 @relation(fields: [triggeredByUserId], references: [id])
+  parameters        Json // parámetros reales usados al generar este reporte puntual (fechas, escenario, etc.)
+
+  // --- Las 6 partes obligatorias ---
+  numericResult        Json // 1) valor(es) calculado(s) — estructura propia por tipo de análisis
+  chartType            AnalysisChartType // 2) a/b/c, determinado por el motor según analysisType
+  chartData            Json // 2) serie de puntos ya lista para graficar (Recharts)
+  causeExplanation     String @db.Text // 3) "por qué dio este resultado"
+  simpleInterpretation String @db.Text // 4) qué significa, en lenguaje simple, sin jerga técnica
+  methodology          String @db.Text // 5) qué datos/fórmula se usaron, de qué módulo — para auditar
+  recommendations      Json // 6) array estructurado: [{text, quantifiedType: 'PERCENTAGE'|'AMOUNT'|'NONE', quantifiedValue, isPrimary}]
+
+  generatedAlertId String? // si disparó una alerta de core/alerts, la referencia (Alert.id)
+  createdAt        DateTime @default(now())
+
+  @@index([companyId, analysisType])
+  @@index([companyId, createdAt])
+}
+
+// Valores de referencia de industria — configurables solo por
+// Administrador (Análisis Avanzados, punto 15: no hay acceso a datos de
+// industria en tiempo real, así que es un valor manual de referencia).
+model AnalysisBenchmarkValue {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  metricKey       String // texto libre a propósito, ej. "current_ratio", "roe" — mismo criterio que widgetKey del Dashboard
+  label           String // nombre visible, ej. "Razón Corriente — promedio del sector"
+  industryValue   Decimal  @db.Decimal(18, 4)
+  unit            String? // "%", "x", "días" — solo para mostrar, no afecta el cálculo
+  updatedByUserId String
+  updatedByUser   User     @relation(fields: [updatedByUserId], references: [id])
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([companyId, metricKey])
+  @@index([companyId])
+}
+
+// ---- Vistas guardadas (Constructor de filtros visual) ----
+// El árbol de condiciones usa exactamente el mismo formato que
+// core/utils/conditionEvaluator.js ({all/any: [...]}, {field, op,
+// value}) — no se inventó un formato nuevo. Se filtra en el navegador
+// sobre los datos ya cargados de cada tabla (nunca en el backend), así
+// que este modelo solo guarda la definición del filtro, no resultados.
+// "Compartir" es simplemente el enlace `?vista=<id>`: cualquiera en la
+// misma empresa que ya tiene acceso a esa pantalla puede abrirlo — no
+// hay una lista de destinatarios ni un permiso nuevo que gestionar.
+model SavedView {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  tableKey        String // identifica qué tabla filtra, ej. "ar-invoices", "bank-transactions"
+  name            String
+  conditionTree   Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId, tableKey])
+}
+
+// Componente de tabla reutilizable (core/table-preferences): orden,
+// ancho y visibilidad de columnas, guardado por usuario y por tabla de
+// forma independiente — nunca compartido entre usuarios, a diferencia
+// de SavedView (que sí se comparte con un enlace). Una fila por
+// columna, mismo criterio que DashboardWidgetPreference (una fila por
+// widget) en vez de un solo JSON por tabla — más simple de consultar y
+// de fusionar con columnas nuevas que el código agregue después.
+model TableColumnPreference {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Identifica la tabla (ej. "ar-invoices", "bank-transactions") y la
+  // columna dentro de ella — ambos texto libre a propósito: los define
+  // el código de cada pantalla, agregar una columna nueva no debe pedir
+  // una migración.
+  tableKey  String
+  columnKey String
+  isVisible Boolean  @default(true)
+  width     Int? // ancho en píxeles; null = usar el ancho por defecto de la columna
+  order     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, tableKey, columnKey])
+  @@index([companyId, tableKey])
+}
+
+// Autocompletado con búsqueda difusa (frontend/src/core/ui/EntityAutocomplete.jsx):
+// registra cada vez que un usuario elige una cuenta/cliente/producto en
+// uno de estos campos, para poder mostrar "lo usado más recientemente
+// por ese usuario" primero — la búsqueda difusa en sí corre en el
+// navegador (misma decisión que el constructor de filtros: sin motor
+// de búsqueda nuevo en el backend), esta tabla solo guarda el ranking
+// de uso.
+model RecentlyUsedEntity {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // "account" | "customer" | "product" — texto libre, mismo criterio que
+  // TableColumnPreference.tableKey: lo define el código de cada campo,
+  // agregar un tipo de entidad nuevo no debe pedir una migración.
+  entityType String
+  entityId   String
+  useCount   Int      @default(1)
+  lastUsedAt DateTime @default(now())
+
+  @@unique([userId, entityType, entityId])
+  @@index([companyId, userId, entityType, lastUsedAt])
+}
+
+// Asistente de importación (drag-and-drop de CSV/Excel): guarda el
+// MAPEO de columnas elegido (qué encabezado del archivo corresponde a
+// qué campo del sistema), nunca los datos importados en sí — mismo
+// principio que SavedView (que guarda la definición del filtro, no los
+// datos filtrados). Compartido a nivel empresa (no por usuario, a
+// diferencia de TableColumnPreference): un mapeo de columnas para "mi
+// banco siempre exporta así" es útil para todo el equipo, no solo para
+// quien lo creó la primera vez.
+model ImportTemplate {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  targetKey       String // qué se está importando, ej. "ar-customers"
+  name            String
+  columnMapping   Json // { campoDelSistema: "Encabezado de columna del archivo" }
+  createdAt       DateTime @default(now())
+
+  @@index([companyId, targetKey])
+}
+
+// Estado de "contraído/expandido" de cualquier panel colapsable de la
+// app (core/panel-preferences), a propósito genérico y no atado a las
+// tarjetas de resumen ejecutivo de un módulo en particular — cualquier
+// panel futuro puede reutilizarla pasando su propia `panelKey`. Una
+// fila por usuario por panel, nunca compartida entre usuarios (mismo
+// criterio que TableColumnPreference): es una preferencia de
+// presentación personal, no un dato de negocio.
+model PanelCollapsePreference {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  panelKey    String
+  isCollapsed Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, panelKey])
+  @@index([companyId, panelKey])
+}
+
+// Última vista elegida (Lista/Kanban/Calendario) en una pantalla con
+// selector de vista — una fila por usuario por `viewKey`, mismo
+// criterio personal-no-compartido que PanelCollapsePreference y
+// TableColumnPreference. `viewKey` es texto libre a propósito (ej.
+// "treasury-payment-orders"), no un enum de base de datos, para que
+// una pantalla nueva pueda sumarse sin migración.
+model ViewModePreference {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  viewKey   String
+  mode      String   @default("LIST") // LIST | KANBAN | CALENDAR
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, viewKey])
+  @@index([companyId, viewKey])
+}
+
+// Reportes y vistas filtradas anclados al menú lateral (Feature K de
+// la tercera lista pedida por el usuario) — una fila por usuario por
+// ruta anclada, nunca compartida (mismo criterio personal que
+// PanelCollapsePreference/ViewModePreference). `path` es la ruta real
+// de navegación (incluye el query string cuando ancla una vista
+// filtrada, ej. "/cuentas/facturas-venta?vista=abc123"), así que
+// abrir el ítem anclado lleva exactamente a lo que el usuario ancló,
+// filtro incluido. `visitCount`/`lastVisitedAt` alimentan el
+// ordenamiento automático por frecuencia real de uso (la innovación
+// pedida explícitamente), no algo que el usuario configure a mano.
+model PinnedItem {
+  id            String    @id @default(cuid())
+  companyId     String
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  path          String
+  label         String
+  pinnedAt      DateTime  @default(now())
+  lastVisitedAt DateTime?
+  visitCount    Int       @default(0)
+
+  @@unique([userId, path])
+  @@index([companyId, userId])
+}
+
+// ---- Ayuda contextual (Feature Q) ----
+// El proyecto no tenía ningún "chatbot de soporte interno" — el pedido
+// lo daba por existente. Se resolvió con lo más simple que cumple lo
+// pedido sin inventar una integración de IA/LLM (que no existe en
+// ningún otro lugar del proyecto): un registro de preguntas que el
+// usuario escribe en el propio panel de ayuda, emparejadas contra el
+// catálogo de artículos con una función de coincidencia por palabras
+// clave (`help-matching.rules.js`, sin IA). Ese registro ES el
+// "historial de soporte" que la innovación pedida consulta: si el
+// usuario ya preguntó algo relacionado a este mismo módulo antes, se
+// le muestra esa respuesta primero.
+model SupportQuestion {
+  id               String   @id @default(cuid())
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moduleKey        String
+  questionText     String
+  matchedArticleId String?
+  createdAt        DateTime @default(now())
+
+  @@index([companyId, userId, moduleKey])
+}

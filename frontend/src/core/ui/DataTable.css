@@ -1,0 +1,127 @@
+.ui-datatable-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ui-datatable-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.ui-datatable-config {
+  position: relative;
+}
+
+.ui-datatable-config-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ui-datatable-config-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.ui-datatable-export {
+  position: relative;
+}
+
+.ui-datatable-export-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 120px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ui-datatable-export-menu button {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.ui-datatable-export-menu button:hover {
+  background: var(--color-surface);
+}
+
+.ui-datatable-scroll {
+  overflow-x: auto;
+}
+
+.ui-datatable {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.ui-datatable th {
+  position: relative;
+  cursor: grab;
+  user-select: none;
+  padding-right: 16px !important;
+  overflow: hidden;
+}
+
+.ui-datatable th:active {
+  cursor: grabbing;
+}
+
+.ui-datatable-th-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-datatable-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.ui-datatable-resize-handle:hover {
+  background: rgba(var(--color-silver-rgb), 0.3);
+}
+
+/* A la celda no se le fuerza "overflow: hidden" — a diferencia del
+   encabezado (siempre texto simple), una celda puede tener un botón, un
+   Sello de Estado o la Etiqueta de Vencimiento adentro; recortarla con
+   elipsis los cortaría a la mitad. Si el contenido no cabe en el ancho
+   elegido, se envuelve a la siguiente línea en vez de perderse. */
+.ui-datatable td {
+  word-break: break-word;
+}

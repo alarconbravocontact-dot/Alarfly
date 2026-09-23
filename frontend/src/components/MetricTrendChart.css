@@ -1,0 +1,8 @@
+.metric-trend-chart {
+  overflow-x: auto;
+}
+
+.metric-trend-chart-label {
+  font-size: 10px;
+  fill: var(--color-text-secondary);
+}

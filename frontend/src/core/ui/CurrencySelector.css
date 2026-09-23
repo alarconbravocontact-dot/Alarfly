@@ -1,0 +1,15 @@
+.currency-selector {
+  display: inline-flex;
+  align-items: center;
+}
+
+.currency-selector select {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+}

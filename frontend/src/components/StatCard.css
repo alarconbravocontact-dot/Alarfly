@@ -1,0 +1,76 @@
+.stat-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.stat-card-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-3);
+}
+
+.stat-card-value {
+  display: inline-block;
+  font-family: var(--font-family-serif);
+  font-size: var(--text-hero);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--color-silver);
+}
+
+.stat-card-value--positive {
+  color: var(--color-positive);
+  border-bottom-color: var(--color-positive);
+}
+
+.stat-card-value--negative {
+  color: var(--color-negative);
+  border-bottom-color: var(--color-negative);
+}
+
+.stat-card-value--warning {
+  color: var(--color-warning);
+  border-bottom-color: var(--color-warning);
+}
+
+.stat-card-hint {
+  margin-top: var(--space-2);
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+
+.stat-card-error {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.stat-card-skeleton {
+  height: 34px;
+  width: 60%;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-raised) 25%,
+    var(--color-surface-hover) 37%,
+    var(--color-surface-raised) 63%
+  );
+  background-size: 400% 100%;
+  animation: stat-shimmer 1.4s ease infinite;
+}
+
+@keyframes stat-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}

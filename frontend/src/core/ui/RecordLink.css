@@ -1,0 +1,50 @@
+.record-link-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.record-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--color-silver-strong, var(--color-silver));
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.record-link:hover {
+  color: var(--color-silver);
+  text-decoration-style: solid;
+}
+
+.record-link-popover {
+  position: absolute;
+  z-index: 60;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  max-width: 320px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  white-space: normal;
+}
+
+.record-link-popover-title {
+  font-weight: 700;
+  font-size: var(--text-xs, 0.8125rem);
+  margin-bottom: 2px;
+}
+
+.record-link-popover-line {
+  font-size: var(--text-2xs, 0.75rem);
+  color: var(--color-text-secondary);
+}

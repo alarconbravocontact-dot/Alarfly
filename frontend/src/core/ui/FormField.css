@@ -1,0 +1,10 @@
+.required-asterisk {
+  color: var(--color-negative);
+  font-weight: 700;
+}
+
+.required-fields-note {
+  font-size: var(--text-xs, 0.8125rem);
+  color: var(--color-text-secondary);
+  margin-top: 12px;
+}

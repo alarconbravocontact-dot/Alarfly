@@ -1,0 +1,17 @@
+@keyframes ui-skeleton-shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+.ui-skeleton {
+  display: inline-block;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--color-surface-raised) 25%, var(--color-surface-hover) 50%, var(--color-surface-raised) 75%);
+  background-size: 400px 100%;
+  animation: ui-skeleton-shimmer 1.4s ease-in-out infinite;
+}

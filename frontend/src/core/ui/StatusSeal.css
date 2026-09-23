@@ -1,0 +1,41 @@
+.ui-seal {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.ui-seal-ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 2px double currentColor;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.ui-seal-positive {
+  color: var(--color-positive);
+}
+
+.ui-seal-warning {
+  color: var(--color-warning);
+}
+
+.ui-seal-negative {
+  color: var(--color-negative);
+}
+
+.ui-seal-neutral {
+  color: var(--color-text-muted);
+}
+
+.ui-seal-label {
+  color: var(--color-text-primary);
+}

@@ -1,0 +1,14 @@
+.ui-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ui-icon {
+  flex-shrink: 0;
+}
+
+.ui-icon-label {
+  font-size: var(--text-xs, 0.8125rem);
+  white-space: nowrap;
+}

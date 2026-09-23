@@ -200,4 +200,9 @@ module.exports = {
   listTreasuryAccounts,
   getTreasuryAccount,
   getConsolidatedCashPosition,
+  // Fase 5: expuesta para que la capa de lectura consolidada
+  // (modules/finance) pueda convertir otros montos en moneda extranjera
+  // (ej. Debt.outstandingBalance) a moneda base con el MISMO criterio
+  // que ya usa la posición de caja — nunca una segunda rutina de FX.
+  convertToBase,
 };

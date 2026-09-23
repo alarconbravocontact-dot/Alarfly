@@ -1189,6 +1189,14 @@ model ReconciliationMatch {
   matchedByUser     User?       @relation(fields: [matchedByUserId], references: [id])
   matchedAt         DateTime    @default(now())
 
+  // Fase 5: distingue el único caso que además de emparejar TAMBIÉN
+  // generó un asiento nuevo y descontó/sumó TreasuryAccount.currentBalance
+  // (matchWithNewEntry) de los otros dos (runAutomaticMatching/manualMatch,
+  // que solo emparejan contra un asiento YA existente, sin tocar el
+  // saldo) — sin esto, reverseMatch no puede saber si al deshacer debe
+  // también reversar el asiento y el saldo, o solo desemparejar.
+  generatedNewEntry Boolean @default(false)
+
   @@index([reconciliationId])
   @@index([bankTransactionId])
 }

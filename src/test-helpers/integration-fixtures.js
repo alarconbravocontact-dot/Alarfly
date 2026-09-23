@@ -53,13 +53,13 @@ async function createOpenPeriod(companyId) {
   });
 }
 
-async function createTreasuryAccount(companyId, glAccountId, currentBalance = 0) {
+async function createTreasuryAccount(companyId, glAccountId, currentBalance = 0, currency = 'USD') {
   return prisma.treasuryAccount.create({
     data: {
       companyId,
       type: 'BANK_ACCOUNT',
       name: unique('Banco de prueba'),
-      currency: 'USD',
+      currency,
       glAccountId,
       currentBalance,
     },
@@ -246,6 +246,20 @@ async function buildTreasuryScenario() {
 // para respetar las FKs (cascada explícita, sin depender de onDelete en
 // modelos que no la tienen).
 async function cleanupCompany(companyId) {
+  // Fase 5: Órdenes de Pago/Deuda antes que nada — PaymentOrderBillApplication.apBillId
+  // y Debt.treasuryAccountId/liabilityAccountId/interestExpenseAccountId
+  // son RESTRICT, así que tienen que borrarse antes que ApBill/Account/
+  // TreasuryAccount, que se borran más abajo.
+  await prisma.paymentApproval.deleteMany({ where: { paymentOrder: { companyId } } });
+  await prisma.paymentOrderBillApplication.deleteMany({ where: { paymentOrder: { companyId } } });
+  await prisma.paymentOrder.deleteMany({ where: { companyId } });
+  await prisma.paymentBatch.deleteMany({ where: { companyId } });
+  await prisma.paymentApprovalLevel.deleteMany({ where: { rule: { companyId } } });
+  await prisma.paymentApprovalRule.deleteMany({ where: { companyId } });
+  await prisma.debtMovement.deleteMany({ where: { debt: { companyId } } });
+  await prisma.debtInstallment.deleteMany({ where: { debt: { companyId } } });
+  await prisma.debt.deleteMany({ where: { companyId } });
+
   await prisma.reconciliationMatch.deleteMany({ where: { reconciliation: { companyId } } });
   await prisma.bankReconciliation.deleteMany({ where: { companyId } });
   await prisma.bankTransaction.deleteMany({ where: { companyId } });

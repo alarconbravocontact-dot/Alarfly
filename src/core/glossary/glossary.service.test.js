@@ -1,21 +1,13 @@
-jest.mock('../database/prisma', () => ({
-  apBill: { findMany: jest.fn() },
-}));
 jest.mock('../../modules/fpa/services/kpis.service', () => ({
   getEbitda: jest.fn(),
   getBurnRateAndRunway: jest.fn(),
 }));
-jest.mock('../../modules/treasury/services/treasury-accounts.service', () => ({
-  getConsolidatedCashPosition: jest.fn(),
-}));
-jest.mock('../../modules/accounts-receivable/services/executive-summary.service', () => ({
-  getExecutiveSummary: jest.fn(),
+jest.mock('../../modules/finance/services/finance-summary.service', () => ({
+  getFinanceSummary: jest.fn(),
 }));
 
-const prisma = require('../database/prisma');
 const kpisService = require('../../modules/fpa/services/kpis.service');
-const treasuryAccountsService = require('../../modules/treasury/services/treasury-accounts.service');
-const arExecutiveSummaryService = require('../../modules/accounts-receivable/services/executive-summary.service');
+const financeSummaryService = require('../../modules/finance/services/finance-summary.service');
 const glossaryService = require('./glossary.service');
 
 describe('glossary.service', () => {
@@ -49,28 +41,27 @@ describe('glossary.service', () => {
     expect(result.value).toBe('1234.56');
   });
 
-  test('getLiveValue de "accounts-receivable" reutiliza el resumen ejecutivo de AR', async () => {
-    arExecutiveSummaryService.getExecutiveSummary.mockResolvedValue({ totalReceivable: { value: '863.75' } });
+  // Fase 5: los 3 casos de abajo pasan ahora por la capa de lectura
+  // consolidada (modules/finance) en vez de importar cada uno su
+  // propio servicio de Tesorería/AR/AP directo — ver la decisión
+  // documentada en glossary.service.js.
+  test('getLiveValue de "accounts-receivable" reutiliza el resumen financiero consolidado', async () => {
+    financeSummaryService.getFinanceSummary.mockResolvedValue({ totalReceivable: '863.75' });
     const result = await glossaryService.getLiveValue('c1', 'accounts-receivable');
-    expect(arExecutiveSummaryService.getExecutiveSummary).toHaveBeenCalledWith('c1');
+    expect(financeSummaryService.getFinanceSummary).toHaveBeenCalledWith('c1');
     expect(result.value).toBe('863.75');
   });
 
-  test('getLiveValue de "liquidity-cushion" reutiliza la posición de caja consolidada de Tesorería', async () => {
-    treasuryAccountsService.getConsolidatedCashPosition.mockResolvedValue({ liquidityCushion: '5000.00', baseCurrency: 'USD' });
+  test('getLiveValue de "liquidity-cushion" reutiliza el resumen financiero consolidado', async () => {
+    financeSummaryService.getFinanceSummary.mockResolvedValue({ availableLiquidity: '5000.00', baseCurrency: 'USD' });
     const result = await glossaryService.getLiveValue('c1', 'liquidity-cushion');
     expect(result).toMatchObject({ value: '5000.00', currency: 'USD' });
   });
 
-  test('getLiveValue de "accounts-payable" suma el saldo abierto de facturas de compra, aislado por empresa', async () => {
-    prisma.apBill.findMany.mockResolvedValue([
-      { totalAmount: '100.00', paidAmount: '40.00' },
-      { totalAmount: '50.00', paidAmount: '0.00' },
-    ]);
+  test('getLiveValue de "accounts-payable" reutiliza el resumen financiero consolidado', async () => {
+    financeSummaryService.getFinanceSummary.mockResolvedValue({ totalPayable: '110.00' });
     const result = await glossaryService.getLiveValue('c1', 'accounts-payable');
-    expect(prisma.apBill.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { companyId: 'c1', status: { in: ['OPEN', 'PARTIALLY_PAID'] } } })
-    );
+    expect(financeSummaryService.getFinanceSummary).toHaveBeenCalledWith('c1');
     expect(result.value).toBe('110.00');
   });
 });

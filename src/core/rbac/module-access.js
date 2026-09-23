@@ -20,6 +20,13 @@ const MODULE_ROLES = {
   reports: ['ADMIN', 'FINANCE'],
   'business-metrics': ['ADMIN', 'FINANCE'],
   'advanced-analytics': ['ADMIN', 'ACCOUNTANT', 'FINANCE'],
+  // Fase 5: "Finanzas" es la puerta consolidada de entrada (Resumen,
+  // Dinero, Cobros, Pagos, CxC, CxP, Financiamiento, Liquidez) — se
+  // abre a los 4 roles a propósito, porque cada pieza que consolida ya
+  // tiene su propio gate más fino debajo (treasury/accounting/
+  // accounts-receivable/accounts-payable), este es solo el "primer
+  // portón" del que habla el comentario de arriba del archivo.
+  finance: ['ADMIN', 'COLLABORATOR', 'ACCOUNTANT', 'FINANCE'],
 };
 
 function rolesForModule(moduleKey) {

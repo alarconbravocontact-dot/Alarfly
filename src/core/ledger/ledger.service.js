@@ -225,7 +225,13 @@ async function deleteDraft(companyId, entryId, userId) {
 
 // Un asiento aprobado nunca se edita ni se borra: se reversa creando
 // OTRO asiento con débitos y créditos invertidos, ligado al original.
-async function reverseEntry(companyId, entryId, userId, { date, description } = {}) {
+// `tx` (Fase 5 — Unit of Work, mismo patrón ya usado en createEntry/
+// createExit/createInvoice/createBill): opcional. Lo usa
+// treasury/reconciliation.service.reverseMatch para que reversar el
+// asiento auto-generado por una conciliación y ajustar
+// TreasuryAccount.currentBalance queden en una sola transacción. Si no
+// se pasa, se comporta igual que siempre (abre su propia transacción).
+async function reverseEntry(companyId, entryId, userId, { date, description } = {}, tx = null) {
   const original = await prisma.journalEntry.findFirst({
     where: { id: entryId, companyId },
     include: { lines: { include: { dimensionTags: true }, orderBy: { order: 'asc' } } },
@@ -244,7 +250,7 @@ async function reverseEntry(companyId, entryId, userId, { date, description } = 
   const period = await periodLockService.getPeriodForDate(companyId, reversalDate);
   assertPeriodOpen(period);
 
-  return prisma.$transaction(async (tx) => {
+  return withTransaction(async (tx) => {
     const entryNumber = await getNextEntryNumber(tx, companyId);
 
     const reversal = await tx.journalEntry.create({
@@ -296,7 +302,7 @@ async function reverseEntry(companyId, entryId, userId, { date, description } = 
     );
 
     return reversal;
-  });
+  }, tx);
 }
 
 async function getEntry(companyId, entryId) {

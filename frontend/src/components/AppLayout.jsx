@@ -5,6 +5,7 @@ import { usePinnedItems } from '../context/PinnedItemsContext';
 import { accessLevelsApi } from '../api/access-levels';
 import { panelPreferencesApi } from '../api/panel-preferences';
 import {
+  FINANCE_TABS,
   ACCOUNTING_TABS,
   TREASURY_TABS,
   AR_AP_TABS,
@@ -28,6 +29,12 @@ const SIDEBAR_PANEL_KEY = 'app-sidebar';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Panel principal', icon: '◆', end: true },
+  // Fase 5: la puerta consolidada — Tesorería/Contabilidad/Cuentas por
+  // Cobrar y Pagar siguen existiendo tal cual abajo (técnicamente nada
+  // se fusionó ni se quitó), Finanzas es el atajo para quien solo
+  // quiere pensar "cuánto tengo/me deben/debo" sin saber cuál módulo
+  // técnico lo resuelve.
+  { to: '/finanzas', label: 'Finanzas', icon: '◈', subItems: FINANCE_TABS },
   { to: '/contabilidad', label: 'Contabilidad', icon: '⊞', subItems: ACCOUNTING_TABS },
   { to: '/tesoreria', label: 'Tesorería', icon: '⊟', subItems: TREASURY_TABS },
   { to: '/cuentas', label: 'Cuentas por Cobrar y Pagar', icon: '⊠', subItems: AR_AP_TABS },

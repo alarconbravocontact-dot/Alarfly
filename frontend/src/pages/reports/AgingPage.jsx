@@ -15,8 +15,13 @@ const BUCKET_LABELS = {
 };
 const BUCKET_ORDER = ['CURRENT', 'DAYS_1_30', 'DAYS_31_60', 'DAYS_61_90', 'DAYS_90_PLUS'];
 
-export default function AgingPage() {
-  const [mode, setMode] = useState('receivables');
+// Fase 5 (Finanzas): `initialMode` opcional — reutilizado tal cual
+// desde /finanzas/cxc (receivables, el default de siempre) y
+// /finanzas/cxp (payables), sin duplicar este componente. Reportes
+// sigue usándolo sin pasar la prop, con el mismo comportamiento de
+// antes.
+export default function AgingPage({ initialMode = 'receivables' }) {
+  const [mode, setMode] = useState(initialMode);
   const [asOfDate, setAsOfDate] = useState(toIsoDate(new Date()));
   const [result, setResult] = useState(null);
   const [isLoading, setIsLoading] = useState(false);

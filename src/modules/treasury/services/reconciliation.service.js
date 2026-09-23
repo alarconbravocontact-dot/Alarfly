@@ -276,6 +276,7 @@ async function matchWithNewEntry(companyId, reconciliationId, userId, { bankTran
         journalEntryLineId: glAccountLine.id,
         matchType: 'MANUAL',
         matchedByUserId: userId,
+        generatedNewEntry: true,
       },
     });
     await tx.bankTransaction.update({
@@ -302,9 +303,24 @@ async function matchWithNewEntry(companyId, reconciliationId, userId, { bankTran
   });
 }
 
+// Deshacer un emparejamiento (punto 11 de Fase 5). Dos casos, según
+// cómo se haya creado el match (ver `generatedNewEntry`):
+//  - Emparejó contra un asiento YA EXISTENTE (runAutomaticMatching/
+//    manualMatch): ese asiento nunca tocó TreasuryAccount.currentBalance
+//    ni lo generó esta conciliación — deshacer el match solo desemparaja,
+//    el asiento sigue existiendo tal cual (es de otro origen, ej. un
+//    ArPayment real).
+//  - Generó un asiento NUEVO (matchWithNewEntry), que SÍ ajustó
+//    currentBalance en el momento del match: deshacerlo debe reversar
+//    ese asiento (vía core/ledger.reverseEntry, nunca editar/borrar el
+//    original) Y devolver currentBalance exactamente a como estaba —
+//    todo en una sola transacción, con una reversión doble bloqueada de
+//    forma atómica (updateMany condicionado al estado ACTIVE, no un
+//    read-then-write separado que pueda perder una carrera).
 async function reverseMatch(companyId, reconciliationId, userId, matchId) {
   const match = await prisma.reconciliationMatch.findFirst({
     where: { id: matchId, reconciliationId, reconciliation: { companyId } },
+    include: { bankTransaction: true, journalEntryLine: true },
   });
   if (!match) {
     throw new AppError('El emparejamiento indicado no existe.', 404, 'MATCH_NOT_FOUND');
@@ -314,11 +330,44 @@ async function reverseMatch(companyId, reconciliationId, userId, matchId) {
   }
 
   return prisma.$transaction(async (tx) => {
-    const updated = await tx.reconciliationMatch.update({ where: { id: matchId }, data: { status: 'REVERSED' } });
+    // Reclamo atómico: si otra petición ya lo reversó entre el `findFirst`
+    // de arriba y este punto, `count` da 0 y se rechaza — nunca dos
+    // reversiones aplicadas sobre el mismo match.
+    const claim = await tx.reconciliationMatch.updateMany({
+      where: { id: matchId, status: 'ACTIVE' },
+      data: { status: 'REVERSED' },
+    });
+    if (claim.count === 0) {
+      throw new AppError('Este emparejamiento ya fue deshecho.', 409, 'ALREADY_REVERSED');
+    }
+
     await tx.bankTransaction.update({
       where: { id: match.bankTransactionId },
       data: { status: 'UNMATCHED', matchedJournalEntryLineId: null },
     });
+
+    let reversalEntry = null;
+    if (match.generatedNewEntry) {
+      reversalEntry = await ledgerService.reverseEntry(
+        companyId,
+        match.journalEntryLine.journalEntryId,
+        userId,
+        { date: new Date(), description: `Reverso por deshacer conciliación (movimiento ${match.bankTransactionId})` },
+        tx
+      );
+
+      const isInflow = Number(match.bankTransaction.amount) >= 0;
+      const amount = Math.abs(Number(match.bankTransaction.amount));
+      await tx.treasuryAccount.update({
+        where: { id: match.bankTransaction.treasuryAccountId },
+        // Exactamente lo opuesto de lo que hizo matchWithNewEntry al
+        // crear este match — nunca se recalcula el saldo desde cero.
+        data: { currentBalance: isInflow ? { decrement: amount } : { increment: amount } },
+      });
+    }
+
+    const updated = await tx.reconciliationMatch.findUnique({ where: { id: matchId } });
+
     await auditService.log(
       {
         companyId,
@@ -327,7 +376,7 @@ async function reverseMatch(companyId, reconciliationId, userId, matchId) {
         entityType: 'ReconciliationMatch',
         entityId: matchId,
         oldValue: { status: 'ACTIVE' },
-        newValue: { status: 'REVERSED' },
+        newValue: { status: 'REVERSED', reversedJournalEntryId: reversalEntry?.id || null },
       },
       tx
     );

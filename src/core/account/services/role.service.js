@@ -18,6 +18,7 @@ const MODULE_LABELS = {
   reports: 'Reportes',
   'business-metrics': 'Métricas del Negocio',
   sales: 'Ventas',
+  finance: 'Finanzas',
 };
 
 async function getMyRoleAndPermissions(userId, role) {

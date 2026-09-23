@@ -88,12 +88,29 @@ export const SALES_TABS = [
   { to: '/ventas/entregas', label: 'Entregas' },
 ];
 
+// Fase 5 (Finanzas): "Resumen" primero a propósito — es la respuesta
+// directa a "¿cuánto dinero tengo?", antes de cualquier detalle. La
+// mayoría de las demás pestañas reutilizan una pantalla YA existente de
+// Tesorería/AR/AP/Reportes (ver App.jsx) — no son pantallas nuevas.
+export const FINANCE_TABS = [
+  { to: '/finanzas/resumen', label: 'Resumen' },
+  { to: '/finanzas/dinero', label: 'Dinero' },
+  { to: '/finanzas/cobros', label: 'Cobros' },
+  { to: '/finanzas/pagos', label: 'Pagos' },
+  { to: '/finanzas/cxc', label: 'Cuentas por Cobrar' },
+  { to: '/finanzas/cxp', label: 'Cuentas por Pagar' },
+  { to: '/finanzas/financiamiento', label: 'Financiamiento' },
+  { to: '/finanzas/liquidez', label: 'Liquidez' },
+  { to: '/finanzas/contabilidad-avanzada', label: 'Contabilidad Avanzada' },
+];
+
 // Prefijo de ruta → moduleKey del backend (los mismos strings que ya
 // usa `core/rbac/module-access.js`) — única fuente de verdad para que
 // el botón de ayuda contextual (Feature Q) sepa en qué módulo está el
 // usuario sin duplicar esta lista en otro lugar. Ordenado del más
 // específico al más genérico porque se recorre con `startsWith`.
 export const ROUTE_MODULE_KEYS = [
+  { prefix: '/finanzas', moduleKey: 'finance' },
   { prefix: '/contabilidad', moduleKey: 'accounting' },
   { prefix: '/tesoreria', moduleKey: 'treasury' },
   { prefix: '/cuentas', moduleKey: 'accounts-receivable' },

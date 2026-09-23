@@ -3,6 +3,9 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import AppLayout from './components/AppLayout';
 import ProtectedRoute from './components/ProtectedRoute';
+import FinanzasLayout from './pages/finance/FinanzasLayout';
+import ResumenPage from './pages/finance/ResumenPage';
+import ContabilidadAvanzadaPage from './pages/finance/ContabilidadAvanzadaPage';
 import AccountingLayout from './pages/accounting/AccountingLayout';
 import ChartOfAccountsPage from './pages/accounting/ChartOfAccountsPage';
 import JournalEntriesPage from './pages/accounting/JournalEntriesPage';
@@ -86,6 +89,18 @@ function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route path="/" element={<DashboardPage />} />
+          <Route path="/finanzas" element={<FinanzasLayout />}>
+            <Route index element={<Navigate to="resumen" replace />} />
+            <Route path="resumen" element={<ResumenPage />} />
+            <Route path="dinero" element={<CashPositionPage />} />
+            <Route path="cobros" element={<ArPaymentsPage />} />
+            <Route path="pagos" element={<ApPaymentsPage />} />
+            <Route path="cxc" element={<AgingPage initialMode="receivables" />} />
+            <Route path="cxp" element={<AgingPage initialMode="payables" />} />
+            <Route path="financiamiento" element={<DebtsPage />} />
+            <Route path="liquidez" element={<LiquidityForecastPage />} />
+            <Route path="contabilidad-avanzada" element={<ContabilidadAvanzadaPage />} />
+          </Route>
           <Route path="/contabilidad" element={<AccountingLayout />}>
             <Route index element={<Navigate to="cuentas" replace />} />
             <Route path="cuentas" element={<ChartOfAccountsPage />} />

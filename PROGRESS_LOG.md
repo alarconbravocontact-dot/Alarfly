@@ -1076,3 +1076,268 @@ ya existía completo antes de esta fase y NO se tocó, tal como exigía la
 sección 22 del prompt. `ApPayment`/`PaymentOrder`/`ArPayment`/`Debt`
 siguen sin unificarse (mismo pendiente heredado de Fase 1, fuera de
 alcance otra vez).
+
+## Fase 5 — Finanzas Integradas y Simplificadas
+
+### Objetivo de la fase
+
+Convertir la experiencia financiera fragmentada de Alarfly (Tesorería/
+Contabilidad/CxC/CxP/pagos/cobros/deuda/liquidez/conciliación, cada
+una en su propio módulo técnico) en una experiencia integrada,
+comprensible y orientada a decisiones bajo un solo paraguas
+"Finanzas" — **sin eliminar** los módulos técnicos subyacentes
+(Tesorería/Contabilidad/AR/AP/FP&A/Ledger siguen existiendo y siguen
+siendo accesibles tal cual). Regla explícita del prompt: no crear una
+segunda "capa financiera" paralela (ni un segundo Ledger, ni un
+segundo motor de pagos/tesorería/CxC/CxP/deuda/liquidez) — Fase 5 es
+sobre todo una capa de integración/orquestación/simplificación.
+
+### Mapa de auditoría inicial (antes de tocar nada)
+
+Auditados exhaustivamente antes de escribir código: Tesorería (9
+puntos, incluido el pendiente heredado de `reverseMatch` sin revertir
+saldo), Contabilidad (Ledger, periodos, dimensiones), CxC/AR (facturas,
+cobros, notas, cobranza escalonada), CxP/AP (facturas, pagos, notas),
+Financiamiento (`Debt`/`DebtInstallment`/`DebtMovement`), FX
+(`Company.baseCurrency`/`ExchangeRate`/snapshot BCV), Auditoría
+(`core/audit`), RBAC (`core/rbac/module-access.js`), y el frontend
+(layouts, rutas, componentes reutilizables existentes:
+`ModuleBreadcrumb`, `moduleTabs.js`, `StatCard`, `AgingPage`,
+`CashPositionPage`, `LiquidityForecastPage`, `DebtsPage`).
+
+Hallazgo central de la auditoría (sección 40 del prompt): la única
+"capa de lectura consolidada" que ya existía en el proyecto era
+`core/glossary/glossary.service.js`, que **invertía la dirección de
+dependencia correcta** — importaba directo `modules/fpa`,
+`modules/treasury` y `modules/accounts-receivable` (y para
+`accounts-payable` ni siquiera reutilizaba un servicio: hacía su
+propia consulta Prisma duplicada, `getAccountsPayableTotal`, ad hoc
+dentro del propio glosario). El patrón correcto, que ya usa
+`modules/reports` como precedente real en el proyecto, es
+`Módulos operativos → Capa de lectura/consolidación → Finanzas/
+Dashboard/Analítica` — nunca al revés, y la capa consolidada nunca
+debe convertirse en una segunda fuente de verdad.
+
+Segundo hallazgo real (sección 11 del prompt, pendiente heredado
+documentado desde Fase 1): `reconciliation.service.reverseMatch`
+desemparejaba un movimiento bancario pero **nunca revertía el ajuste
+de saldo** que sí se había hecho al conciliar — un bug real de
+integridad de datos, no solo una limitación documentada. Se decidió
+corregirlo en Fase 5 (autorizado explícitamente por la sección 11 del
+prompt: "revisar y decidir si corresponde resolverlo").
+
+### Regla principal cumplida: reutilizar, no duplicar
+
+No se creó ningún motor nuevo de pagos, cobros, deuda o liquidez.
+Todo lo que ya existía (`ar-payments.service`, `ap-payments.service`,
+`payment-orders.service`, `debts.service`, `liquidity-forecast.service`,
+`payment-calendar.service`, `aging.service`) se **reutiliza tal cual**,
+tanto en el backend (la nueva `modules/finance` solo LEE, nunca
+escribe) como en el frontend (las pantallas de Finanzas son en su
+mayoría el mismo componente React ya existente, montado bajo una ruta
+nueva — cero componentes duplicados).
+
+Confirmado en la propia auditoría (sección 15 del prompt): la
+distinción Workflow vs. Ejecución vs. Conciliación de `PaymentOrder`
+**ya existe de forma natural** en el enum `PaymentOrderStatus`
+(DRAFT/PENDING_APPROVAL = workflow; APPROVED = ejecución, el asiento
+ya se posteó y el dinero ya salió; PAID, puesto solo por
+`payment-batches.service`, es una confirmación administrativa
+posterior separada) — no hizo falta ningún enum nuevo.
+
+### Qué se creó
+
+- **`ReconciliationMatch.generatedNewEntry`** (campo nuevo, migración
+  `20260923184448_finance_reconciliation_match_fix`): distingue el
+  único caso (`matchWithNewEntry`) donde un emparejamiento generó su
+  propio asiento y tocó `TreasuryAccount.currentBalance`, de los dos
+  casos (`runAutomaticMatching`/`manualMatch`) que solo emparejan
+  contra un asiento ya existente y nunca tocan el saldo.
+- **`reconciliation.service.reverseMatch` reescrito, atómico**: una
+  sola transacción; bloqueo de doble reversión con una `updateMany`
+  condicional (`WHERE status = 'ACTIVE'`) verificando `count` — nunca
+  lectura-luego-escritura, para que dos reversiones concurrentes del
+  mismo match no puedan colarse ambas; si `generatedNewEntry`, reversa
+  el asiento (vía `core/ledger.reverseEntry`, ahora con parámetro `tx`
+  opcional) Y ajusta `currentBalance` exactamente en la dirección
+  opuesta a como se ajustó al conciliar; si no, solo desempareja
+  (comportamiento sin cambios).
+- **`core/ledger.reverseEntry(..., tx = null)`**: extendido con un
+  quinto parámetro opcional usando el patrón Unit of Work ya
+  establecido (`withTransaction`), para que `reverseMatch` pueda
+  reversar el asiento y ajustar el saldo bancario dentro de la MISMA
+  transacción — sin tocar el único llamador existente
+  (`journal-entries.controller.js`, que nunca pasa `tx`).
+- **`treasury-accounts.service.convertToBase`**: exportada (antes
+  privada) para reutilizar exactamente la misma conversión FX que ya
+  usa la posición de caja consolidada, sin escribir una segunda rutina
+  de conversión para el total de deuda.
+- **`src/modules/finance/`** (nuevo, capa de lectura/consolidación
+  siguiendo el precedente de `modules/reports`):
+  `finance-summary.service.getFinanceSummary(companyId)` — arma
+  `cashOnHand`/`availableLiquidity` (posición de caja consolidada,
+  reutilizada de Tesorería), `totalReceivable`/`totalPayable`
+  (reutilizados de `aging.service`, la fuente canónica ya existente de
+  "cuánto me deben/debo"), `totalDebt` (solo préstamos, LOAN,
+  convertidos a moneda base con `convertToBase` — los `CREDIT_LINE` se
+  excluyen a propósito porque su cupo disponible ya está contado
+  dentro de `availableLiquidity`/`liquidityCushion`, contarlo de nuevo
+  duplicaría el mismo cupo con signo contrario), `committedPayments`
+  (solo `PaymentOrder` en `DRAFT`/`PENDING_APPROVAL` — las `APPROVED`
+  ya postearon su asiento y ya descontaron el saldo real, contarlas de
+  nuevo duplicaría contra `cashOnHand`), `expectedNearTermInflows`/
+  `expectedNearTermOutflows`/`firstNegativeWeek` (de
+  `liquidity-forecast.service`, sin recalcular nada), y
+  `missingExchangeRates` (honesto sobre qué monedas no se pudieron
+  convertir, en vez de fingir una tasa). Rutas: `GET /finance/summary`,
+  gateada por `requireAuth` + `requireModuleAccess('finance')`.
+- **`core/glossary/glossary.service.js` refactorizado**: ya no importa
+  directo `modules/fpa`/`modules/treasury`/`modules/accounts-receivable`
+  para Tesorería/CxC/CxP — los 3 casos (`liquidity-cushion`,
+  `accounts-receivable`, `accounts-payable`) ahora llaman a
+  `financeSummaryService.getFinanceSummary(companyId)`. El import de
+  `kpisService` (FP&A) se dejó tal cual, documentado como excepción
+  deliberada (FP&A no forma parte del alcance de Finanzas en esta
+  fase).
+- **`core/rbac/module-access.js`**: `finance: ['ADMIN', 'COLLABORATOR',
+  'ACCOUNTANT', 'FINANCE']` — puerta amplia de entrada; cada pantalla
+  reutilizada debajo conserva su propia puerta más angosta (ej. la
+  aprobación de pagos sigue exigiendo lo que ya exigía).
+- **Frontend — `frontend/src/pages/finance/`**: `FinanzasLayout.jsx`
+  (9 pestañas: Resumen/Dinero/Cobros/Pagos/Cuentas por Cobrar/Cuentas
+  por Pagar/Financiamiento/Liquidez/Contabilidad Avanzada) +
+  `ResumenPage.jsx` (la pantalla nueva de verdad: 8 `StatCard`
+  respondiendo directamente "¿cuánto tengo?/¿cuánto me deben?/¿cuánto
+  debo?/¿cuánto debo de financiamiento?/¿cuánto tengo comprometido?/
+  ¿cuánto espero cobrar y pagar pronto?", con enlaces a la pestaña
+  correspondiente y avisos condicionales de semana en riesgo/tasas
+  faltantes) + `ContabilidadAvanzadaPage.jsx` (enlaza a las 4 pantallas
+  de Contabilidad ya existentes, para quien necesite el detalle
+  Debe/Haber sin tener que saber que "Contabilidad" es otro módulo
+  técnico). Las otras 6 pestañas **reutilizan el mismo componente React
+  ya existente** bajo la nueva ruta (`CashPositionPage`,
+  `ArPaymentsPage`, `ApPaymentsPage`, `AgingPage` ×2 con el nuevo prop
+  opcional `initialMode`, `DebtsPage`, `LiquidityForecastPage`) — cero
+  componentes duplicados. Ítem "Finanzas" agregado al menú lateral,
+  justo después de "Panel principal", con Tesorería/Contabilidad/CxC-CxP
+  intactos y accesibles debajo tal cual estaban.
+
+### Tests
+
+5 tests nuevos de integración (`reconciliation-reverse.integration.test.js`,
+contra Postgres real): reversión exacta del saldo + reversión del
+asiento para un match que generó su propio asiento; doble reversión
+del mismo match rechazada (la segunda no mueve el saldo una segunda
+vez); aislamiento multiempresa (no se puede reversar el match de otra
+empresa); un match contra un asiento ya existente solo desempareja,
+nunca toca el saldo ni el asiento original; re-confirmación explícita
+de no-doble-conteo (mismo escenario que el test de Fase 1, para
+verificar que el rediseño de `reverseMatch` no reintrodujo el bug que
+Fase 1 corrigió). 2 tests nuevos de integración
+(`finance-summary.integration.test.js`): el resumen consolida montos
+reales de AR/AP/Deuda/Órdenes de pago, cada uno leído de su motor real
+(no recalculado); aislamiento multiempresa del resumen. `glossary.service.test.js`
+reescrito completo (7 tests, mismo total) para reflejar el nuevo mock
+de `financeSummaryService` en vez de los 3 mocks directos anteriores.
+
+`src/test-helpers/integration-fixtures.js` ganó `createTreasuryAccount`
+con parámetro opcional `currency` y un bloque nuevo de limpieza
+(`cleanupCompany`) para `PaymentApproval`/`PaymentOrderBillApplication`/
+`PaymentOrder`/`PaymentBatch`/`PaymentApprovalLevel`/`PaymentApprovalRule`/
+`DebtMovement`/`DebtInstallment`/`Debt` — ninguna fase anterior había
+creado tests de integración que tocaran estas tablas, así que la
+limpieza no existía; se agregó en el orden correcto de dependencias FK.
+
+**579 → 586 tests, sin regresiones** (94 suites, 586 passing). El resto
+del checklist de la sección 42 (Dinero múltiples cuentas/monedas,
+Cobros total/parcial/BCV, Pagos orden/aprobación, CxC/CxP vencimientos,
+Deuda desembolso/cuota/interés) ya estaba cubierto por los motores
+reutilizados sin modificar (`treasury-balance.integration.test.js` de
+Fase 1 para el doble conteo de saldo; `aging.rules.test.js`/
+`debt-schedule.rules.test.js`/`payment-approval.rules.test.js`/
+`liquidity-forecast.rules.test.js`/`payment-calendar.rules.test.js` ya
+existentes) — no se duplicó cobertura de lógica que Fase 5 no tocó,
+mismo criterio ya usado en fases anteriores para generalizaciones
+aditivas.
+
+### Verificación end-to-end
+
+`npx prisma validate` sin errores. `npm run lint` (backend) sin
+errores ni warnings. `npm run build` (frontend) sin errores (mismo
+warning preexistente de tamaño de chunk). `npm run lint` (frontend)
+sin warnings nuevos (mismos 8 `only-export-components` ya conocidos de
+los archivos de contexto). Verificado con Playwright contra los dos
+servidores reales y Postgres real: login, ítem "Finanzas" presente en
+el menú, las 9 rutas de `/finanzas/*` cargando con datos reales
+(Resumen con los 8 montos reales: caja 200,00 US$, por cobrar 410,00
+US$, por pagar 255,00 US$, entradas/salidas esperadas 410,00/255,00
+US$), `/finanzas/cxc` y `/finanzas/cxp` mostrando correctamente su
+propio modo por defecto (`initialMode`), `/finanzas/liquidez`
+mostrando la previsión real de 8 semanas, `/finanzas/financiamiento`
+reutilizando `DebtsPage` con su estado vacío correcto, y la ruta vieja
+`/tesoreria/cuentas` funcionando exactamente igual que antes (sin
+ninguna regresión). 0 errores de consola nuevos (los 13 observados son
+el bloqueo ya conocido de Google Fonts en el entorno de pruebas).
+
+### Pendientes documentados (no bloqueantes)
+
+1. `ApPayment`/`PaymentOrder`/`ArPayment`/`Debt` siguen sin unificarse
+   en un solo modelo — mismo pendiente heredado de Fase 1, fuera de
+   alcance otra vez (el prompt de Fase 5 pidió unificar la EXPERIENCIA,
+   no necesariamente los modelos de base de datos, sección 12).
+2. RBAC granular de Finanzas (capacidades finas tipo `view_money`,
+   `register_collection`, `approve_payment`) quedó documentado para una
+   futura Fase 11 (sección 32 del prompt lo pide explícitamente así) —
+   hoy la puerta de `finance` es amplia (los 4 roles entran), cada
+   pantalla reutilizada abajo conserva su propia puerta angosta ya
+   existente.
+3. El Dashboard final (Fase 9) y el rediseño visual global (Fase 10) no
+   se tocaron — Fase 5 solo preparó la fuente de datos consolidada
+   (`finance-summary.service`) que esas fases futuras pueden reutilizar
+   sin volver a calcular nada.
+4. `ApPayment` sigue sin admitir pago ligado a un movimiento bancario
+   real (`bankTransactionId`), a diferencia de `ArPayment` — pendiente
+   heredado de Fase 4, no tocado en esta fase.
+5. Todos los pendientes ya heredados de Fases 1-4 no resueltos acá:
+   inspección/calidad de devoluciones a proveedor, TOCTOU de período,
+   crons sin `lastRunAt` centralizado.
+
+### Qué debe recordar Fase 6
+
+**Heredado de Fases 1-4** (sin tocar, seguir usando): Unit of Work
+(`withTransaction`), `postEntry(data, tx)`, `core/audit.log(data, tx)`,
+`core/fx.getLatestRate`/snapshot BCV, `PaymentMethod` (core), los
+puntos de escritura reales del proyecto — ninguno se duplicó.
+
+**Construido en Fase 5** (reutilizar, no reconstruir):
+`modules/finance/services/finance-summary.service.getFinanceSummary(companyId)`
+es ahora la ÚNICA fuente consolidada de "cuánto tengo/me deben/debo/
+debo de financiamiento/tengo comprometido/espero cobrar y pagar
+pronto" — cualquier pantalla o módulo futuro que necesite estos
+números (el Dashboard de Fase 9, por ejemplo) debe llamar a este
+servicio, nunca recalcularlos ni volver a consultar `aging`/
+`liquidity-forecast`/`treasury-accounts` por separado para lo mismo.
+`reconciliation.service.reverseMatch` ya es atómico y correcto — no
+necesita revisión, y `ReconciliationMatch.generatedNewEntry` es el
+campo que cualquier lógica futura sobre conciliación debe leer para
+saber si un match tiene un asiento propio. `ledgerService.reverseEntry`
+ya acepta `tx` opcional — cualquier operación futura que necesite
+reversar un asiento dentro de una transacción más grande debe
+reutilizar este parámetro, no escribir una segunda función de
+reversión. El patrón de "pantalla de módulo técnico reutilizada bajo
+una ruta nueva sin duplicar el componente" (`FINANCE_TABS`, `App.jsx`)
+es el patrón a seguir para cualquier futura capa de integración
+similar.
+
+**Lo que NO debe reconstruirse**: un segundo Ledger, un segundo motor
+de pagos/cobros/deuda/liquidez/conciliación — los 6 ya existentes
+(`core/ledger`, `ar-payments.service`, `ap-payments.service`,
+`debts.service`, `liquidity-forecast.service`,
+`reconciliation.service`) siguen siendo los únicos. `modules/finance`
+es estrictamente de solo lectura — si Fase 6 necesita que Finanzas
+ESCRIBA algo nuevo, eso es una decisión de arquitectura que debe
+auditarse primero (mismo criterio de la sección 5 del prompt de Fase
+5), nunca asumir que `modules/finance` es un lugar válido para
+escritura solo porque ya existe.
+
+FASE 5 COMPLETA

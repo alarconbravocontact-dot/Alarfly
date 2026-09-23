@@ -3,15 +3,20 @@
 // servicios ya existentes y probados de otros módulos — nunca
 // recalcula nada, solo pregunta lo mismo que ya pregunta el Panel
 // principal o FP&A.
-const { Prisma } = require('@prisma/client');
-const prisma = require('../database/prisma');
+//
+// Fase 5: los 3 términos de dinero/CxC/CxP (antes cada uno importaba su
+// propio servicio de Tesorería/AR, y "accounts-payable" ni siquiera
+// tenía un servicio propio — armaba su propia consulta ad hoc acá
+// mismo, duplicando lo que reports/aging.service ya calculaba) ahora
+// pasan por la capa de lectura consolidada (modules/finance), que ya
+// junta esos mismos números reutilizando los mismos servicios de
+// siempre. `kpisService` (FP&A) se queda como está: no es un dato de
+// Tesorería/CxC/CxP, y `modules/finance` no tiene ninguna razón para
+// envolverlo.
 const AppError = require('../utils/AppError');
 const { TERMS, TERMS_BY_KEY } = require('./glossary-catalog');
 const kpisService = require('../../modules/fpa/services/kpis.service');
-const treasuryAccountsService = require('../../modules/treasury/services/treasury-accounts.service');
-const arExecutiveSummaryService = require('../../modules/accounts-receivable/services/executive-summary.service');
-
-const { Decimal } = Prisma;
+const financeSummaryService = require('../../modules/finance/services/finance-summary.service');
 
 function listTerms() {
   return TERMS.map(({ key, label, definition, hasLiveValue }) => ({ key, label, definition, hasLiveValue }));
@@ -22,15 +27,6 @@ function currentMonthRange() {
   const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
   return { from, to };
-}
-
-async function getAccountsPayableTotal(companyId) {
-  const bills = await prisma.apBill.findMany({
-    where: { companyId, status: { in: ['OPEN', 'PARTIALLY_PAID'] } },
-    select: { totalAmount: true, paidAmount: true },
-  });
-  const total = bills.reduce((sum, b) => sum.plus(new Decimal(b.totalAmount).minus(b.paidAmount)), new Decimal(0));
-  return total.toFixed(2);
 }
 
 async function getLiveValue(companyId, key) {
@@ -54,16 +50,16 @@ async function getLiveValue(companyId, key) {
       return { value: r.runwayMonths, unit: 'meses', label: 'Tu runway actual' };
     }
     case 'liquidity-cushion': {
-      const r = await treasuryAccountsService.getConsolidatedCashPosition(companyId);
-      return { value: r.liquidityCushion, currency: r.baseCurrency, label: 'Tu colchón de liquidez actual' };
+      const r = await financeSummaryService.getFinanceSummary(companyId);
+      return { value: r.availableLiquidity, currency: r.baseCurrency, label: 'Tu colchón de liquidez actual' };
     }
     case 'accounts-receivable': {
-      const r = await arExecutiveSummaryService.getExecutiveSummary(companyId);
-      return { value: r.totalReceivable.value, label: 'Tu total por cobrar ahora mismo' };
+      const r = await financeSummaryService.getFinanceSummary(companyId);
+      return { value: r.totalReceivable, label: 'Tu total por cobrar ahora mismo' };
     }
     case 'accounts-payable': {
-      const value = await getAccountsPayableTotal(companyId);
-      return { value, label: 'Tu total por pagar ahora mismo' };
+      const r = await financeSummaryService.getFinanceSummary(companyId);
+      return { value: r.totalPayable, label: 'Tu total por pagar ahora mismo' };
     }
     default:
       throw new AppError('Este término no tiene un valor en vivo para mostrar.', 400, 'GLOSSARY_TERM_HAS_NO_LIVE_VALUE');

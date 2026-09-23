@@ -5,6 +5,7 @@ const ledgerService = require('../../../core/ledger/ledger.service');
 const periodLockService = require('../../../core/period-lock/period-lock.service');
 const { assertPeriodOpen } = require('../../../core/period-lock/period-lock.rules');
 const { assertCanApproveExpense } = require('./petty-cash-approval.rules');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 
 async function createFund(companyId, userId, data) {
   const glAccount = await prisma.account.findFirst({ where: { id: data.glAccountId, companyId } });
@@ -103,22 +104,25 @@ async function decideExpense(companyId, expenseId, approverUserId, { decision, r
   const period = await periodLockService.getPeriodForDate(companyId, expense.expenseDate);
   assertPeriodOpen(period);
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: expense.expenseDate,
-    description: `Gasto de caja chica: ${expense.description}`,
-    lines: [
-      { accountId: expense.expenseGlAccountId, debit: Number(expense.amount), credit: 0 },
-      { accountId: expense.fund.glAccountId, debit: 0, credit: Number(expense.amount) },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'treasury',
-    sourceReference: expenseId,
-    createdByUserId: approverUserId,
-    autoApprove: true,
-  });
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: expense.expenseDate,
+        description: `Gasto de caja chica: ${expense.description}`,
+        lines: [
+          { accountId: expense.expenseGlAccountId, debit: Number(expense.amount), credit: 0 },
+          { accountId: expense.fund.glAccountId, debit: 0, credit: Number(expense.amount) },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'treasury',
+        sourceReference: expenseId,
+        createdByUserId: approverUserId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     const updated = await tx.pettyCashExpense.update({
       where: { id: expenseId },
       data: { status: 'APPROVED', approvedByUserId: approverUserId, approvedAt: new Date(), paidJournalEntryId: entry.id },
@@ -183,22 +187,25 @@ async function replenishFund(companyId, fundId, userId, amount, date) {
   const period = await periodLockService.getPeriodForDate(companyId, replenishDate);
   assertPeriodOpen(period);
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: replenishDate,
-    description: `Reposición de caja chica "${fund.name}"`,
-    lines: [
-      { accountId: fund.glAccountId, debit: Number(amount), credit: 0 },
-      { accountId: fund.treasuryAccount.glAccountId, debit: 0, credit: Number(amount) },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'treasury',
-    sourceReference: fundId,
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: replenishDate,
+        description: `Reposición de caja chica "${fund.name}"`,
+        lines: [
+          { accountId: fund.glAccountId, debit: Number(amount), credit: 0 },
+          { accountId: fund.treasuryAccount.glAccountId, debit: 0, credit: Number(amount) },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'treasury',
+        sourceReference: fundId,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     const updated = await tx.pettyCashFund.update({ where: { id: fundId }, data: { currentBalance: { increment: amount } } });
     await tx.treasuryAccount.update({ where: { id: fund.treasuryAccountId }, data: { currentBalance: { decrement: amount } } });
     await tx.pettyCashReplenishment.create({

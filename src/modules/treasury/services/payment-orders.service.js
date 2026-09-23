@@ -8,6 +8,7 @@ const { assertPeriodOpen } = require('../../../core/period-lock/period-lock.rule
 const arApSettingsService = require('../../../core/ar-ap-settings/ar-ap-settings.service');
 const { applyPaymentToBills } = require('../../accounts-payable/services/ap-bills.rules');
 const { findMatchingRule, assertCanApprove, nextApprovalLevel, isFullyApproved } = require('./payment-approval.rules');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 
 const { Decimal } = Prisma;
 
@@ -241,22 +242,28 @@ async function decideApproval(companyId, id, approverUserId, { decision, comment
     );
   }
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: order.scheduledDate,
-    description: `Pago a ${order.payeeName}: ${order.description}`,
-    lines: [
-      { accountId: order.glAccountId, debit: Number(order.amount), credit: 0 },
-      { accountId: order.treasuryAccount.glAccountId, debit: 0, credit: Number(order.amount) },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'treasury',
-    sourceReference: id,
-    createdByUserId: approverUserId,
-    autoApprove: true,
-  });
+  // Fase 1: el asiento, la aprobación final, el descuento del saldo de
+  // tesorería y el ApPayment derivado (si aplica) quedan en una sola
+  // transacción.
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: order.scheduledDate,
+        description: `Pago a ${order.payeeName}: ${order.description}`,
+        lines: [
+          { accountId: order.glAccountId, debit: Number(order.amount), credit: 0 },
+          { accountId: order.treasuryAccount.glAccountId, debit: 0, credit: Number(order.amount) },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'treasury',
+        sourceReference: id,
+        createdByUserId: approverUserId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     await tx.paymentApproval.create({
       data: { paymentOrderId: id, level, decision, comment, approvedByUserId: approverUserId },
     });

@@ -6,6 +6,7 @@ const ledgerService = require('../../../core/ledger/ledger.service');
 const taxRatesService = require('./tax-rates.service');
 const riskRulesService = require('./fiscal-risk-rules.service');
 const { buildFiscalTransactionLines } = require('./fiscal-transactions.rules');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 
 const { Decimal } = Prisma;
 
@@ -14,7 +15,13 @@ const { Decimal } = Prisma;
 // postea el asiento contable a través del motor de asientos de
 // Contabilidad — este servicio NUNCA escribe JournalEntry directo ni
 // vuelve a validar partida doble, eso ya lo hace core/ledger.
-async function createFiscalTransaction(companyId, userId, data) {
+//
+// `tx` (Fase 1 — Unit of Work): opcional. AR/AP lo pasan para que el
+// asiento, la FiscalTransaction y su propia factura queden en una sola
+// transacción (antes eran 3 transacciones independientes: Ledger,
+// FiscalTransaction, factura). Si no se pasa, se comporta igual que
+// siempre (abre su propia transacción).
+async function createFiscalTransaction(companyId, userId, data, tx = null) {
   const jurisdiction = await prisma.taxJurisdiction.findFirst({ where: { id: data.jurisdictionId, companyId } });
   if (!jurisdiction) {
     throw new AppError('La jurisdicción indicada no existe en esta empresa.', 400, 'JURISDICTION_NOT_FOUND');
@@ -96,19 +103,22 @@ async function createFiscalTransaction(companyId, userId, data) {
     withholdingAccountId,
   });
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: data.date,
-    description: data.description || `${data.type === 'SALE' ? 'Venta' : 'Compra'} fiscal — ${data.counterpartyName}`,
-    lines: lines.map((line) => ({ accountId: line.accountId, debit: line.debit.toNumber(), credit: line.credit.toNumber() })),
-    origin: 'AUTOMATIC',
-    sourceModule: 'fiscal',
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  async function run(client) {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: data.date,
+        description: data.description || `${data.type === 'SALE' ? 'Venta' : 'Compra'} fiscal — ${data.counterpartyName}`,
+        lines: lines.map((line) => ({ accountId: line.accountId, debit: line.debit.toNumber(), credit: line.credit.toNumber() })),
+        origin: 'AUTOMATIC',
+        sourceModule: 'fiscal',
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      client
+    );
 
-  return prisma.$transaction(async (tx) => {
-    const fiscalTransaction = await tx.fiscalTransaction.create({
+    const fiscalTransaction = await client.fiscalTransaction.create({
       data: {
         companyId,
         type: data.type,
@@ -128,7 +138,7 @@ async function createFiscalTransaction(companyId, userId, data) {
     });
 
     for (const warning of warnings) {
-      await tx.fiscalRiskAlert.create({
+      await client.fiscalRiskAlert.create({
         data: {
           companyId,
           ruleId: warning.id,
@@ -148,7 +158,7 @@ async function createFiscalTransaction(companyId, userId, data) {
           oldValue: null,
           newValue: { rule: warning.name },
         },
-        tx
+        client
       );
     }
 
@@ -162,11 +172,13 @@ async function createFiscalTransaction(companyId, userId, data) {
         oldValue: null,
         newValue: fiscalTransaction,
       },
-      tx
+      client
     );
 
     return { ...fiscalTransaction, warnings: warnings.map((rule) => rule.name) };
-  });
+  }
+
+  return withTransaction(run, tx);
 }
 
 async function getFiscalTransaction(companyId, id) {

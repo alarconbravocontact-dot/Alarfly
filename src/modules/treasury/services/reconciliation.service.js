@@ -236,29 +236,39 @@ async function matchWithNewEntry(companyId, reconciliationId, userId, { bankTran
   const isInflow = Number(bankTransaction.amount) >= 0;
   const amount = Math.abs(Number(bankTransaction.amount));
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: bankTransaction.date,
-    description: description || bankTransaction.description,
-    lines: isInflow
-      ? [
-          { accountId: glAccountId, debit: amount, credit: 0 },
-          { accountId: offsetAccountId, debit: 0, credit: amount },
-        ]
-      : [
-          { accountId: offsetAccountId, debit: amount, credit: 0 },
-          { accountId: glAccountId, debit: 0, credit: amount },
-        ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'treasury',
-    sourceReference: bankTransactionId,
-    createdByUserId: userId,
-    autoApprove: true,
-  });
-
-  const glAccountLine = entry.lines.find((line) => line.accountId === glAccountId);
-
+  // Fase 1 — Unit of Work: el asiento, el emparejamiento y el único
+  // incremento legítimo de TreasuryAccount.currentBalance por un
+  // movimiento bancario (este SÍ es dinero real sin ningún registro
+  // previo en Alarfly, a diferencia de la importación del extracto, que
+  // ya no toca el saldo — ver statement-import.service.js) quedan en la
+  // MISMA transacción: si algo falla, no queda ni asiento huérfano ni
+  // saldo actualizado sin su asiento.
   return prisma.$transaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: bankTransaction.date,
+        description: description || bankTransaction.description,
+        lines: isInflow
+          ? [
+              { accountId: glAccountId, debit: amount, credit: 0 },
+              { accountId: offsetAccountId, debit: 0, credit: amount },
+            ]
+          : [
+              { accountId: offsetAccountId, debit: amount, credit: 0 },
+              { accountId: glAccountId, debit: 0, credit: amount },
+            ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'treasury',
+        sourceReference: bankTransactionId,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
+
+    const glAccountLine = entry.lines.find((line) => line.accountId === glAccountId);
+
     const match = await tx.reconciliationMatch.create({
       data: {
         reconciliationId,
@@ -271,6 +281,10 @@ async function matchWithNewEntry(companyId, reconciliationId, userId, { bankTran
     await tx.bankTransaction.update({
       where: { id: bankTransactionId },
       data: { status: 'MATCHED', matchedJournalEntryLineId: glAccountLine.id },
+    });
+    await tx.treasuryAccount.update({
+      where: { id: reconciliation.treasuryAccountId },
+      data: { currentBalance: isInflow ? { increment: amount } : { decrement: amount } },
     });
     await auditService.log(
       {

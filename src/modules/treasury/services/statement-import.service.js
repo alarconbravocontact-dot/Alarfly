@@ -1,10 +1,7 @@
-const { Prisma } = require('@prisma/client');
 const prisma = require('../../../core/database/prisma');
 const AppError = require('../../../core/utils/AppError');
 const auditService = require('../../../core/audit/audit.service');
 const { getParser } = require('./parsers');
-
-const { Decimal } = Prisma;
 
 async function importBankStatement(companyId, userId, { treasuryAccountId, source, fileName, fileContent }) {
   const treasuryAccount = await prisma.treasuryAccount.findFirst({ where: { id: treasuryAccountId, companyId } });
@@ -43,8 +40,19 @@ async function importBankStatement(companyId, userId, { treasuryAccountId, sourc
 
     let imported = 0;
     let skipped = 0;
-    let balanceChange = new Decimal(0);
 
+    // Fase 1 — corrección de doble contabilización: importar un
+    // extracto NUNCA toca TreasuryAccount.currentBalance. El saldo ya
+    // refleja cada movimiento operativo (cobro, pago, orden de pago,
+    // deuda, caja chica) en el momento en que se registró en Alarfly —
+    // volver a sumarlo aquí, solo porque el mismo movimiento aparece
+    // ahora en el extracto, lo contaba dos veces. La importación solo
+    // trae los BankTransaction en bruto para que la conciliación los
+    // empareje contra lo que ya existe; el único lugar donde un
+    // movimiento bancario puede afectar el saldo es
+    // reconciliation.service.matchWithNewEntry, cuando un humano
+    // confirma que ESE movimiento no tiene ningún asiento previo —ver
+    // PROGRESS_LOG.md, Fase 1, sección Treasury.
     for (const txn of normalizedTransactions) {
       if (txn.externalId) {
         const existing = await tx.bankTransaction.findUnique({
@@ -71,14 +79,6 @@ async function importBankStatement(companyId, userId, { treasuryAccountId, sourc
         },
       });
       imported += 1;
-      balanceChange = balanceChange.plus(txn.amount);
-    }
-
-    if (!balanceChange.isZero()) {
-      await tx.treasuryAccount.update({
-        where: { id: treasuryAccountId },
-        data: { currentBalance: { increment: balanceChange } },
-      });
     }
 
     await auditService.log(

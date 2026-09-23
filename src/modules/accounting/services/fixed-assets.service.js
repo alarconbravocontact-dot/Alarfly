@@ -115,35 +115,64 @@ async function depreciateAsset(companyId, asset, asOfDate, userId, unitsThisPeri
 
   if (amount.isZero()) return null;
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: asOfDate,
-    description: `Depreciación de "${asset.name}" (${asset.code})`,
-    lines: [
-      { accountId: asset.depreciationExpenseAccountId, debit: amount.toNumber(), credit: 0 },
-      { accountId: asset.accumulatedDepreciationAccountId, debit: 0, credit: amount.toNumber() },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'accounting-fixed-assets',
-    sourceReference: asset.id,
-    createdByUserId: userId,
-    autoApprove: true,
-  });
-
   const newAccumulated = asset.accumulatedDepreciation.plus(amount);
   const depreciableBase = asset.purchaseValue.minus(asset.salvageValue);
   const fullyDepreciated = newAccumulated.greaterThanOrEqualTo(depreciableBase);
 
-  await prisma.fixedAsset.update({
-    where: { id: asset.id },
-    data: {
-      accumulatedDepreciation: newAccumulated,
-      lastDepreciationDate: asOfDate,
-      status: fullyDepreciated ? 'FULLY_DEPRECIATED' : 'ACTIVE',
-    },
-  });
+  // Fase 1: era el peor caso encontrado en la auditoría — el asiento se
+  // posteaba en su propia transacción y el activo se actualizaba después
+  // con un `update` suelto, sin transacción y sin auditoría. Si el
+  // proceso caía entre ambos pasos, quedaba un asiento de depreciación
+  // sin que el activo reflejara que ya se depreció (y el próximo cron
+  // podía volver a depreciarlo, duplicando el asiento). Ahora todo el
+  // paso queda en una sola transacción, con auditoría.
+  return prisma.$transaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: asOfDate,
+        description: `Depreciación de "${asset.name}" (${asset.code})`,
+        lines: [
+          { accountId: asset.depreciationExpenseAccountId, debit: amount.toNumber(), credit: 0 },
+          { accountId: asset.accumulatedDepreciationAccountId, debit: 0, credit: amount.toNumber() },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'accounting-fixed-assets',
+        sourceReference: asset.id,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return entry;
+    await tx.fixedAsset.update({
+      where: { id: asset.id },
+      data: {
+        accumulatedDepreciation: newAccumulated,
+        lastDepreciationDate: asOfDate,
+        status: fullyDepreciated ? 'FULLY_DEPRECIATED' : 'ACTIVE',
+      },
+    });
+
+    await auditService.log(
+      {
+        companyId,
+        userId,
+        action: 'fixed_asset.depreciated',
+        entityType: 'FixedAsset',
+        entityId: asset.id,
+        oldValue: { accumulatedDepreciation: asset.accumulatedDepreciation, status: asset.status },
+        newValue: {
+          accumulatedDepreciation: newAccumulated,
+          status: fullyDepreciated ? 'FULLY_DEPRECIATED' : 'ACTIVE',
+          journalEntryId: entry.id,
+        },
+      },
+      tx
+    );
+
+    return entry;
+  });
 }
 
 // Corre la depreciación mensual de todos los activos activos de una

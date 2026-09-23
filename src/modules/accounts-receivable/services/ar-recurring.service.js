@@ -11,6 +11,7 @@ const auditService = require('../../../core/audit/audit.service');
 const { isDue } = require('../../../core/utils/schedulingRules');
 const { detectRecurringPattern } = require('./ar-recurring.rules');
 const arInvoicesService = require('./ar-invoices.service');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 
 // Revisa si la factura indicada (la que el usuario está por duplicar)
 // forma parte de un patrón mensual real con el mismo cliente — solo
@@ -100,30 +101,49 @@ async function deactivateTemplate(companyId, id, userId) {
 // usuario que decidió activar la recurrencia), no a un "primer
 // Administrador" genérico, porque acá sí se sabe con certeza quién es
 // el responsable de la automatización.
+//
+// Fase 1 — idempotencia: crear la factura y marcar la plantilla como
+// "ya generada este periodo" quedan en la MISMA transacción. Antes eran
+// dos pasos independientes: si el proceso caía justo después de crear la
+// factura (con su asiento ya contabilizado) pero antes de actualizar
+// `lastGeneratedAt`, el próximo cron veía la plantilla como "todavía
+// vencida" y generaba una factura y un asiento duplicados para el mismo
+// periodo. Con los dos pasos atómicos, o se generó la factura Y quedó
+// marcada, o no se generó nada — nunca un estado a medias.
 async function generateFromTemplate(template) {
-  const invoice = await arInvoicesService.createInvoice(template.companyId, template.createdByUserId, {
-    customerId: template.customerId,
-    jurisdictionId: template.jurisdictionId,
-    incomeAccountId: template.incomeAccountId,
-    issueDate: new Date(),
-    taxRateId: template.taxRateId || undefined,
-    withholdingRateId: template.withholdingRateId || undefined,
-    lines: template.linesSnapshot,
+  return withTransaction(async (tx) => {
+    const invoice = await arInvoicesService.createInvoice(
+      template.companyId,
+      template.createdByUserId,
+      {
+        customerId: template.customerId,
+        jurisdictionId: template.jurisdictionId,
+        incomeAccountId: template.incomeAccountId,
+        issueDate: new Date(),
+        taxRateId: template.taxRateId || undefined,
+        withholdingRateId: template.withholdingRateId || undefined,
+        lines: template.linesSnapshot,
+      },
+      tx
+    );
+
+    await tx.arRecurringInvoiceTemplate.update({ where: { id: template.id }, data: { lastGeneratedAt: new Date() } });
+
+    await auditService.log(
+      {
+        companyId: template.companyId,
+        userId: template.createdByUserId,
+        action: 'ar_recurring_template.auto_generated',
+        entityType: 'ArInvoice',
+        entityId: invoice.id,
+        oldValue: null,
+        newValue: { templateId: template.id, invoiceId: invoice.id },
+      },
+      tx
+    );
+
+    return invoice;
   });
-
-  await prisma.arRecurringInvoiceTemplate.update({ where: { id: template.id }, data: { lastGeneratedAt: new Date() } });
-
-  await auditService.log({
-    companyId: template.companyId,
-    userId: template.createdByUserId,
-    action: 'ar_recurring_template.auto_generated',
-    entityType: 'ArInvoice',
-    entityId: invoice.id,
-    oldValue: null,
-    newValue: { templateId: template.id, invoiceId: invoice.id },
-  });
-
-  return invoice;
 }
 
 // Punto de entrada del cron: revisa las plantillas activas de una

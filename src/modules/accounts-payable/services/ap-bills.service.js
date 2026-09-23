@@ -7,6 +7,7 @@ const auditService = require('../../../core/audit/audit.service');
 const arApSettingsService = require('../../../core/ar-ap-settings/ar-ap-settings.service');
 const fiscalTransactionsService = require('../../fiscal/services/fiscal-transactions.service');
 const { calculateDueDate } = require('./ap-bills.rules');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 
 const { Decimal } = Prisma;
 
@@ -32,25 +33,32 @@ async function createBill(companyId, userId, data) {
   const issueDate = new Date(data.issueDate);
   const dueDate = calculateDueDate(issueDate, vendor.paymentTermsDays);
 
-  const fiscalTransaction = await fiscalTransactionsService.createFiscalTransaction(companyId, userId, {
-    type: 'PURCHASE',
-    jurisdictionId: data.jurisdictionId,
-    date: issueDate,
-    taxBase: subtotal,
-    taxBaseAccountId: data.expenseAccountId,
-    counterpartyAccountId: payableGlAccountId,
-    counterpartyName: vendor.name,
-    counterpartyTaxId: vendor.taxId || '',
-    documentNumber: data.documentNumber || null,
-    description: `Factura de compra — ${vendor.name}`,
-    taxRateId: data.taxRateId,
-    withholdingRateId: data.withholdingRateId,
-  });
+  // Fase 1: igual que en AR, Fiscal + Ledger + factura quedan en una
+  // sola transacción.
+  return withTransaction(async (tx) => {
+    const fiscalTransaction = await fiscalTransactionsService.createFiscalTransaction(
+      companyId,
+      userId,
+      {
+        type: 'PURCHASE',
+        jurisdictionId: data.jurisdictionId,
+        date: issueDate,
+        taxBase: subtotal,
+        taxBaseAccountId: data.expenseAccountId,
+        counterpartyAccountId: payableGlAccountId,
+        counterpartyName: vendor.name,
+        counterpartyTaxId: vendor.taxId || '',
+        documentNumber: data.documentNumber || null,
+        description: `Factura de compra — ${vendor.name}`,
+        taxRateId: data.taxRateId,
+        withholdingRateId: data.withholdingRateId,
+      },
+      tx
+    );
 
-  const billNumber = await arApSettingsService.getNextApBillNumber(companyId);
-  const totalAmount = subtotal.plus(fiscalTransaction.taxAmount).minus(fiscalTransaction.withholdingAmount);
+    const billNumber = await arApSettingsService.getNextApBillNumber(companyId, tx);
+    const totalAmount = subtotal.plus(fiscalTransaction.taxAmount).minus(fiscalTransaction.withholdingAmount);
 
-  return prisma.$transaction(async (tx) => {
     const bill = await tx.apBill.create({
       data: {
         companyId,

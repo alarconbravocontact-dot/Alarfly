@@ -14,6 +14,7 @@ const fiscalTransactionsService = require('../../fiscal/services/fiscal-transact
 const taxRatesService = require('../../fiscal/services/tax-rates.service');
 const { daysUntil } = require('../../../core/alerts/alerts.rules');
 const { calculateDueDate, assertCustomerCreditOk, buildSalesTrend } = require('./ar-invoices.rules');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 
 const { Decimal } = Prisma;
 
@@ -40,7 +41,12 @@ async function getCustomerCreditSnapshot(companyId, customerId) {
   return { currentOpenBalance, maxDaysOverdueFound };
 }
 
-async function createInvoice(companyId, userId, data) {
+// `tx` (Fase 1 — Unit of Work): opcional. Lo usa ar-recurring.service
+// (generación automática por plantilla) para que la factura y la marca
+// de "ya generada" de la plantilla queden en una sola transacción — así
+// un fallo a mitad de camino no puede duplicar la factura en el próximo
+// cron. Si no se pasa, se comporta igual que siempre.
+async function createInvoice(companyId, userId, data, tx = null) {
   const customer = await prisma.customer.findFirst({ where: { id: data.customerId, companyId, isActive: true } });
   if (!customer) {
     throw new AppError('El cliente indicado no existe o está inactivo.', 404, 'CUSTOMER_NOT_FOUND');
@@ -89,26 +95,35 @@ async function createInvoice(companyId, userId, data) {
 
   // Punto de integración con Fiscal: la misma pieza que ya calcula
   // impuesto/retención, corre las validaciones preventivas y postea el
-  // asiento balanceado — no se duplica nada de eso acá.
-  const fiscalTransaction = await fiscalTransactionsService.createFiscalTransaction(companyId, userId, {
-    type: 'SALE',
-    jurisdictionId: data.jurisdictionId,
-    date: issueDate,
-    taxBase: subtotal,
-    taxBaseAccountId: data.incomeAccountId,
-    counterpartyAccountId: receivableGlAccountId,
-    counterpartyName: customer.name,
-    counterpartyTaxId: customer.taxId || '',
-    documentNumber: data.documentNumber || null,
-    description: `Factura de venta — ${customer.name}`,
-    taxRateId: data.taxRateId,
-    withholdingRateId: data.withholdingRateId,
-  });
+  // asiento balanceado — no se duplica nada de eso acá. Fase 1: Fiscal,
+  // el Ledger y la factura ahora comparten una sola transacción (antes
+  // eran 3 independientes: si algo fallaba a mitad de camino podía
+  // quedar un asiento sin FiscalTransaction, o una FiscalTransaction sin
+  // factura).
+  return withTransaction(async (tx) => {
+    const fiscalTransaction = await fiscalTransactionsService.createFiscalTransaction(
+      companyId,
+      userId,
+      {
+        type: 'SALE',
+        jurisdictionId: data.jurisdictionId,
+        date: issueDate,
+        taxBase: subtotal,
+        taxBaseAccountId: data.incomeAccountId,
+        counterpartyAccountId: receivableGlAccountId,
+        counterpartyName: customer.name,
+        counterpartyTaxId: customer.taxId || '',
+        documentNumber: data.documentNumber || null,
+        description: `Factura de venta — ${customer.name}`,
+        taxRateId: data.taxRateId,
+        withholdingRateId: data.withholdingRateId,
+      },
+      tx
+    );
 
-  const invoiceNumber = await arApSettingsService.getNextArInvoiceNumber(companyId);
-  const totalAmount = subtotal.plus(fiscalTransaction.taxAmount).minus(fiscalTransaction.withholdingAmount);
+    const invoiceNumber = await arApSettingsService.getNextArInvoiceNumber(companyId, tx);
+    const totalAmount = subtotal.plus(fiscalTransaction.taxAmount).minus(fiscalTransaction.withholdingAmount);
 
-  return prisma.$transaction(async (tx) => {
     const invoice = await tx.arInvoice.create({
       data: {
         companyId,
@@ -151,7 +166,7 @@ async function createInvoice(companyId, userId, data) {
     );
 
     return invoice;
-  });
+  }, tx);
 }
 
 async function getInvoice(companyId, id) {

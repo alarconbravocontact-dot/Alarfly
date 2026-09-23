@@ -11,6 +11,7 @@ const auditService = require('../../../core/audit/audit.service');
 const ledgerService = require('../../../core/ledger/ledger.service');
 const arApSettingsService = require('../../../core/ar-ap-settings/ar-ap-settings.service');
 const { applyPaymentToBills } = require('./ap-bills.rules');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 
 const { Decimal } = Prisma;
 
@@ -34,21 +35,27 @@ async function recordPayment(companyId, userId, data) {
   const amount = new Decimal(data.amount);
   const applicationResults = applyPaymentToBills(amount, data.applications, billsById);
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: data.date,
-    description: `Pago a proveedor — ${vendor.name}`,
-    lines: [
-      { accountId: payableGlAccountId, debit: amount.toNumber(), credit: 0 },
-      { accountId: treasuryAccount.glAccountId, debit: 0, credit: amount.toNumber() },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'accounts-payable',
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  // Fase 1: asiento + registro del pago + saldo de tesorería en una sola
+  // transacción.
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: data.date,
+        description: `Pago a proveedor — ${vendor.name}`,
+        lines: [
+          { accountId: payableGlAccountId, debit: amount.toNumber(), credit: 0 },
+          { accountId: treasuryAccount.glAccountId, debit: 0, credit: amount.toNumber() },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'accounts-payable',
+        sourceReference: vendor.id,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     const payment = await tx.apPayment.create({
       data: {
         companyId,

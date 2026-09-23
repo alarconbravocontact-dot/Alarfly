@@ -1,10 +1,9 @@
 // Movimientos de Inventario (punto 4): entradas, salidas (con
 // explosión de BOM) y ajustes. Todo movimiento que afecta el VALOR del
-// inventario postea su asiento llamando a core/ledger.postEntry
-// (nunca un motor de asientos propio) — mismo patrón que ya usan
-// AR/AP: primero se postea el asiento (con su propia transacción),
-// después se hace la escritura propia del módulo en su propia
-// transacción, referenciando el journalEntryId ya creado.
+// inventario postea su asiento llamando a core/ledger.postEntry (nunca
+// un motor de asientos propio). Fase 1: el asiento y la escritura propia
+// del módulo (movimiento, capas de costo, etiqueta FP&A, auditoría)
+// comparten una sola transacción — antes eran dos independientes.
 const { Prisma } = require('@prisma/client');
 const prisma = require('../../../core/database/prisma');
 const AppError = require('../../../core/utils/AppError');
@@ -13,6 +12,7 @@ const ledgerService = require('../../../core/ledger/ledger.service');
 const valuationService = require('./valuation.service');
 const inventorySettingsService = require('./inventory-settings.service');
 const { explodeBomComponents } = require('./bom.rules');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 
 const { Decimal } = Prisma;
 
@@ -86,22 +86,25 @@ async function createEntry(companyId, userId, data) {
 
   const lot = await resolveOrCreateLot(companyId, data.variantId, data.lotNumber, data.expirationDate);
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: data.date,
-    description: `Entrada de inventario — ${variant.product.name} (${variant.sku})`,
-    lines: [
-      { accountId: inventoryAssetAccountId, debit: totalCost.toNumber(), credit: 0 },
-      { accountId: data.counterpartyAccountId, debit: 0, credit: totalCost.toNumber() },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'inventory',
-    sourceReference: data.referenceId || null,
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: data.date,
+        description: `Entrada de inventario — ${variant.product.name} (${variant.sku})`,
+        lines: [
+          { accountId: inventoryAssetAccountId, debit: totalCost.toNumber(), credit: 0 },
+          { accountId: data.counterpartyAccountId, debit: 0, credit: totalCost.toNumber() },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'inventory',
+        sourceReference: data.referenceId || null,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     const movement = await tx.inventoryMovement.create({
       data: {
         companyId,
@@ -182,22 +185,25 @@ async function createExit(companyId, userId, data) {
     method
   );
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: data.date,
-    description: `Salida de inventario — ${variant.product.name} (${variant.sku})`,
-    lines: [
-      { accountId: cogsAccountId, debit: totalCost.toNumber(), credit: 0 },
-      { accountId: inventoryAssetAccountId, debit: 0, credit: totalCost.toNumber() },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'inventory',
-    sourceReference: data.referenceId || null,
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: data.date,
+        description: `Salida de inventario — ${variant.product.name} (${variant.sku})`,
+        lines: [
+          { accountId: cogsAccountId, debit: totalCost.toNumber(), credit: 0 },
+          { accountId: inventoryAssetAccountId, debit: 0, credit: totalCost.toNumber() },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'inventory',
+        sourceReference: data.referenceId || null,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     const movement = await tx.inventoryMovement.create({
       data: {
         companyId,
@@ -280,19 +286,22 @@ async function createBomExit(companyId, userId, parentVariant, data, quantitySol
     ...componentCosts.map((c) => ({ accountId: c.inventoryAssetAccountId, debit: 0, credit: c.totalCost.toNumber() })),
   ];
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: data.date,
-    description: `Salida de inventario (kit) — ${parentVariant.product.name} (${parentVariant.sku})`,
-    lines,
-    origin: 'AUTOMATIC',
-    sourceModule: 'inventory',
-    sourceReference: data.referenceId || null,
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: data.date,
+        description: `Salida de inventario (kit) — ${parentVariant.product.name} (${parentVariant.sku})`,
+        lines,
+        origin: 'AUTOMATIC',
+        sourceModule: 'inventory',
+        sourceReference: data.referenceId || null,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     const parentMovement = await tx.inventoryMovement.create({
       data: {
         companyId,
@@ -421,18 +430,22 @@ async function createAdjustment(companyId, userId, data) {
         { accountId: inventoryAssetAccountId, debit: 0, credit: totalCost.toNumber() },
       ];
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: data.date,
-    description: `Ajuste de inventario (${isIncrease ? 'incremento' : 'merma'}) — ${variant.product.name} (${variant.sku}): ${data.reason}`,
-    lines,
-    origin: 'AUTOMATIC',
-    sourceModule: 'inventory',
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: data.date,
+        description: `Ajuste de inventario (${isIncrease ? 'incremento' : 'merma'}) — ${variant.product.name} (${variant.sku}): ${data.reason}`,
+        lines,
+        origin: 'AUTOMATIC',
+        sourceModule: 'inventory',
+        sourceReference: data.referenceId || null,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     const movement = await tx.inventoryMovement.create({
       data: {
         companyId,

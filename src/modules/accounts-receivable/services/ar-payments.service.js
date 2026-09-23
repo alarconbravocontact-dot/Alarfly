@@ -22,6 +22,7 @@ const auditService = require('../../../core/audit/audit.service');
 const ledgerService = require('../../../core/ledger/ledger.service');
 const arApSettingsService = require('../../../core/ar-ap-settings/ar-ap-settings.service');
 const { applyPaymentToInvoices } = require('./ar-invoices.rules');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 
 const { Decimal } = Prisma;
 
@@ -76,23 +77,30 @@ async function recordPayment(companyId, userId, data) {
     applicationResults = applyPaymentToInvoices(totalApplied, applications, invoicesById);
   }
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: data.date,
-    description: `Cobro cliente — ${customer.name}`,
-    lines: [
-      { accountId: treasuryAccount.glAccountId, debit: amount.toNumber(), credit: 0 },
-      { accountId: receivableGlAccountId, debit: 0, credit: amount.toNumber() },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'accounts-receivable',
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  // Fase 1: el asiento y el resto del registro del cobro (aplicación a
+  // facturas, saldo de tesorería, marca del movimiento bancario) quedan
+  // en una sola transacción.
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: data.date,
+        description: `Cobro cliente — ${customer.name}`,
+        lines: [
+          { accountId: treasuryAccount.glAccountId, debit: amount.toNumber(), credit: 0 },
+          { accountId: receivableGlAccountId, debit: 0, credit: amount.toNumber() },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'accounts-receivable',
+        sourceReference: bankTransaction?.id || customer.id,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  const cashLine = entry.lines.find((line) => line.accountId === treasuryAccount.glAccountId);
+    const cashLine = entry.lines.find((line) => line.accountId === treasuryAccount.glAccountId);
 
-  return prisma.$transaction(async (tx) => {
     const payment = await tx.arPayment.create({
       data: {
         companyId,

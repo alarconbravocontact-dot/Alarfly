@@ -4,6 +4,7 @@ const auditService = require('../audit/audit.service');
 const periodLockService = require('../period-lock/period-lock.service');
 const { assertPeriodOpen } = require('../period-lock/period-lock.rules');
 const { validateBalancedLines } = require('./ledger.rules');
+const { withTransaction } = require('../database/unit-of-work');
 
 async function getNextEntryNumber(tx, companyId) {
   const settings = await tx.accountingSettings.upsert({
@@ -60,36 +61,47 @@ function buildLineCreateData(lines) {
 }
 
 // El único punto de entrada para crear movimientos contables. Todo
-// módulo (Contabilidad ahora; Tesorería/AR/AP/Inventario más adelante)
-// pasa por aquí — nunca escriben JournalEntry directamente.
-async function postEntry({
-  companyId,
-  date,
-  description,
-  lines,
-  origin = 'MANUAL',
-  sourceModule = null,
-  sourceReference = null,
-  ruleId = null,
-  createdByUserId,
-  autoApprove = false,
-}) {
+// módulo (Contabilidad, Tesorería, AR, AP, Inventario, Fiscal) pasa por
+// aquí — nunca escriben JournalEntry directamente.
+//
+// `tx` (Fase 1 — Unit of Work): opcional, un cliente de transacción de
+// Prisma ya abierto por el llamador. Si se pasa, postEntry participa de
+// esa MISMA transacción en vez de abrir una propia — así el documento de
+// negocio (factura, pago, movimiento de inventario...), su asiento y su
+// auditoría quedan todos aplicados o ninguno. Si no se pasa, el
+// comportamiento es idéntico al de siempre: postEntry abre su propia
+// transacción. Ningún llamador existente que no pase `tx` cambia de
+// comportamiento.
+async function postEntry(
+  {
+    companyId,
+    date,
+    description,
+    lines,
+    origin = 'MANUAL',
+    sourceModule = null,
+    sourceReference = null,
+    ruleId = null,
+    createdByUserId,
+    autoApprove = false,
+  },
+  tx = null
+) {
   validateBalancedLines(lines);
 
   const period = await periodLockService.getPeriodForDate(companyId, date);
   assertPeriodOpen(period);
 
-  const settings = await prisma.accountingSettings.findUnique({ where: { companyId } });
-  const requiresApproval = settings?.requiresApprovalForManualEntries ?? false;
+  async function run(client) {
+    const settings = await client.accountingSettings.findUnique({ where: { companyId } });
+    const requiresApproval = settings?.requiresApprovalForManualEntries ?? false;
+    const status = origin !== 'MANUAL' || autoApprove || !requiresApproval ? 'APPROVED' : 'DRAFT';
 
-  const status = origin !== 'MANUAL' || autoApprove || !requiresApproval ? 'APPROVED' : 'DRAFT';
+    await validateAccountsForPosting(client, companyId, lines);
 
-  return prisma.$transaction(async (tx) => {
-    await validateAccountsForPosting(tx, companyId, lines);
+    const entryNumber = await getNextEntryNumber(client, companyId);
 
-    const entryNumber = await getNextEntryNumber(tx, companyId);
-
-    const entry = await tx.journalEntry.create({
+    const entry = await client.journalEntry.create({
       data: {
         companyId,
         entryNumber,
@@ -119,11 +131,13 @@ async function postEntry({
         oldValue: null,
         newValue: { status: entry.status, entryNumber: entry.entryNumber },
       },
-      tx
+      client
     );
 
     return entry;
-  });
+  }
+
+  return withTransaction(run, tx);
 }
 
 async function submitForApproval(companyId, entryId, userId) {

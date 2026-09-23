@@ -11,6 +11,7 @@ const auditService = require('../../../core/audit/audit.service');
 const ledgerService = require('../../../core/ledger/ledger.service');
 const arApSettingsService = require('../../../core/ar-ap-settings/ar-ap-settings.service');
 const { applyCreditNoteToInvoice } = require('./ar-credit-notes.rules');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 
 async function createCreditNote(companyId, userId, data) {
   const invoice = await prisma.arInvoice.findFirst({ where: { id: data.invoiceId, companyId } });
@@ -38,21 +39,26 @@ async function createCreditNote(companyId, userId, data) {
           { accountId: invoice.incomeAccountId, debit: 0, credit: Number(data.amount) },
         ];
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: data.date,
-    description: `Nota de ${data.type === 'CREDIT' ? 'crédito' : 'débito'} — factura ${invoice.invoiceNumber}: ${data.reason}`,
-    lines,
-    origin: 'AUTOMATIC',
-    sourceModule: 'accounts-receivable',
-    sourceReference: invoice.id,
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  // Fase 1: asiento + nota + actualización de la factura en una sola
+  // transacción.
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: data.date,
+        description: `Nota de ${data.type === 'CREDIT' ? 'crédito' : 'débito'} — factura ${invoice.invoiceNumber}: ${data.reason}`,
+        lines,
+        origin: 'AUTOMATIC',
+        sourceModule: 'accounts-receivable',
+        sourceReference: invoice.id,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  const noteNumber = await arApSettingsService.getNextArCreditNoteNumber(companyId);
+    const noteNumber = await arApSettingsService.getNextArCreditNoteNumber(companyId, tx);
 
-  return prisma.$transaction(async (tx) => {
     const note = await tx.arCreditNote.create({
       data: {
         companyId,

@@ -6,6 +6,7 @@ const ledgerService = require('../../../core/ledger/ledger.service');
 const periodLockService = require('../../../core/period-lock/period-lock.service');
 const { assertPeriodOpen } = require('../../../core/period-lock/period-lock.rules');
 const { generateInstallmentSchedule } = require('./debt-schedule.rules');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 
 const { Decimal } = Prisma;
 
@@ -71,22 +72,25 @@ async function disburseLoan(companyId, debtId, userId) {
   const period = await periodLockService.getPeriodForDate(companyId, debt.startDate);
   assertPeriodOpen(period);
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: debt.startDate,
-    description: `Desembolso de préstamo "${debt.name}" (${debt.lender})`,
-    lines: [
-      { accountId: debt.treasuryAccount.glAccountId, debit: Number(debt.principalAmount), credit: 0 },
-      { accountId: debt.liabilityAccountId, debit: 0, credit: Number(debt.principalAmount) },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'treasury',
-    sourceReference: debtId,
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: debt.startDate,
+        description: `Desembolso de préstamo "${debt.name}" (${debt.lender})`,
+        lines: [
+          { accountId: debt.treasuryAccount.glAccountId, debit: Number(debt.principalAmount), credit: 0 },
+          { accountId: debt.liabilityAccountId, debit: 0, credit: Number(debt.principalAmount) },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'treasury',
+        sourceReference: debtId,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     const updated = await tx.debt.update({
       where: { id: debtId },
       data: { isDisbursed: true, outstandingBalance: debt.principalAmount },
@@ -121,22 +125,25 @@ async function drawdown(companyId, debtId, userId, amount, date) {
   const period = await periodLockService.getPeriodForDate(companyId, drawDate);
   assertPeriodOpen(period);
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: drawDate,
-    description: `Disposición de línea de crédito "${debt.name}" (${debt.lender})`,
-    lines: [
-      { accountId: debt.treasuryAccount.glAccountId, debit: Number(amount), credit: 0 },
-      { accountId: debt.liabilityAccountId, debit: 0, credit: Number(amount) },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'treasury',
-    sourceReference: debtId,
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: drawDate,
+        description: `Disposición de línea de crédito "${debt.name}" (${debt.lender})`,
+        lines: [
+          { accountId: debt.treasuryAccount.glAccountId, debit: Number(amount), credit: 0 },
+          { accountId: debt.liabilityAccountId, debit: 0, credit: Number(amount) },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'treasury',
+        sourceReference: debtId,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     const updated = await tx.debt.update({ where: { id: debtId }, data: { outstandingBalance: { increment: amount } } });
     await tx.treasuryAccount.update({ where: { id: debt.treasuryAccountId }, data: { currentBalance: { increment: amount } } });
     await tx.debtMovement.create({
@@ -162,22 +169,25 @@ async function repayCreditLine(companyId, debtId, userId, amount, date) {
   const period = await periodLockService.getPeriodForDate(companyId, repayDate);
   assertPeriodOpen(period);
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: repayDate,
-    description: `Pago de línea de crédito "${debt.name}" (${debt.lender})`,
-    lines: [
-      { accountId: debt.liabilityAccountId, debit: Number(amount), credit: 0 },
-      { accountId: debt.treasuryAccount.glAccountId, debit: 0, credit: Number(amount) },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'treasury',
-    sourceReference: debtId,
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: repayDate,
+        description: `Pago de línea de crédito "${debt.name}" (${debt.lender})`,
+        lines: [
+          { accountId: debt.liabilityAccountId, debit: Number(amount), credit: 0 },
+          { accountId: debt.treasuryAccount.glAccountId, debit: 0, credit: Number(amount) },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'treasury',
+        sourceReference: debtId,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     const updated = await tx.debt.update({ where: { id: debtId }, data: { outstandingBalance: { decrement: amount } } });
     await tx.treasuryAccount.update({ where: { id: debt.treasuryAccountId }, data: { currentBalance: { decrement: amount } } });
     await tx.debtMovement.create({
@@ -204,23 +214,26 @@ async function payInstallment(companyId, debtId, installmentId, userId) {
 
   const totalPayment = installment.principalPortion.plus(installment.interestPortion);
 
-  const entry = await ledgerService.postEntry({
-    companyId,
-    date: installment.dueDate,
-    description: `Cuota ${installment.installmentNumber} de préstamo "${debt.name}" (${debt.lender})`,
-    lines: [
-      { accountId: debt.liabilityAccountId, debit: installment.principalPortion.toNumber(), credit: 0 },
-      { accountId: debt.interestExpenseAccountId, debit: installment.interestPortion.toNumber(), credit: 0 },
-      { accountId: debt.treasuryAccount.glAccountId, debit: 0, credit: totalPayment.toNumber() },
-    ],
-    origin: 'AUTOMATIC',
-    sourceModule: 'treasury',
-    sourceReference: installmentId,
-    createdByUserId: userId,
-    autoApprove: true,
-  });
+  return withTransaction(async (tx) => {
+    const entry = await ledgerService.postEntry(
+      {
+        companyId,
+        date: installment.dueDate,
+        description: `Cuota ${installment.installmentNumber} de préstamo "${debt.name}" (${debt.lender})`,
+        lines: [
+          { accountId: debt.liabilityAccountId, debit: installment.principalPortion.toNumber(), credit: 0 },
+          { accountId: debt.interestExpenseAccountId, debit: installment.interestPortion.toNumber(), credit: 0 },
+          { accountId: debt.treasuryAccount.glAccountId, debit: 0, credit: totalPayment.toNumber() },
+        ],
+        origin: 'AUTOMATIC',
+        sourceModule: 'treasury',
+        sourceReference: installmentId,
+        createdByUserId: userId,
+        autoApprove: true,
+      },
+      tx
+    );
 
-  return prisma.$transaction(async (tx) => {
     const updatedInstallment = await tx.debtInstallment.update({
       where: { id: installmentId },
       data: { status: 'PAID', paidJournalEntryId: entry.id, paidAt: new Date() },

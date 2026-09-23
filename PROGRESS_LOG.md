@@ -479,3 +479,291 @@ filas nuevas de proveedor.
 - Pendientes explícitos, no bloqueantes: precio/costo/impuesto por
   defecto en `Product` (evaluar solo cuando Venta Rápida defina si
   hace falta), unicidad de `taxId`, frontend de Categorías/UOM.
+
+---
+
+## Fase 3 — Ventas, Facturación, Venta Rápida y CxC
+
+**Estado: FASE COMPLETA**
+
+### Objetivo de la fase
+
+Convertir el modelo anterior (Cliente → Factura → Cobro, sin conexión
+real con Inventario) en un ciclo comercial completo y opcional:
+Pedido → Reserva → Entrega → Inventario → Factura → CxC → Cobro,
+manteniendo la venta directa/rápida funcionando con los MISMOS motores
+(nunca un segundo motor de facturación/inventario/costo/impuestos).
+
+### Mapa de auditoría inicial (antes de tocar nada)
+
+| Componente | Responsabilidad | Estado encontrado | Decisión |
+|---|---|---|---|
+| `ArInvoice`/`ArInvoiceLine` | Factura de venta, ya postea vía Fiscal→Ledger | Líneas solo `description`/`quantity`/`unitPrice` — sin relación a producto/inventario (la brecha exacta que señaló Fase 0) | **Extender** |
+| `ar-payments.service.recordPayment` | Cobro, aplicación a facturas | Ya sólido, ya con anticipos | **Extender** (método de pago, BCV) |
+| `inventory-movements.service.createExit`/`createEntry` | Motor real de salida/entrada con costeo FIFO/LIFO/PMP | Ya sólido, pero **no aceptaba una transacción externa** (`tx`) | **Extender** (agregar `tx` opcional, mismo patrón de Fase 1) |
+| `StockLevel.quantityReserved` | Columna ya existía en el schema original de Inventario | **Sin ningún flujo que la gestionara** (la brecha exacta del punto 12) | **Construir el flujo** (`InventoryReservation`), reutilizando la columna existente |
+| `SalesOrder`/`SalesDelivery` | — | No existían, ni un equivalente reutilizable | **Crear** |
+| `Product`/`Customer`/`Vendor` (Fase 2) | Maestros transversales | Ya listos | **Reutilizar tal cual** |
+| `core/ledger.postEntry`, Unit of Work (Fase 1) | Motor de asientos, `tx` opcional | Ya sólido | **Reutilizar tal cual** |
+| Métodos de pago | — | No existía ningún catálogo | **Crear**, liviano, en `core/` (transversal) |
+| Monedas/BCV | `core/fx` (`ExchangeRate`, `getLatestRate`) | Ya sólido | **Reutilizar tal cual** para el snapshot histórico |
+
+### Regla principal cumplida: un solo motor
+
+Venta Rápida y Venta Completa comparten exactamente los mismos 3
+servicios de escritura: `ar-invoices.service.createInvoice`,
+`ar-payments.service.recordPayment`, `inventory-movements.service.createExit`.
+Ninguno se duplicó. La diferencia entre ambas es solo de UX: Venta
+Rápida es una función (`quick-sale.service.js`) que llama a los dos
+primeros en secuencia; Venta Completa pasa por `SalesOrder` →
+`InventoryReservation` → `SalesDelivery` (que también llama a
+`createExit`) → `ArInvoice` (que, cuando la línea ya viene de una
+entrega, usa el costo real que esa entrega dejó, sin volver a llamar a
+`createExit`).
+
+### Qué se creó
+
+- **Modelos nuevos** (migración `20260923030133_sales_module_orders_reservations_deliveries`,
+  aditiva): `SalesOrder`/`SalesOrderLine` (estado comercial propio:
+  DRAFT/CONFIRMED/PARTIALLY_DELIVERED/DELIVERED/CANCELLED — nunca
+  mezclado con `ArInvoiceStatus`, que no se tocó), `InventoryReservation`
+  (RESERVED/PARTIALLY_RELEASED/RELEASED/FULFILLED/CANCELLED, una fila
+  por línea de pedido física, `releasedQuantity` acumulada),
+  `SalesDelivery`/`SalesDeliveryLine` (DRAFT/CONFIRMED/CANCELLED),
+  `PaymentMethod` (catálogo liviano por empresa, se siembra solo con
+  Efectivo/Transferencia/Tarjeta/Pago Móvil/Zelle/Binance/Otro).
+- **Campos nuevos, todos opcionales/aditivos**: `ArInvoice.salesOrderId`;
+  `ArInvoiceLine.productVariantId`/`warehouseId`/`salesOrderLineId`/`discount`/`unitCost`;
+  `ArPayment.paymentMethodId`/`foreignCurrency`/`foreignAmount`/`exchangeRate`
+  (mismo patrón que `JournalEntryLine.foreignCurrency/foreignDebit/foreignCredit/exchangeRate`,
+  no un mecanismo nuevo); `ArCreditNote.relatedInventoryMovementId`
+  (enlace opcional a una devolución física registrada aparte, ver
+  abajo); `ArApSettings.defaultCustomerId`/`currentSalesOrderNumberSequence`/`currentSalesDeliveryNumberSequence`.
+- **Servicios nuevos**: `src/modules/sales/services/` —
+  `sales-orders.rules.js` (puras: `calculateLineAmount`,
+  `determineOrderStatus`, `remainingToDeliver`, `remainingToInvoice`,
+  `averageDeliveredUnitCost`), `sales-orders.service.js`,
+  `inventory-reservations.service.js`, `sales-deliveries.service.js`,
+  `quick-sale.service.js`. `src/core/payment-methods/payment-methods.service.js`.
+- **Rutas nuevas**: `/sales/orders`, `/sales/deliveries`,
+  `/sales/quick-sale` (gate `requireModuleAccess('sales')`, agregado a
+  `core/rbac/module-access.js` igual que Tesorería/AR/AP/Inventario),
+  `/payment-methods` (sin gate de módulo, transversal, mismo criterio
+  que `/glossary`/`/notifications`).
+- **Frontend**: módulo "Ventas" nuevo (`frontend/src/pages/sales/`):
+  `SalesLayout` (3 pestañas), `QuickSalePage` (Venta Rápida — cliente
+  opcional vía `EntityAutocomplete`, líneas de producto con
+  autocompletado, jurisdicción/cuenta de ingreso preseleccionadas
+  solas, cobro opcional en el mismo formulario), `SalesOrdersPage`
+  (crear/confirmar/cancelar, detalle de líneas con
+  entregado/facturado), `SalesDeliveriesPage` (crear desde un pedido
+  confirmado/parcial, confirmar/cancelar). Ítem "Ventas" agregado al
+  menú lateral, al Panel principal, y a `config/moduleTabs.js`
+  (`SALES_TABS`, `ROUTE_MODULE_KEYS`).
+
+### Qué se extendió (sin duplicar)
+
+- `inventory-movements.service.createExit`/`createBomExit`: ganaron un
+  4.º/6.º parámetro `tx` opcional (mismo patrón `withTransaction`/`tx`
+  de Fase 1) — necesario para que la salida real de inventario pueda
+  coordinarse, dentro de UNA sola transacción, con la Entrega que la
+  origina o con la Factura directa que la dispara. `createEntry`/
+  `createAdjustment` NO se tocaron (Fase 3 no los necesitaba).
+- `ar-invoices.service.createInvoice`: cada línea con `variantId` se
+  resuelve (`resolveLine`) en 3 casos — (a) sin producto: exactamente
+  igual que antes (texto libre); (b) producto físico con
+  `salesOrderLineId` (ya entregado desde un Pedido): usa
+  `averageDeliveredUnitCost` de esa línea, **nunca genera una salida
+  nueva**; (c) producto físico sin pedido (venta directa/rápida):
+  dispara `createExit(tx)` DENTRO de la misma transacción de la
+  factura, justo después de crearla (para poder referenciarla), y
+  actualiza el `unitCost` de la línea — el objeto devuelto se relee una
+  vez más dentro de la misma transacción para que la respuesta nunca
+  quede con un `unitCost` desactualizado (bug real encontrado y
+  corregido durante la verificación, ver abajo). Un producto de
+  servicio (`isService: true`) nunca entra en (b)/(c).
+- `ar-payments.service.recordPayment`: ganó resolución de método de
+  pago (opcional) y de monto en moneda extranjera (`foreignCurrency`/
+  `foreignAmount` → resuelve la tasa vigente con `core/fx.getLatestRate`
+  UNA vez y la guarda como snapshot — nunca se recalcula después);
+  ganó `applyFullyToInvoiceId` (aplica lo cobrado a una factura
+  puntual hasta donde alcance, reutilizando la MISMA función pura
+  `applyPaymentToInvoices` de siempre) — lo usa Venta Rápida para no
+  tener que conocer de antemano el monto exacto cuando viene de una
+  conversión BCV.
+- `core/ar-ap-settings/ar-ap-settings.service.js`: ganó
+  `getNextSalesOrderNumber`/`getNextSalesDeliveryNumber` (mismo patrón
+  atómico que ya usaban facturas/notas) y `resolveDefaultCustomerId`
+  ("Consumidor Final", punto 22 — nunca se asume, solo si la empresa lo
+  configuró explícitamente).
+- `core/rbac/module-access.js`/`role.service.js`: nueva entrada `sales`
+  (mismo nivel que Tesorería/AR/AP/Inventario: `ADMIN`/`COLLABORATOR`).
+
+### Qué se fusionó / eliminó
+
+Nada — no había ningún `Sales*` ni motor de facturación/inventario
+paralelo que fusionar (confirmado en la auditoría inicial).
+
+### Devoluciones y Notas de Crédito (punto 28-29) — alcance recortado a propósito
+
+`ArCreditNote` YA era, por diseño previo, un ajuste puramente
+financiero (nunca tocaba inventario) — eso YA cumplía "no asumir que
+una nota de crédito implica devolución física" sin cambiar nada. Se
+agregó `relatedInventoryMovementId` (opcional, único) para que,
+**cuando sí ocurre** una devolución física, se pueda enlazar con el
+movimiento de entrada real (registrado por separado, reutilizando
+`POST /inventory/movements/entries` ya existente — nunca un segundo
+motor de entrada). El flujo completo pedido en el punto 29
+(Recepción física → Inspección → Inventario disponible/defectuoso) NO
+se implementó: el modelo de Inventario no tiene hoy ningún concepto de
+"stock defectuoso" separado del disponible, y construirlo habría sido
+un cambio de Inventario mucho más grande que "la integración mínima
+necesaria" que pide la sección 40 del prompt. Documentado como
+pendiente explícito, no como incompleto.
+
+### Métodos de pago y BCV (puntos 23-24)
+
+Alarfly solo REGISTRA los métodos (Efectivo/Transferencia/Tarjeta/Pago
+Móvil/Zelle/Binance/Otro) — cero integración de procesamiento externo,
+tal como se pidió explícitamente. El cobro en Bs. reutiliza
+`core/fx.getLatestRate` (ya existente, usado por la revaluación
+cambiaria de Contabilidad) para resolver la tasa vigente una sola vez;
+el snapshot (`foreignCurrency`/`foreignAmount`/`exchangeRate`) se
+guarda en el propio `ArPayment`, igual patrón que `JournalEntryLine`
+ya usaba para sus líneas en moneda extranjera — verificado con una
+prueba de integración real que una tasa BCV nueva después NO recalcula
+un cobro histórico.
+
+### Bugs reales encontrados y corregidos durante la verificación
+
+1. **`createInvoice` devolvía `unitCost: null`** en la línea recién
+   creada de una venta directa/rápida, aunque el valor correcto (10)
+   ya estaba guardado en la base de datos — el objeto de respuesta se
+   armaba ANTES de que `createExit` completara la actualización de esa
+   línea. Corregido releyendo la factura una vez más dentro de la
+   misma transacción cuando hubo al menos una línea de salida directa.
+   Confirmado con `curl` contra Postgres real (antes: `null`; después:
+   `"10"`) y con una prueba de integración dedicada.
+2. **Pantallas de Pedidos y Entregas se quedaban en blanco (pantalla
+   negra) apenas había al menos una fila** — `formatDate(order.orderDate)`
+   recibía la fecha como texto (JSON no tiene tipo `Date`) en vez de
+   `new Date(order.orderDate)`, y `Intl.DateTimeFormat.format()` con un
+   string no numérico lanza `RangeError: Invalid time value` en tiempo
+   de render, tumbando el árbol de React. El resto del proyecto SIEMPRE
+   envuelve la fecha con `new Date(...)` antes de `formatDate` (patrón
+   confirmado en `ArInvoicesPage`/`PurchaseOrdersPage`) — se corrigió
+   igual acá. Encontrado con Playwright real (2 errores de consola
+   "Invalid time value" + capturas de pantalla completamente negras),
+   confirmado corregido con una nueva corrida mostrando los datos
+   reales (pedido "Cliente Fase3 E2E" con estado "Entregado
+   parcialmente", entrega N.º 1 "Confirmada").
+
+### Atomicidad, duplicación, aislamiento (puntos 31/42-44)
+
+Todas las operaciones críticas de esta fase usan el patrón `tx`/
+`withTransaction` de Fase 1 — ninguna abre una segunda transacción
+dentro del mismo flujo. Confirmado con pruebas de integración reales
+(no solo revisión de código):
+
+- **Atomicidad** (punto 42): forzado un fallo DESPUÉS de que
+  `createExit` ya generó la salida real, tanto dentro de
+  `confirmDelivery` como dentro de `createInvoice` — en ambos casos,
+  el rollback completo se verificó (sin movimiento, sin ajuste de
+  `quantityReserved`/`quantityOnHand`, sin factura/entrega a medias,
+  sin auditoría falsa de éxito).
+- **Duplicación** (punto 43): confirmar la misma entrega dos veces
+  rechaza la segunda (`SALES_DELIVERY_NOT_DRAFT`) sin generar un
+  segundo movimiento de inventario — verificado contando movimientos
+  reales antes/después.
+- **Aislamiento por empresa** (punto 44): un pedido de la Empresa A no
+  puede usar un cliente o una variante de producto de la Empresa B —
+  verificado con dos escenarios reales simultáneos.
+
+### Reserva vs. salida (puntos 12-13/45) y servicios (punto 11/46)
+
+Verificado con pruebas de integración reales: confirmar un pedido
+mueve solo `quantityReserved` (el físico NO cambia); confirmar una
+entrega SÍ mueve `quantityOnHand` (y libera la reserva
+correspondiente). Una línea de servicio nunca genera
+`InventoryReservation` ni `InventoryMovement`, ni al confirmar el
+pedido ni al facturarla directo.
+
+### Tests y resultado
+
+91 suites, 565 tests, todos en verde (535 preexistentes de Fases 1-2 +
+30 nuevos de esta fase: 10 reglas puras, 10 de integración Pedido→
+Reserva→Entrega —incluida la prueba de atomicidad con rollback
+forzado—, 4 de Venta Rápida/BCV, 6 de la extensión de facturación).
+Todas las pruebas de integración corren contra Postgres real (mismo
+criterio que Fase 1), con fixtures nuevos (`buildSalesScenario`,
+`createPhysicalProduct` usando el motor de valoración real —nunca
+insertando `StockLevel` a mano—, `createServiceProduct`) agregados a
+`test-helpers/integration-fixtures.js`, y `cleanupCompany` ampliado
+para las tablas nuevas de Ventas/Inventario, respetando el orden de
+FKs. `eslint` (backend) y `oxlint`/`build` (frontend) sin advertencias
+nuevas. Verificado además a mano contra Postgres real con `curl` (login
+real, Venta Rápida completa con producto físico + pago, ciclo
+Pedido→Confirmar→Entregar parcial→Facturar) y con Playwright real
+(las 3 pantallas de Ventas navegadas, autocompletado de producto
+probado, 0 errores de consola tras los 2 fixes).
+
+### Riesgos
+
+- Ninguno nuevo más allá de los ya documentados en Fase 1 (TOCTOU de
+  período, `reverseMatch` sin revertir saldo, crons sin `lastRunAt`).
+- Una entrega ya `CONFIRMED` no se puede cancelar (ya generó una
+  salida real y permanente) — mismo criterio que el resto de
+  Inventario, documentado explícitamente en el mensaje de error
+  (`SALES_DELIVERY_ALREADY_CONFIRMED`), no es un bug.
+
+### Pendientes documentados (no bloqueantes)
+
+1. Inspección/stock defectuoso en devoluciones físicas (punto 29) —
+   requiere un cambio de modelo de Inventario más grande, fuera de la
+   integración mínima de esta fase.
+2. Precio de lista por defecto en `Product` — seguía sin consumidor
+   real (Venta Rápida/Completa toman `unitPrice` manual por línea,
+   igual que ya hacía AR); Fase 2 ya lo documentó como pendiente
+   condicionado a que Ventas lo necesitara, y en la práctica no lo
+   necesitó (el flujo de "5 interacciones" funciona bien sin él,
+   verificado con Playwright).
+3. Frontend de Pedidos/Entregas es funcional pero deliberadamente
+   liviano (`<select>` simples para almacén, sin el mismo nivel de
+   pulido que `ArInvoicesPage` — sin `RecordDrawer`/`QuickCreateModal`/
+   `DocumentActionsMenu`) — recorte de alcance consciente para poder
+   cubrir el backend completo (el corazón de lo pedido en esta fase)
+   dentro del tiempo disponible.
+4. Todos los pendientes ya heredados de Fase 1/2.
+
+### Qué debe recordar Fase 4
+
+**Heredado de Fase 1** (sin tocar, seguir usando): Unit of Work
+(`withTransaction`), `postEntry(data, tx)`, patrón de auditoría dentro
+de la misma transacción, idempotencia por co-localización atómica.
+
+**Heredado de Fase 2** (sin tocar, seguir usando): `Product`/
+`ProductVariant`/`Customer`/`Vendor`/`ProductCategory`/`UnitOfMeasure`
+como maestros únicos; `Dimension` (BRANCH) para sucursales;
+`Company.baseCurrency`+`ExchangeRate` para monedas; NO fusionar
+`Dimension`/`FpaDimension`.
+
+**Construido en Fase 3** (reutilizar, no reconstruir):
+`SalesOrder`/`SalesOrderLine`/`InventoryReservation`/`SalesDelivery`/
+`SalesDeliveryLine` (ciclo comercial completo); `inventory-movements.service.createExit(...,tx)`/`createBomExit(...,tx)`
+ya aceptan transacción externa — cualquier operación de Compras que
+necesite lo mismo (`GoodsReceipt`) debe extender `createEntry` con el
+mismo patrón, no reimplementar; `PaymentMethod` (core, catálogo
+liviano); snapshot BCV en `ArPayment` (`foreignCurrency`/
+`foreignAmount`/`exchangeRate`); `ArApSettings.defaultCustomerId`
+("Consumidor Final"); `ar-invoices.service.resolveLine` es el único
+lugar que decide si una línea de factura dispara inventario — Compras
+NO debe inventar su propia versión de esta lógica para facturas de
+proveedor, sino seguir el mismo criterio si alguna vez lo necesita.
+
+**Lo que NO debe reconstruirse**: un segundo motor de facturación, de
+inventario, de costeo, de impuestos o de cobros — los 3 puntos de
+escritura (`createInvoice`, `recordPayment`, `createExit`) siguen
+siendo los únicos, tal como exigía la regla principal de esta fase.
+`ApPayment`/`PaymentOrder`/`ArPayment`/`Debt` siguen sin unificarse
+(pendiente heredado de Fase 1, no tocado en esta fase, fuera de su
+alcance explícito — sección 40 de este prompt tampoco lo pedía).

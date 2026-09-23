@@ -144,15 +144,20 @@ model Company {
   dashboardWidgetPreferences DashboardWidgetPreference[]
   scheduledReports           ScheduledReport[]
 
-  customers          Customer[]
-  arInvoices         ArInvoice[]
-  arPayments         ArPayment[]
-  arCreditNotes      ArCreditNote[]
+  customers            Customer[]
+  arInvoices           ArInvoice[]
+  arPayments           ArPayment[]
+  arCreditNotes        ArCreditNote[]
   arRecurringTemplates ArRecurringInvoiceTemplate[]
-  vendors            Vendor[]
-  apBills            ApBill[]
-  apPayments         ApPayment[]
-  arApSettings  ArApSettings?
+  vendors              Vendor[]
+  apBills              ApBill[]
+  apPayments           ApPayment[]
+  arApSettings         ArApSettings?
+
+  salesOrders           SalesOrder[]
+  inventoryReservations InventoryReservation[]
+  salesDeliveries       SalesDelivery[]
+  paymentMethods        PaymentMethod[]
 
   inventorySettings  InventorySettings?
   unitsOfMeasure     UnitOfMeasure[]
@@ -179,18 +184,18 @@ model Company {
   notificationPreferences UserNotificationPreference[]
   accountDeletionRequests AccountDeletionRequest[]
 
-  analysisAutomationConfigs AnalysisAutomationConfig[]
-  analysisReports           AnalysisReport[]
-  analysisBenchmarkValues   AnalysisBenchmarkValue[]
+  analysisAutomationConfigs   AnalysisAutomationConfig[]
+  analysisReports             AnalysisReport[]
+  analysisBenchmarkValues     AnalysisBenchmarkValue[]
   analysisCostClassifications AnalysisCostClassification[]
-  savedViews                SavedView[]
-  tableColumnPreferences    TableColumnPreference[]
-  recentlyUsedEntities      RecentlyUsedEntity[]
-  panelCollapsePreferences  PanelCollapsePreference[]
-  importTemplates           ImportTemplate[]
-  viewModePreferences       ViewModePreference[]
-  pinnedItems               PinnedItem[]
-  supportQuestions          SupportQuestion[]
+  savedViews                  SavedView[]
+  tableColumnPreferences      TableColumnPreference[]
+  recentlyUsedEntities        RecentlyUsedEntity[]
+  panelCollapsePreferences    PanelCollapsePreference[]
+  importTemplates             ImportTemplate[]
+  viewModePreferences         ViewModePreference[]
+  pinnedItems                 PinnedItem[]
+  supportQuestions            SupportQuestion[]
 }
 
 model User {
@@ -268,6 +273,10 @@ model User {
   apBillsCreated       ApBill[]       @relation("ApBillCreatedBy")
   apPaymentsCreated    ApPayment[]    @relation("ApPaymentCreatedBy")
 
+  salesOrdersCreated         SalesOrder[]    @relation("SalesOrderCreatedBy")
+  salesDeliveriesCreated     SalesDelivery[] @relation("SalesDeliveryCreatedBy")
+  salesDeliveriesResponsible SalesDelivery[] @relation("SalesDeliveryResponsible")
+
   inventoryMovementsCreated InventoryMovement[]
   inventoryTransfersCreated InventoryTransfer[]
   physicalCountsCounted     PhysicalCount[]     @relation("PhysicalCountCountedBy")
@@ -298,9 +307,9 @@ model User {
   panelCollapsePreferences         PanelCollapsePreference[]
   importTemplatesCreated           ImportTemplate[]
   viewModePreferences              ViewModePreference[]
-  arRecurringTemplatesCreated       ArRecurringInvoiceTemplate[]
-  pinnedItems                       PinnedItem[]
-  supportQuestions                  SupportQuestion[]
+  arRecurringTemplatesCreated      ArRecurringInvoiceTemplate[]
+  pinnedItems                      PinnedItem[]
+  supportQuestions                 SupportQuestion[]
 
   @@index([companyId])
 }
@@ -827,11 +836,11 @@ model Account {
 
   taxRates TaxRate[]
 
-  arInvoicesAsIncomeAccount ArInvoice[]    @relation("ArInvoiceIncomeAccount")
-  apBillsAsExpenseAccount   ApBill[]       @relation("ApBillExpenseAccount")
+  arInvoicesAsIncomeAccount ArInvoice[]                  @relation("ArInvoiceIncomeAccount")
+  apBillsAsExpenseAccount   ApBill[]                     @relation("ApBillExpenseAccount")
   arRecurringTemplates      ArRecurringInvoiceTemplate[]
-  arApSettingsAsReceivable  ArApSettings[] @relation("ArApSettingsReceivableAccount")
-  arApSettingsAsPayable     ArApSettings[] @relation("ArApSettingsPayableAccount")
+  arApSettingsAsReceivable  ArApSettings[]               @relation("ArApSettingsReceivableAccount")
+  arApSettingsAsPayable     ArApSettings[]               @relation("ArApSettingsPayableAccount")
 
   inventorySettingsAsAssetAccount     InventorySettings[] @relation("InvSettingsAssetAccount")
   inventorySettingsAsCogsAccount      InventorySettings[] @relation("InvSettingsCogsAccount")
@@ -1983,11 +1992,11 @@ model TaxJurisdiction {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  taxRates            TaxRate[]
-  fiscalTransactions  FiscalTransaction[]
-  fiscalObligations   FiscalObligation[]
-  arInvoices          ArInvoice[]
-  apBills             ApBill[]
+  taxRates             TaxRate[]
+  fiscalTransactions   FiscalTransaction[]
+  fiscalObligations    FiscalObligation[]
+  arInvoices           ArInvoice[]
+  apBills              ApBill[]
   arRecurringTemplates ArRecurringInvoiceTemplate[]
 
   @@unique([companyId, code])
@@ -2340,8 +2349,8 @@ model Customer {
   // Cliente extranjero: solo cuando es true tiene sentido pedir en qué
   // moneda se le factura (formulario condicional) — un cliente local
   // siempre factura en la moneda base de la empresa.
-  isForeign        Boolean @default(false)
-  billingCurrency  String?
+  isForeign       Boolean @default(false)
+  billingCurrency String?
 
   // Bloqueo (manual o automático por cobranza escalonada, nivel
   // crítico): un cliente bloqueado no puede recibir facturas nuevas
@@ -2354,6 +2363,10 @@ model Customer {
   payments           ArPayment[]
   creditNotes        ArCreditNote[]
   recurringTemplates ArRecurringInvoiceTemplate[]
+
+  salesOrders           SalesOrder[]
+  salesDeliveries       SalesDelivery[]
+  arApSettingsAsDefault ArApSettings[]  @relation("ArApSettingsDefaultCustomer")
 
   @@unique([companyId, name])
   @@index([companyId, isActive])
@@ -2399,6 +2412,13 @@ model ArInvoice {
 
   status ArInvoiceStatus @default(OPEN)
 
+  // Fase 3 (Ventas): opcional — una factura sigue pudiendo registrarse
+  // directa, sin pedido (punto 19). Cuando sí viene de un Pedido, cada
+  // línea se liga a su `SalesOrderLine` (ver ArInvoiceLine), esto solo
+  // deja la trazabilidad del documento completo.
+  salesOrderId String?
+  salesOrder   SalesOrder? @relation(fields: [salesOrderId], references: [id])
+
   createdByUserId String
   createdByUser   User     @relation("ArInvoiceCreatedBy", fields: [createdByUserId], references: [id])
   createdAt       DateTime @default(now())
@@ -2422,6 +2442,22 @@ model ArInvoiceLine {
   unitPrice   Decimal   @db.Decimal(18, 2)
   amount      Decimal   @db.Decimal(18, 2)
   order       Int       @default(0)
+
+  // Fase 3 (Ventas): todos opcionales — una línea sin `productVariantId`
+  // sigue comportándose exactamente como antes (solo `description`,
+  // punto 10: "no reemplazar la descripción textual si sigue siendo
+  // necesaria"). Cuando SÍ hay producto físico, `unitCost` es el costo
+  // real que devolvió el motor de valoración (de esta misma factura si
+  // se facturó directo, o heredado de la entrega si vino de un pedido)
+  // — nunca un cálculo propio de Ventas.
+  productVariantId String?
+  productVariant   ProductVariant? @relation(fields: [productVariantId], references: [id])
+  warehouseId      String?
+  warehouse        Warehouse?      @relation(fields: [warehouseId], references: [id])
+  salesOrderLineId String?
+  salesOrderLine   SalesOrderLine? @relation(fields: [salesOrderLineId], references: [id])
+  discount         Decimal         @default(0) @db.Decimal(18, 2)
+  unitCost         Decimal?        @db.Decimal(18, 6)
 }
 
 // Un cobro puede aplicarse a una o varias facturas del mismo cliente
@@ -2451,6 +2487,23 @@ model ArPayment {
 
   journalEntryId String
   journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  // Fase 3 (punto 23): método de pago registrado (Alarfly no procesa
+  // Zelle/Binance/Pago Móvil, solo los registra y concilia) — opcional,
+  // el cobro directo (sin banco) ya funcionaba sin esto.
+  paymentMethodId String?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+
+  // Fase 3 (punto 24, BCV): si el cobro se registró en una moneda
+  // distinta a la base (ej. Bs.), estos 3 campos guardan el snapshot
+  // histórico — mismo patrón ya usado por
+  // `JournalEntryLine.foreignCurrency/foreignDebit/foreignCredit/exchangeRate`,
+  // no un mecanismo nuevo. `amount` (arriba) siempre queda en moneda
+  // base, ya convertido con `exchangeRate`; una tasa BCV nueva después
+  // nunca recalcula este cobro — es historia, no un valor en vivo.
+  foreignCurrency String?
+  foreignAmount   Decimal? @db.Decimal(18, 4)
+  exchangeRate    Decimal? @db.Decimal(18, 6)
 
   createdByUserId String
   createdByUser   User     @relation("ArPaymentCreatedBy", fields: [createdByUserId], references: [id])
@@ -2498,6 +2551,17 @@ model ArCreditNote {
 
   journalEntryId String
   journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  // Fase 3 (punto 28): la nota de crédito sigue siendo puramente un
+  // ajuste financiero por diseño (nunca tocó inventario, ni antes ni
+  // ahora) — este campo opcional es solo el enlace de trazabilidad
+  // cuando SÍ hubo una devolución física real, registrada por separado
+  // con el movimiento de entrada normal de Inventario (reutilizado, no
+  // duplicado). Sin este campo, "ambos ocurrieron pero no se pueden
+  // relacionar" — con él, sí, sin forzar que toda nota de crédito
+  // implique devolución (la mayoría no la tiene, ej. un descuento).
+  relatedInventoryMovementId String?            @unique
+  relatedInventoryMovement   InventoryMovement? @relation(fields: [relatedInventoryMovementId], references: [id])
 
   createdByUserId String
   createdByUser   User     @relation(fields: [createdByUserId], references: [id])
@@ -2692,8 +2756,222 @@ model ArApSettings {
   currentApBillNumberSequence       Int @default(0)
   currentArCreditNoteNumberSequence Int @default(0)
 
+  // Fase 3 (Ventas): numeración consecutiva propia de Pedidos y
+  // Entregas — mismo patrón atómico que ya usan facturas/notas.
+  currentSalesOrderNumberSequence    Int @default(0)
+  currentSalesDeliveryNumberSequence Int @default(0)
+
+  // "Consumidor Final" (punto 22): cliente predeterminado opcional
+  // para Venta Rápida cuando la configuración fiscal/legal de la
+  // empresa lo permite — nunca se asume, el Administrador lo elige a
+  // propósito. Las ventas a crédito lo ignoran (necesitan el cliente
+  // real para controlar CxC).
+  defaultCustomerId String?
+  defaultCustomer   Customer? @relation("ArApSettingsDefaultCustomer", fields: [defaultCustomerId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// =====================================================================
+// MÓDULO VENTAS — src/modules/sales (Fase 3)
+// Ciclo comercial: Pedido (SalesOrder) → Reserva (InventoryReservation)
+// → Entrega (SalesDelivery, dispara la salida real vía el motor de
+// Inventario ya existente) → Factura (ArInvoice, ya existente, ahora
+// con líneas que identifican producto/variante/almacén/costo) → CxC →
+// Cobro (ArPayment, ya existente). Venta Rápida y Venta Completa
+// comparten exactamente estos mismos modelos y servicios — no hay un
+// segundo motor de facturación/inventario/costo/impuestos. El Pedido y
+// la Entrega son OPCIONALES: una factura directa (sin pedido) sigue
+// funcionando tal cual ya funcionaba antes de esta fase.
+// =====================================================================
+
+// Estado COMERCIAL del pedido — deliberadamente separado del estado
+// FINANCIERO de la factura (ArInvoiceStatus: OPEN/PARTIALLY_PAID/PAID/
+// CANCELLED, sin cambios) y del estado FISCAL (FiscalTransaction/
+// FiscalElectronicDocument, sin cambios) — los 3 sistemas ya existían
+// separados o quedan separados por diseño; no se fusionan en un único
+// campo de estado.
+enum SalesOrderStatus {
+  DRAFT
+  CONFIRMED
+  PARTIALLY_DELIVERED
+  DELIVERED
+  CANCELLED
+}
+
+model SalesOrder {
+  id          String           @id @default(cuid())
+  companyId   String
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  orderNumber Int // consecutivo por empresa (ver ArApSettings)
+  orderDate   DateTime
+  status      SalesOrderStatus @default(DRAFT)
+  notes       String?
+
+  createdByUserId String
+  createdByUser   User     @relation("SalesOrderCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines      SalesOrderLine[]
+  deliveries SalesDelivery[]
+  invoices   ArInvoice[]
+
+  @@unique([companyId, orderNumber])
+  @@index([companyId, customerId, status])
+}
+
+// Una línea puede o no referenciar un producto/variante real — si no
+// lo hace, se comporta exactamente como una línea de factura de
+// siempre (solo descripción). Si sí lo hace, `variant.product.isService`
+// decide si genera reserva/entrega/salida de inventario (punto 11):
+// un servicio nunca consume stock, sin necesitar un campo booleano
+// aparte en la línea.
+model SalesOrderLine {
+  id          String          @id @default(cuid())
+  orderId     String
+  order       SalesOrder      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId   String?
+  variant     ProductVariant? @relation(fields: [variantId], references: [id])
+  warehouseId String?
+  warehouse   Warehouse?      @relation(fields: [warehouseId], references: [id])
+
+  description String
+  quantity    Decimal @db.Decimal(18, 4)
+  unitPrice   Decimal @db.Decimal(18, 2)
+  discount    Decimal @default(0) @db.Decimal(18, 2)
+  amount      Decimal @db.Decimal(18, 2)
+
+  // Acumulados de cumplimiento (punto 18: 1 pedido puede tener N
+  // entregas y N facturas). `deliveredCostTotal` es la suma real de lo
+  // que ya devolvió el motor de valoración en cada entrega — nunca un
+  // costo recalculado acá; al facturar, el costo de la línea se toma
+  // como el promedio de esto (`deliveredCostTotal / deliveredQuantity`
+  // para la porción que se factura), no un cálculo nuevo.
+  deliveredQuantity  Decimal @default(0) @db.Decimal(18, 4)
+  invoicedQuantity   Decimal @default(0) @db.Decimal(18, 4)
+  deliveredCostTotal Decimal @default(0) @db.Decimal(18, 2)
+
+  sortOrder Int @default(0)
+
+  reservations  InventoryReservation[]
+  deliveryLines SalesDeliveryLine[]
+  invoiceLines  ArInvoiceLine[]
+
+  @@index([orderId])
+}
+
+// La reserva NUNCA es una salida de inventario (punto 13): solo mueve
+// `StockLevel.quantityReserved` (columna que ya existía desde
+// Inventario, sin flujo real que la gestionara hasta ahora — el hueco
+// exacto que señaló la auditoría). Disponible = físico − reservado,
+// reutilizando `valuation.rules.calculateAvailableStock`, ya probada,
+// sin duplicar esa fórmula.
+enum InventoryReservationStatus {
+  RESERVED
+  PARTIALLY_RELEASED
+  RELEASED
+  FULFILLED
+  CANCELLED
+}
+
+model InventoryReservation {
+  id               String                     @id @default(cuid())
+  companyId        String
+  company          Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orderLineId      String
+  orderLine        SalesOrderLine             @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+  variantId        String
+  variant          ProductVariant             @relation(fields: [variantId], references: [id])
+  warehouseId      String
+  warehouse        Warehouse                  @relation(fields: [warehouseId], references: [id])
+  quantity         Decimal                    @db.Decimal(18, 4) // cantidad reservada originalmente
+  releasedQuantity Decimal                    @default(0) @db.Decimal(18, 4) // liberada/cumplida acumulada
+  status           InventoryReservationStatus @default(RESERVED)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  @@index([companyId, variantId, warehouseId])
+  @@index([orderLineId])
+}
+
+// La entrega es el hecho físico/logístico (punto 14): al confirmarse,
+// dispara la salida real de inventario llamando al motor de
+// valoración YA EXISTENTE (inventory-movements.service.createExit,
+// extendido en esta fase para aceptar una transacción externa, nunca
+// reimplementado). Estado propio, simple (un evento de entrega no se
+// "parcializa" a sí mismo — lo que se parcializa es el PEDIDO, a
+// través de varias entregas).
+enum SalesDeliveryStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+model SalesDelivery {
+  id             String              @id @default(cuid())
+  companyId      String
+  company        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orderId        String?
+  order          SalesOrder?         @relation(fields: [orderId], references: [id])
+  customerId     String
+  customer       Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  deliveryNumber Int // consecutivo por empresa (ver ArApSettings)
+  deliveryDate   DateTime
+  status         SalesDeliveryStatus @default(DRAFT)
+
+  responsibleUserId String?
+  responsibleUser   User?    @relation("SalesDeliveryResponsible", fields: [responsibleUserId], references: [id])
+  createdByUserId   String
+  createdByUser     User     @relation("SalesDeliveryCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt         DateTime @default(now())
+
+  lines SalesDeliveryLine[]
+
+  @@unique([companyId, deliveryNumber])
+  @@index([companyId, customerId])
+}
+
+model SalesDeliveryLine {
+  id          String          @id @default(cuid())
+  deliveryId  String
+  delivery    SalesDelivery   @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  orderLineId String?
+  orderLine   SalesOrderLine? @relation(fields: [orderLineId], references: [id])
+  variantId   String
+  variant     ProductVariant  @relation(fields: [variantId], references: [id])
+  warehouseId String
+  warehouse   Warehouse       @relation(fields: [warehouseId], references: [id])
+
+  quantity Decimal  @db.Decimal(18, 4)
+  unitCost Decimal? @db.Decimal(18, 6) // snapshot real devuelto por createExit — nunca recalculado acá
+
+  // Referencia al movimiento de inventario real que generó esta línea
+  // (o null si la línea es de un servicio, que nunca crea movimiento).
+  inventoryMovementId String?            @unique
+  inventoryMovement   InventoryMovement? @relation(fields: [inventoryMovementId], references: [id])
+
+  @@index([deliveryId])
+}
+
+// Métodos de pago (punto 23): un catálogo liviano y configurable por
+// empresa — Alarfly solo los REGISTRA y concilia, nunca procesa Zelle/
+// Binance/Pago Móvil externamente. Se sembra con los métodos comunes,
+// el Administrador puede agregar otros.
+model PaymentMethod {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code      String
+  name      String
+  isActive  Boolean @default(true)
+
+  payments ArPayment[]
+
+  @@unique([companyId, code])
 }
 
 // =====================================================================
@@ -2843,6 +3121,11 @@ model ProductVariant {
   lots                InventoryLot[]
   purchaseOrderLines  PurchaseOrderLine[]
 
+  salesOrderLines       SalesOrderLine[]
+  arInvoiceLines        ArInvoiceLine[]
+  salesDeliveryLines    SalesDeliveryLine[]
+  inventoryReservations InventoryReservation[]
+
   @@unique([productId, sku])
 }
 
@@ -2893,6 +3176,11 @@ model Warehouse {
   transfersFrom  InventoryTransfer[] @relation("TransferFrom")
   transfersTo    InventoryTransfer[] @relation("TransferTo")
   purchaseOrders PurchaseOrder[]
+
+  salesOrderLines       SalesOrderLine[]
+  arInvoiceLines        ArInvoiceLine[]
+  salesDeliveryLines    SalesDeliveryLine[]
+  inventoryReservations InventoryReservation[]
 
   @@unique([companyId, code])
 }
@@ -3015,6 +3303,13 @@ model InventoryMovement {
   // salida — permite responder "¿en qué salidas se usó este lote?"
   // sin recalcular el consumo FIFO/LIFO otra vez.
   layerConsumptions StockCostLayerConsumption[] @relation("LayerConsumptionExit")
+
+  // Fase 3 (Ventas): reverso opcional de `SalesDeliveryLine.inventoryMovementId`
+  // y `ArCreditNote.relatedInventoryMovementId` — un movimiento puede
+  // (no tiene por qué) originarse de una entrega de venta o estar
+  // ligado a una devolución.
+  salesDeliveryLine   SalesDeliveryLine?
+  arCreditNoteRelated ArCreditNote?
 
   @@index([companyId, variantId, warehouseId, date])
 }
@@ -3305,16 +3600,16 @@ enum CostBehavior {
 }
 
 model AnalysisCostClassification {
-  id              String        @id @default(cuid())
+  id              String       @id @default(cuid())
   companyId       String
-  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  accountId       String        @unique
-  account         Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  accountId       String       @unique
+  account         Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
   costBehavior    CostBehavior
   updatedByUserId String
-  updatedByUser   User          @relation(fields: [updatedByUserId], references: [id])
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  updatedByUser   User         @relation(fields: [updatedByUserId], references: [id])
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   @@index([companyId])
 }
@@ -3323,11 +3618,11 @@ model AnalysisCostClassification {
 // análisis. Si no existe fila, o existe con isEnabled=false, ese
 // análisis nunca corre solo (el usuario siempre puede correrlo manual).
 model AnalysisAutomationConfig {
-  id                String                @id @default(cuid())
+  id                String               @id @default(cuid())
   companyId         String
-  company           Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company           Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   analysisType      AdvancedAnalysisType
-  isEnabled         Boolean               @default(false)
+  isEnabled         Boolean              @default(false)
   frequency         AnalysisFrequency?
   // Parámetros por defecto que usa el job al correr solo (ej. rango de
   // meses a comparar, número de escenario de sensibilidad). Forma libre
@@ -3340,9 +3635,9 @@ model AnalysisAutomationConfig {
   alertCondition    Json?
   lastRunAt         DateTime?
   updatedByUserId   String
-  updatedByUser     User                  @relation(fields: [updatedByUserId], references: [id])
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  updatedByUser     User                 @relation(fields: [updatedByUserId], references: [id])
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
   @@unique([companyId, analysisType])
   @@index([companyId])
@@ -3366,9 +3661,9 @@ model AnalysisReport {
   numericResult        Json // 1) valor(es) calculado(s) — estructura propia por tipo de análisis
   chartType            AnalysisChartType // 2) a/b/c, determinado por el motor según analysisType
   chartData            Json // 2) serie de puntos ya lista para graficar (Recharts)
-  causeExplanation     String @db.Text // 3) "por qué dio este resultado"
-  simpleInterpretation String @db.Text // 4) qué significa, en lenguaje simple, sin jerga técnica
-  methodology          String @db.Text // 5) qué datos/fórmula se usaron, de qué módulo — para auditar
+  causeExplanation     String            @db.Text // 3) "por qué dio este resultado"
+  simpleInterpretation String            @db.Text // 4) qué significa, en lenguaje simple, sin jerga técnica
+  methodology          String            @db.Text // 5) qué datos/fórmula se usaron, de qué módulo — para auditar
   recommendations      Json // 6) array estructurado: [{text, quantifiedType: 'PERCENTAGE'|'AMOUNT'|'NONE', quantifiedValue, isPrimary}]
 
   generatedAlertId String? // si disparó una alerta de core/alerts, la referencia (Alert.id)
@@ -3458,11 +3753,11 @@ model TableColumnPreference {
 // de búsqueda nuevo en el backend), esta tabla solo guarda el ranking
 // de uso.
 model RecentlyUsedEntity {
-  id        String   @id @default(cuid())
-  companyId String
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   // "account" | "customer" | "product" — texto libre, mismo criterio que
   // TableColumnPreference.tableKey: lo define el código de cada campo,
   // agregar un tipo de entidad nuevo no debe pedir una migración.

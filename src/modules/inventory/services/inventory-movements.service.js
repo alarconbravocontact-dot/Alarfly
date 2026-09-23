@@ -157,7 +157,14 @@ async function createEntry(companyId, userId, data) {
 // virtual armado a partir de sus componentes en el momento de la
 // venta): se explota el BOM y se descuenta cada componente, con un
 // solo asiento contable que agrupa el costo de todos.
-async function createExit(companyId, userId, data) {
+//
+// `tx` (Fase 3 — Ventas): opcional, mismo patrón `tx`/`withTransaction`
+// de Fase 1. Lo usa `sales-deliveries.service`/`ar-invoices.service`
+// para que la salida real de inventario (con su asiento de COGS) quede
+// en la MISMA transacción que la entrega/factura que la origina — así
+// una venta de producto físico es una sola operación atómica, nunca
+// dos. Si no se pasa, se comporta igual que siempre (transacción propia).
+async function createExit(companyId, userId, data, tx = null) {
   const variant = await prisma.productVariant.findFirst({
     where: { id: data.variantId, product: { companyId } },
     include: { product: { include: { category: true } }, bomAsParent: { where: { isActive: true }, include: { components: true } } },
@@ -170,7 +177,7 @@ async function createExit(companyId, userId, data) {
   const qty = new Decimal(data.quantity);
 
   if (variant.bomAsParent && variant.bomAsParent.components.length > 0) {
-    return createBomExit(companyId, userId, variant, data, qty);
+    return createBomExit(companyId, userId, variant, data, qty, tx);
   }
 
   const method = await valuationService.resolveValuationMethod(companyId, variant.product);
@@ -248,10 +255,10 @@ async function createExit(companyId, userId, data) {
     );
 
     return movement;
-  });
+  }, tx);
 }
 
-async function createBomExit(companyId, userId, parentVariant, data, quantitySold) {
+async function createBomExit(companyId, userId, parentVariant, data, quantitySold, tx = null) {
   const componentPlan = explodeBomComponents(parentVariant.bomAsParent.components, quantitySold);
 
   const componentCosts = [];
@@ -378,7 +385,7 @@ async function createBomExit(companyId, userId, parentVariant, data, quantitySol
     );
 
     return parentMovement;
-  });
+  }, tx);
 }
 
 // AJUSTE manual (punto 4): siempre exige motivo. El incremento se

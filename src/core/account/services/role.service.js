@@ -17,6 +17,7 @@ const MODULE_LABELS = {
   fpa: 'FP&A',
   reports: 'Reportes',
   'business-metrics': 'Métricas del Negocio',
+  sales: 'Ventas',
 };
 
 async function getMyRoleAndPermissions(userId, role) {

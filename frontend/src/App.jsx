@@ -31,6 +31,10 @@ import ArCreditNotesPage from './pages/ar-ap/ArCreditNotesPage';
 import VendorsPage from './pages/ar-ap/VendorsPage';
 import ApBillsPage from './pages/ar-ap/ApBillsPage';
 import ApPaymentsPage from './pages/ar-ap/ApPaymentsPage';
+import SalesLayout from './pages/sales/SalesLayout';
+import QuickSalePage from './pages/sales/QuickSalePage';
+import SalesOrdersPage from './pages/sales/SalesOrdersPage';
+import SalesDeliveriesPage from './pages/sales/SalesDeliveriesPage';
 import InventoryLayout from './pages/inventory/InventoryLayout';
 import CatalogPage from './pages/inventory/CatalogPage';
 import WarehousesPage from './pages/inventory/WarehousesPage';
@@ -116,6 +120,12 @@ function App() {
             <Route path="proveedores" element={<VendorsPage />} />
             <Route path="facturas-compra" element={<ApBillsPage />} />
             <Route path="pagos" element={<ApPaymentsPage />} />
+          </Route>
+          <Route path="/ventas" element={<SalesLayout />}>
+            <Route index element={<Navigate to="rapida" replace />} />
+            <Route path="rapida" element={<QuickSalePage />} />
+            <Route path="pedidos" element={<SalesOrdersPage />} />
+            <Route path="entregas" element={<SalesDeliveriesPage />} />
           </Route>
           <Route path="/inventario" element={<InventoryLayout />}>
             <Route index element={<Navigate to="catalogo" replace />} />

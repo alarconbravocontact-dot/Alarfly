@@ -4,6 +4,12 @@ const invoiceLineSchema = z.object({
   description: z.string().min(1),
   quantity: z.number().positive().optional(),
   unitPrice: z.number().nonnegative(),
+  // Fase 3 (Ventas), punto 10: opcionales — una línea sin `variantId`
+  // sigue siendo solo texto, como siempre.
+  discount: z.number().nonnegative().optional(),
+  variantId: z.string().optional(),
+  warehouseId: z.string().optional(),
+  salesOrderLineId: z.string().optional(),
 });
 
 const createInvoiceSchema = z.object({
@@ -14,6 +20,7 @@ const createInvoiceSchema = z.object({
   documentNumber: z.string().optional(),
   taxRateId: z.string().optional(),
   withholdingRateId: z.string().optional(),
+  salesOrderId: z.string().optional(),
   lines: z.array(invoiceLineSchema).min(1, 'La factura necesita al menos una línea.'),
 });
 

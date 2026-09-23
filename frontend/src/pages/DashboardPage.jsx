@@ -274,6 +274,12 @@ export default function DashboardPage() {
             description="Clientes, proveedores, facturas y cobros"
           />
           <ModuleCard
+            to="/ventas"
+            icon="⊹"
+            title="Ventas"
+            description="Venta Rápida, pedidos y entregas"
+          />
+          <ModuleCard
             to="/inventario"
             icon="⊞"
             title="Inventario"

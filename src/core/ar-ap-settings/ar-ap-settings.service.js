@@ -30,6 +30,12 @@ async function updateSettings(companyId, userId, changes) {
       throw new AppError('La cuenta de Cuentas por Pagar indicada no existe en esta empresa.', 400, 'ACCOUNT_NOT_FOUND');
     }
   }
+  if (changes.defaultCustomerId) {
+    const customer = await prisma.customer.findFirst({ where: { id: changes.defaultCustomerId, companyId } });
+    if (!customer) {
+      throw new AppError('El cliente indicado para "Consumidor Final" no existe en esta empresa.', 400, 'CUSTOMER_NOT_FOUND');
+    }
+  }
 
   return prisma.$transaction(async (tx) => {
     const updated = await tx.arApSettings.update({ where: { companyId }, data: changes });
@@ -109,6 +115,36 @@ async function getNextArCreditNoteNumber(companyId, tx) {
   return updated.currentArCreditNoteNumberSequence;
 }
 
+// Fase 3 (Ventas): mismo patrón de numeración atómica, para Pedidos y
+// Entregas.
+async function getNextSalesOrderNumber(companyId, tx) {
+  const client = tx || prisma;
+  await client.arApSettings.upsert({ where: { companyId }, create: { companyId }, update: {} });
+  const updated = await client.arApSettings.update({
+    where: { companyId },
+    data: { currentSalesOrderNumberSequence: { increment: 1 } },
+  });
+  return updated.currentSalesOrderNumberSequence;
+}
+
+async function getNextSalesDeliveryNumber(companyId, tx) {
+  const client = tx || prisma;
+  await client.arApSettings.upsert({ where: { companyId }, create: { companyId }, update: {} });
+  const updated = await client.arApSettings.update({
+    where: { companyId },
+    data: { currentSalesDeliveryNumberSequence: { increment: 1 } },
+  });
+  return updated.currentSalesDeliveryNumberSequence;
+}
+
+// Fase 3, punto 22 (Consumidor Final): resuelve el cliente a usar
+// cuando Venta Rápida no recibió uno — solo si la empresa configuró
+// explícitamente uno por defecto. Nunca asume ni inventa un cliente.
+async function resolveDefaultCustomerId(companyId) {
+  const settings = await getOrCreateSettings(companyId);
+  return settings.defaultCustomerId || null;
+}
+
 module.exports = {
   getOrCreateSettings,
   updateSettings,
@@ -117,4 +153,7 @@ module.exports = {
   getNextArInvoiceNumber,
   getNextApBillNumber,
   getNextArCreditNoteNumber,
+  getNextSalesOrderNumber,
+  getNextSalesDeliveryNumber,
+  resolveDefaultCustomerId,
 };

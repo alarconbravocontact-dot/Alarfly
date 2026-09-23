@@ -12,6 +12,9 @@ const MODULE_ROLES = {
   'accounts-receivable': ['ADMIN', 'COLLABORATOR'],
   'accounts-payable': ['ADMIN', 'COLLABORATOR'],
   inventory: ['ADMIN', 'COLLABORATOR'],
+  // Fase 3: mismo nivel que Tesorería/AR/AP/Inventario — el
+  // Colaborador es quien de verdad vende y entrega en el día a día.
+  sales: ['ADMIN', 'COLLABORATOR'],
   fiscal: ['ADMIN', 'ACCOUNTANT'],
   fpa: ['ADMIN', 'FINANCE'],
   reports: ['ADMIN', 'FINANCE'],

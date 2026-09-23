@@ -12,6 +12,8 @@ const accountsReceivableRoutes = require('./modules/accounts-receivable/routes')
 const accountsPayableRoutes = require('./modules/accounts-payable/routes');
 const arApSettingsRoutes = require('./core/ar-ap-settings/ar-ap-settings.routes');
 const inventoryRoutes = require('./modules/inventory/routes');
+const salesRoutes = require('./modules/sales/routes');
+const paymentMethodsRoutes = require('./core/payment-methods/payment-methods.routes');
 const businessMetricsRoutes = require('./modules/business-metrics/routes');
 const accessLevelsRoutes = require('./modules/access-levels/routes');
 const juntaRoutes = require('./modules/junta/routes');
@@ -54,6 +56,8 @@ app.use('/accounts-receivable', accountsReceivableRoutes);
 app.use('/accounts-payable', accountsPayableRoutes);
 app.use('/ar-ap-settings', arApSettingsRoutes);
 app.use('/inventory', inventoryRoutes);
+app.use('/sales', salesRoutes);
+app.use('/payment-methods', paymentMethodsRoutes);
 app.use('/business-metrics', businessMetricsRoutes);
 app.use('/access-levels', accessLevelsRoutes);
 app.use('/junta', juntaRoutes);

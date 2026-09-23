@@ -84,6 +84,89 @@ async function setReceivableAccount(companyId, receivableGlAccountId) {
   });
 }
 
+// Fase 3 (Ventas): fixtures del lado de Inventario/Productos que las
+// pruebas de Ventas necesitan para armar un escenario real completo.
+async function createUnitOfMeasure(companyId) {
+  return prisma.unitOfMeasure.create({ data: { companyId, code: unique('UN'), name: 'Unidad de prueba' } });
+}
+
+async function createWarehouse(companyId) {
+  return prisma.warehouse.create({ data: { companyId, code: unique('ALM'), name: 'Almacén de prueba' } });
+}
+
+// Producto físico con costo/inventario listos para vender: crea su
+// propia variante por defecto (mismo criterio que products.service —
+// "todo producto siempre tiene variante"), cuentas de inventario/COGS
+// postables, y una entrada real de stock (vía el motor de valoración
+// real, nunca insertando StockLevel a mano) para que haya algo que
+// vender/reservar/entregar.
+async function createPhysicalProduct(companyId, userId, { uom, assetAccount, cogsAccount, warehouse, initialQuantity = 100, unitCost = 10 }) {
+  const inventoryMovementsService = require('../modules/inventory/services/inventory-movements.service');
+  const product = await prisma.product.create({
+    data: {
+      companyId,
+      sku: unique('SKU'),
+      name: 'Producto físico de prueba',
+      baseUnitOfMeasureId: uom.id,
+      inventoryAssetAccountId: assetAccount.id,
+      cogsExpenseAccountId: cogsAccount.id,
+      isService: false,
+      variants: { create: [{ sku: unique('VAR') }] },
+    },
+    include: { variants: true },
+  });
+  const variant = product.variants[0];
+  if (initialQuantity > 0) {
+    await inventoryMovementsService.createEntry(companyId, userId, {
+      variantId: variant.id,
+      warehouseId: warehouse.id,
+      quantity: initialQuantity,
+      unitCost,
+      date: new Date(),
+      counterpartyAccountId: assetAccount.id, // contrapartida cualquiera postable, solo para la prueba
+    });
+  }
+  return { product, variant };
+}
+
+async function createServiceProduct(companyId, uom) {
+  const product = await prisma.product.create({
+    data: {
+      companyId,
+      sku: unique('SRV'),
+      name: 'Servicio de prueba',
+      baseUnitOfMeasureId: uom.id,
+      isService: true,
+      variants: { create: [{ sku: unique('SRVVAR') }] },
+    },
+    include: { variants: true },
+  });
+  return { product, variant: product.variants[0] };
+}
+
+// Arma un escenario completo de Ventas (Fase 3): además de todo lo de
+// `buildTreasuryScenario`, un producto físico con 100 unidades reales
+// en stock (costo 10), un producto servicio, y las cuentas fiscales
+// mínimas para poder facturar.
+async function buildSalesScenario() {
+  const base = await buildTreasuryScenario();
+  const uom = await createUnitOfMeasure(base.company.id);
+  const warehouse = await createWarehouse(base.company.id);
+  const inventoryAssetAccount = await createAccount(base.company.id, { type: 'ASSET', normalBalance: 'DEBIT' });
+  const cogsAccount = await createAccount(base.company.id, { type: 'EXPENSE', normalBalance: 'DEBIT' });
+  const incomeAccount = await createAccount(base.company.id, { type: 'INCOME', normalBalance: 'CREDIT' });
+  const jurisdiction = await createTaxJurisdiction(base.company.id);
+  const { product, variant } = await createPhysicalProduct(base.company.id, base.user.id, {
+    uom,
+    assetAccount: inventoryAssetAccount,
+    cogsAccount,
+    warehouse,
+  });
+  const service = await createServiceProduct(base.company.id, uom);
+
+  return { ...base, uom, warehouse, inventoryAssetAccount, cogsAccount, incomeAccount, jurisdiction, product, variant, serviceProduct: service.product, serviceVariant: service.variant };
+}
+
 // Arma un escenario completo listo para registrar un cobro real de AR:
 // empresa, usuario, cuenta bancaria + su GL, cuenta de CxC, periodo
 // abierto y cliente. Es el fixture que usan las pruebas de doble
@@ -111,10 +194,37 @@ async function cleanupCompany(companyId) {
   await prisma.statementImport.deleteMany({ where: { companyId } });
   await prisma.arPaymentApplication.deleteMany({ where: { payment: { companyId } } });
   await prisma.arPayment.deleteMany({ where: { companyId } });
+  await prisma.arCreditNote.deleteMany({ where: { companyId } });
+
+  // Fase 3 (Ventas): hijos antes que padres — entregas/reservas antes
+  // que sus líneas de pedido, líneas de factura antes que la factura,
+  // y todo el lado de Ventas antes de tocar Inventario/Ledger, que es
+  // de quien depende.
+  await prisma.salesDeliveryLine.deleteMany({ where: { delivery: { companyId } } });
+  await prisma.salesDelivery.deleteMany({ where: { companyId } });
+  await prisma.inventoryReservation.deleteMany({ where: { companyId } });
   await prisma.arInvoiceLine.deleteMany({ where: { invoice: { companyId } } });
   await prisma.arInvoice.deleteMany({ where: { companyId } });
+  await prisma.salesOrderLine.deleteMany({ where: { order: { companyId } } });
+  await prisma.salesOrder.deleteMany({ where: { companyId } });
+  await prisma.paymentMethod.deleteMany({ where: { companyId } });
+
   await prisma.fiscalRiskAlert.deleteMany({ where: { companyId } });
   await prisma.fiscalTransaction.deleteMany({ where: { companyId } });
+
+  // Inventario: capas de costo y sus consumos antes que los movimientos;
+  // movimientos antes que variante/almacén/lote; lote antes de variante.
+  await prisma.stockCostLayerConsumption.deleteMany({ where: { exitMovement: { companyId } } });
+  await prisma.stockCostLayer.deleteMany({ where: { companyId } });
+  await prisma.inventoryMovement.deleteMany({ where: { companyId } });
+  await prisma.stockLevel.deleteMany({ where: { companyId } });
+  await prisma.inventoryLot.deleteMany({ where: { companyId } });
+  await prisma.productVariant.deleteMany({ where: { product: { companyId } } });
+  await prisma.product.deleteMany({ where: { companyId } });
+  await prisma.productCategory.deleteMany({ where: { companyId } });
+  await prisma.unitOfMeasure.deleteMany({ where: { companyId } });
+  await prisma.warehouse.deleteMany({ where: { companyId } });
+
   await prisma.journalEntryLineDimension.deleteMany({ where: { line: { journalEntry: { companyId } } } });
   await prisma.journalEntryLineFpaDimension.deleteMany({ where: { line: { journalEntry: { companyId } } } });
   await prisma.journalEntryLine.deleteMany({ where: { journalEntry: { companyId } } });
@@ -143,5 +253,10 @@ module.exports = {
   createCustomer,
   setReceivableAccount,
   buildTreasuryScenario,
+  createUnitOfMeasure,
+  createWarehouse,
+  createPhysicalProduct,
+  createServiceProduct,
+  buildSalesScenario,
   cleanupCompany,
 };

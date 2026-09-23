@@ -21,10 +21,32 @@ const AppError = require('../../../core/utils/AppError');
 const auditService = require('../../../core/audit/audit.service');
 const ledgerService = require('../../../core/ledger/ledger.service');
 const arApSettingsService = require('../../../core/ar-ap-settings/ar-ap-settings.service');
+const fxService = require('../../../core/fx/fx.service');
 const { applyPaymentToInvoices } = require('./ar-invoices.rules');
 const { withTransaction } = require('../../../core/database/unit-of-work');
 
 const { Decimal } = Prisma;
+
+// Fase 3 (punto 24, BCV): si el cobro se registra en una moneda
+// distinta a la base (ej. Bs.), resuelve la tasa vigente UNA vez y la
+// devuelve para guardarla como snapshot — reutiliza
+// `core/fx.getLatestRate`, ya probado, no un mecanismo nuevo. Solo
+// aplica al cobro directo (sin banco): un cobro conectado a un
+// movimiento bancario real ya trae su monto en moneda base por
+// construcción, mezclarlo con una conversión manual sería contradictorio.
+async function resolveForeignAmount(companyId, data) {
+  if (!data.foreignCurrency || data.foreignAmount == null) return null;
+  const rate = await fxService.getLatestRate(companyId, data.foreignCurrency, data.date);
+  if (!rate) {
+    throw new AppError(
+      `No hay una tasa de cambio registrada para ${data.foreignCurrency} en o antes de esa fecha.`,
+      400,
+      'EXCHANGE_RATE_NOT_FOUND'
+    );
+  }
+  const foreignAmount = new Decimal(data.foreignAmount);
+  return { foreignCurrency: data.foreignCurrency, foreignAmount, exchangeRate: new Decimal(rate.rate), amount: foreignAmount.times(rate.rate) };
+}
 
 async function resolvePaymentSource(companyId, data) {
   if (data.bankTransactionId) {
@@ -40,14 +62,24 @@ async function resolvePaymentSource(companyId, data) {
       throw new AppError('El movimiento bancario indicado no es una entrada de dinero.', 400, 'BANK_TRANSACTION_NOT_INFLOW');
     }
     const treasuryAccount = await prisma.treasuryAccount.findUnique({ where: { id: bankTransaction.treasuryAccountId } });
-    return { treasuryAccount, amount, bankTransaction };
+    return { treasuryAccount, amount, bankTransaction, foreign: null };
   }
 
   const treasuryAccount = await prisma.treasuryAccount.findFirst({ where: { id: data.treasuryAccountId, companyId } });
   if (!treasuryAccount) {
     throw new AppError('La cuenta de Tesorería indicada no existe.', 404, 'TREASURY_ACCOUNT_NOT_FOUND');
   }
-  return { treasuryAccount, amount: new Decimal(data.amount), bankTransaction: null };
+  const foreign = await resolveForeignAmount(companyId, data);
+  return { treasuryAccount, amount: foreign ? foreign.amount : new Decimal(data.amount), bankTransaction: null, foreign };
+}
+
+async function resolvePaymentMethod(companyId, paymentMethodId) {
+  if (!paymentMethodId) return null;
+  const method = await prisma.paymentMethod.findFirst({ where: { id: paymentMethodId, companyId, isActive: true } });
+  if (!method) {
+    throw new AppError('El método de pago indicado no existe o está inactivo.', 404, 'PAYMENT_METHOD_NOT_FOUND');
+  }
+  return method;
 }
 
 async function recordPayment(companyId, userId, data) {
@@ -56,11 +88,29 @@ async function recordPayment(companyId, userId, data) {
     throw new AppError('El cliente indicado no existe.', 404, 'CUSTOMER_NOT_FOUND');
   }
 
-  const { treasuryAccount, amount, bankTransaction } = await resolvePaymentSource(companyId, data);
+  const { treasuryAccount, amount, bankTransaction, foreign } = await resolvePaymentSource(companyId, data);
+  const paymentMethod = await resolvePaymentMethod(companyId, data.paymentMethodId);
   const receivableGlAccountId = await arApSettingsService.assertReceivableAccountConfigured(companyId);
 
   let applicationResults = [];
-  const applications = Array.isArray(data.applications) ? data.applications : [];
+  // `applyFullyToInvoiceId` (Fase 3 — Venta Rápida): conveniencia para
+  // "aplica lo que se cobró a ESTA factura, hasta donde alcance" sin
+  // que el llamador tenga que conocer de antemano el monto exacto
+  // (ej. cuando viene de una conversión BCV recién resuelta arriba) —
+  // reutiliza la MISMA función pura de reparto (`applyPaymentToInvoices`)
+  // que ya usa el resto de AR, nunca un cálculo aparte.
+  let applications = Array.isArray(data.applications) ? data.applications : [];
+  if (applications.length === 0 && data.applyFullyToInvoiceId) {
+    const targetInvoice = await prisma.arInvoice.findFirst({ where: { id: data.applyFullyToInvoiceId, companyId, customerId: customer.id } });
+    if (!targetInvoice) {
+      throw new AppError('La factura indicada para aplicar el cobro no existe.', 404, 'INVOICE_NOT_FOUND');
+    }
+    const openBalance = new Decimal(targetInvoice.totalAmount).minus(targetInvoice.paidAmount);
+    const toApply = Decimal.min(amount, openBalance);
+    if (toApply.isPositive()) {
+      applications = [{ invoiceId: targetInvoice.id, amount: toApply.toNumber() }];
+    }
+  }
   if (applications.length > 0) {
     const invoiceIds = applications.map((application) => application.invoiceId);
     const invoices = await prisma.arInvoice.findMany({ where: { id: { in: invoiceIds }, companyId, customerId: customer.id } });
@@ -110,6 +160,10 @@ async function recordPayment(companyId, userId, data) {
         treasuryAccountId: treasuryAccount.id,
         bankTransactionId: bankTransaction?.id || null,
         journalEntryId: entry.id,
+        paymentMethodId: paymentMethod?.id || null,
+        foreignCurrency: foreign?.foreignCurrency || null,
+        foreignAmount: foreign?.foreignAmount || null,
+        exchangeRate: foreign?.exchangeRate || null,
         createdByUserId: userId,
         applications: {
           create: applicationResults.map((result) => ({ invoiceId: result.invoiceId, amount: result.amount })),

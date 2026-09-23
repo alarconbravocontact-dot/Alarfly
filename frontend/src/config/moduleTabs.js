@@ -78,6 +78,15 @@ export const ADVANCED_ANALYTICS_TABS = [
   { to: '/analisis-avanzados/benchmarking', label: 'Benchmarking' },
 ];
 
+// Fase 3 — Ventas: Venta Rápida primero a propósito (es el flujo del
+// día a día, punto 20 del prompt de Fase 3), Pedidos/Entregas después
+// (el ciclo completo, opcional).
+export const SALES_TABS = [
+  { to: '/ventas/rapida', label: 'Venta Rápida' },
+  { to: '/ventas/pedidos', label: 'Pedidos' },
+  { to: '/ventas/entregas', label: 'Entregas' },
+];
+
 // Prefijo de ruta → moduleKey del backend (los mismos strings que ya
 // usa `core/rbac/module-access.js`) — única fuente de verdad para que
 // el botón de ayuda contextual (Feature Q) sepa en qué módulo está el
@@ -87,6 +96,7 @@ export const ROUTE_MODULE_KEYS = [
   { prefix: '/contabilidad', moduleKey: 'accounting' },
   { prefix: '/tesoreria', moduleKey: 'treasury' },
   { prefix: '/cuentas', moduleKey: 'accounts-receivable' },
+  { prefix: '/ventas', moduleKey: 'sales' },
   { prefix: '/inventario', moduleKey: 'inventory' },
   { prefix: '/fiscal', moduleKey: 'fiscal' },
   { prefix: '/fpa', moduleKey: 'fpa' },

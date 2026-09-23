@@ -12,11 +12,82 @@ const auditService = require('../../../core/audit/audit.service');
 const arApSettingsService = require('../../../core/ar-ap-settings/ar-ap-settings.service');
 const fiscalTransactionsService = require('../../fiscal/services/fiscal-transactions.service');
 const taxRatesService = require('../../fiscal/services/tax-rates.service');
+const inventoryMovementsService = require('../../inventory/services/inventory-movements.service');
 const { daysUntil } = require('../../../core/alerts/alerts.rules');
 const { calculateDueDate, assertCustomerCreditOk, buildSalesTrend } = require('./ar-invoices.rules');
+const { calculateLineAmount, remainingToInvoice, averageDeliveredUnitCost } = require('../../sales/services/sales-orders.rules');
 const { withTransaction } = require('../../../core/database/unit-of-work');
 
 const { Decimal } = Prisma;
+
+// Fase 3 (Ventas): resuelve, ANTES de tocar Fiscal/Ledger, qué hace
+// falta cada línea con producto real (punto 10-11 y 17-19). Nunca
+// duplica el cálculo de costo: si la línea viene de un Pedido ya
+// entregado (`salesOrderLineId`), usa el costo real que YA dejó la
+// entrega (`SalesOrderLine.deliveredCostTotal`, promedio de lo
+// entregado); si es una venta directa/rápida de producto físico (sin
+// pedido previo), la salida de inventario se genera recién dentro de
+// la transacción de la factura — acá solo se valida que sea posible
+// (variante real, almacén indicado) y se marca para resolverse después.
+async function resolveLine(companyId, raw, index) {
+  const quantity = new Decimal(raw.quantity ?? 1);
+  const unitPrice = new Decimal(raw.unitPrice);
+  const discount = new Decimal(raw.discount || 0);
+  const amount = calculateLineAmount(quantity, unitPrice, discount);
+
+  const base = { description: raw.description, quantity, unitPrice, discount, amount, order: index };
+
+  if (!raw.variantId) {
+    return { ...base, productVariantId: null, warehouseId: null, salesOrderLineId: null, unitCost: null, needsDirectExit: false };
+  }
+
+  const variant = await prisma.productVariant.findFirst({
+    where: { id: raw.variantId, product: { companyId } },
+    include: { product: true },
+  });
+  if (!variant) {
+    throw new AppError(`La línea ${index + 1} referencia una variante de producto que no existe.`, 404, 'PRODUCT_VARIANT_NOT_FOUND');
+  }
+
+  // Servicio: se factura igual, nunca toca inventario (punto 11).
+  if (variant.product.isService) {
+    return { ...base, productVariantId: variant.id, warehouseId: null, salesOrderLineId: null, unitCost: null, needsDirectExit: false };
+  }
+
+  if (raw.salesOrderLineId) {
+    const orderLine = await prisma.salesOrderLine.findFirst({ where: { id: raw.salesOrderLineId, order: { companyId } } });
+    if (!orderLine) {
+      throw new AppError(`La línea ${index + 1} referencia una línea de pedido que no existe.`, 404, 'SALES_ORDER_LINE_NOT_FOUND');
+    }
+    const available = remainingToInvoice(orderLine);
+    if (quantity.greaterThan(available)) {
+      throw new AppError(
+        `La línea "${orderLine.description}" del pedido solo tiene ${available.toFixed(4)} entregado y sin facturar.`,
+        400,
+        'INVOICE_EXCEEDS_DELIVERED_QUANTITY'
+      );
+    }
+    const unitCost = averageDeliveredUnitCost(orderLine);
+    return {
+      ...base,
+      productVariantId: variant.id,
+      warehouseId: orderLine.warehouseId,
+      salesOrderLineId: orderLine.id,
+      unitCost,
+      needsDirectExit: false,
+    };
+  }
+
+  // Venta directa/Venta Rápida de producto físico, sin pedido previo
+  // (punto 2/19/20): la línea SÍ va a generar una salida de inventario
+  // real, dentro de esta misma factura — se resuelve más abajo, una
+  // vez que la factura y sus líneas ya existan (createExit necesita
+  // poder referenciarlas).
+  if (!raw.warehouseId) {
+    throw new AppError(`La línea ${index + 1} es de un producto físico y necesita indicar el almacén.`, 400, 'WAREHOUSE_REQUIRED_FOR_PHYSICAL_LINE');
+  }
+  return { ...base, productVariantId: variant.id, warehouseId: raw.warehouseId, salesOrderLineId: null, unitCost: null, needsDirectExit: true };
+}
 
 // Saldo pendiente actual del cliente y su factura abierta más
 // atrasada — solo lectura, se usa para validar crédito antes de
@@ -58,11 +129,10 @@ async function createInvoice(companyId, userId, data, tx = null) {
 
   const receivableGlAccountId = await arApSettingsService.assertReceivableAccountConfigured(companyId);
 
-  const lines = data.lines.map((line, index) => {
-    const quantity = new Decimal(line.quantity ?? 1);
-    const unitPrice = new Decimal(line.unitPrice);
-    return { description: line.description, quantity, unitPrice, amount: quantity.times(unitPrice), order: index };
-  });
+  const lines = [];
+  for (let i = 0; i < data.lines.length; i++) {
+    lines.push(await resolveLine(companyId, data.lines[i], i));
+  }
   const subtotal = lines.reduce((sum, line) => sum.plus(line.amount), new Decimal(0));
 
   const issueDate = new Date(data.issueDate);
@@ -138,19 +208,58 @@ async function createInvoice(companyId, userId, data, tx = null) {
         taxAmount: fiscalTransaction.taxAmount,
         withholdingAmount: fiscalTransaction.withholdingAmount,
         totalAmount,
+        salesOrderId: data.salesOrderId || null,
         createdByUserId: userId,
         lines: {
           create: lines.map((line) => ({
             description: line.description,
             quantity: line.quantity,
             unitPrice: line.unitPrice,
+            discount: line.discount,
             amount: line.amount,
             order: line.order,
+            productVariantId: line.productVariantId,
+            warehouseId: line.warehouseId,
+            salesOrderLineId: line.salesOrderLineId,
+            unitCost: line.unitCost,
           })),
         },
       },
       include: { lines: true },
     });
+
+    // Fase 3: recién con la factura y sus líneas ya creadas se puede
+    // (a) disparar la salida real de inventario de las líneas de venta
+    // directa/rápida (referencia la factura recién creada, dentro de
+    // esta misma transacción — no una segunda), y (b) marcar cuánto de
+    // cada línea de Pedido ya quedó facturado.
+    let needsRefresh = false;
+    for (const line of lines) {
+      const createdLine = invoice.lines.find((l) => l.order === line.order);
+      if (line.needsDirectExit) {
+        const movement = await inventoryMovementsService.createExit(
+          companyId,
+          userId,
+          {
+            variantId: line.productVariantId,
+            warehouseId: line.warehouseId,
+            quantity: line.quantity,
+            date: issueDate,
+            type: 'SALE_EXIT',
+            referenceType: 'ArInvoice',
+            referenceId: invoice.id,
+          },
+          tx
+        );
+        await tx.arInvoiceLine.update({ where: { id: createdLine.id }, data: { unitCost: movement.unitCost } });
+        needsRefresh = true;
+      } else if (line.salesOrderLineId) {
+        await tx.salesOrderLine.update({
+          where: { id: line.salesOrderLineId },
+          data: { invoicedQuantity: { increment: line.quantity } },
+        });
+      }
+    }
 
     await auditService.log(
       {
@@ -164,6 +273,15 @@ async function createInvoice(companyId, userId, data, tx = null) {
       },
       tx
     );
+
+    // El objeto ya creado (`invoice.lines`) quedó desactualizado para
+    // las líneas de salida directa (su `unitCost` se llenó DESPUÉS de
+    // crearlas) — se relee una vez más, dentro de la misma transacción,
+    // para que lo que devuelve `createInvoice` sea siempre exactamente
+    // lo que quedó guardado, nunca una foto vieja.
+    if (needsRefresh) {
+      return tx.arInvoice.findUnique({ where: { id: invoice.id }, include: { lines: true } });
+    }
 
     return invoice;
   }, tx);

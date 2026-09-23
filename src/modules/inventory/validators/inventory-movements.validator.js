@@ -18,7 +18,9 @@ const createEntrySchema = z.object({
 const createExitSchema = z.object({
   variantId: z.string().min(1),
   warehouseId: z.string().min(1),
-  type: z.enum(['SALE_EXIT', 'CONSUMPTION_EXIT']).optional(),
+  // Fase 4: VENDOR_RETURN_EXIT — devolución física de mercancía a un
+  // proveedor (ver accounts-payable/services/ap-credit-notes.service).
+  type: z.enum(['SALE_EXIT', 'CONSUMPTION_EXIT', 'VENDOR_RETURN_EXIT']).optional(),
   quantity: z.number().positive(),
   date: z.coerce.date(),
   referenceType: z.string().optional(),
@@ -53,6 +55,7 @@ const listMovementsQuerySchema = z.object({
       'ADJUSTMENT_INCREASE',
       'ADJUSTMENT_DECREASE',
       'PHYSICAL_COUNT_ADJUSTMENT',
+      'VENDOR_RETURN_EXIT',
     ])
     .optional(),
   from: z.coerce.date().optional(),

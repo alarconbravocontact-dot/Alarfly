@@ -7,6 +7,7 @@ const prisma = require('../../../core/database/prisma');
 const AppError = require('../../../core/utils/AppError');
 const auditService = require('../../../core/audit/audit.service');
 const inventoryMovementsService = require('./inventory-movements.service');
+const { withTransaction } = require('../../../core/database/unit-of-work');
 const { calculateReceiptDiscrepancy, determinePurchaseOrderStatus } = require('./purchase-orders.rules');
 
 const { Decimal } = Prisma;
@@ -94,7 +95,13 @@ async function submitPurchaseOrder(companyId, userId, id) {
 // inventario (misma cuenta contrapartida para toda la recepción, igual
 // simplificación que ya usa AR/AP con una sola cuenta por factura).
 // Se calcula la discrepancia contra lo pedido, pero no bloquea nada —
-// solo se informa (una recepción parcial es normal).
+// solo se informa (una recepción parcial, o incluso una sobre-recepción,
+// es normal en la práctica). Fase 4: TODO esto — cada entrada de
+// inventario, el acumulado de quantityReceived/receivedCostTotal de
+// cada línea y el nuevo estado de la orden — ahora queda en UNA sola
+// transacción (antes createEntry abría su propia transacción por línea
+// y el resto de las escrituras quedaban sueltas: un fallo a mitad de
+// camino podía dejar inventario movido sin que la orden lo reflejara).
 async function receivePurchaseOrder(companyId, userId, id, { date, counterpartyAccountId, receipts }) {
   const order = await prisma.purchaseOrder.findFirst({ where: { id, companyId }, include: { lines: true } });
   if (!order) {
@@ -108,60 +115,79 @@ async function receivePurchaseOrder(companyId, userId, id, { date, counterpartyA
   }
 
   const linesById = new Map(order.lines.map((line) => [line.id, line]));
-  const discrepancies = [];
-
   for (const receipt of receipts) {
     const line = linesById.get(receipt.lineId);
     if (!line) {
       throw new AppError('Una de las líneas indicadas no pertenece a esta orden.', 404, 'PURCHASE_ORDER_LINE_NOT_FOUND');
     }
-
     const unitCost = receipt.unitCost ?? line.unitCost;
     if (unitCost == null) {
       throw new AppError('Debes indicar el costo unitario de recepción (la línea no tiene uno estimado).', 400, 'UNIT_COST_REQUIRED');
     }
-
-    await inventoryMovementsService.createEntry(companyId, userId, {
-      variantId: line.variantId,
-      warehouseId: order.warehouseId,
-      type: 'PURCHASE_ENTRY',
-      quantity: receipt.quantityReceived,
-      unitCost,
-      date,
-      counterpartyAccountId,
-      referenceType: 'PurchaseOrder',
-      referenceId: order.id,
-      lotNumber: receipt.lotNumber,
-      expirationDate: receipt.expirationDate,
-      notes: `Recepción de orden de compra #${order.id}`,
-    });
-
-    const newQuantityReceived = new Decimal(line.quantityReceived).plus(receipt.quantityReceived);
-    await prisma.purchaseOrderLine.update({ where: { id: line.id }, data: { quantityReceived: newQuantityReceived } });
-    linesById.set(line.id, { ...line, quantityReceived: newQuantityReceived });
-
-    const { discrepancy, hasDiscrepancy } = calculateReceiptDiscrepancy(line.quantityOrdered, newQuantityReceived);
-    discrepancies.push({ lineId: line.id, variantId: line.variantId, discrepancy: discrepancy.toFixed(4), hasDiscrepancy });
   }
 
-  const newStatus = determinePurchaseOrderStatus([...linesById.values()], order.status);
-  const updated = await prisma.purchaseOrder.update({
-    where: { id },
-    data: { status: newStatus },
-    include: { lines: true },
-  });
+  return withTransaction(async (tx) => {
+    const discrepancies = [];
 
-  await auditService.log({
-    companyId,
-    userId,
-    action: 'purchase_order.received',
-    entityType: 'PurchaseOrder',
-    entityId: id,
-    oldValue: { status: order.status },
-    newValue: { status: newStatus },
-  });
+    for (const receipt of receipts) {
+      const line = linesById.get(receipt.lineId);
+      const unitCost = receipt.unitCost ?? line.unitCost;
 
-  return { order: updated, discrepancies };
+      const movement = await inventoryMovementsService.createEntry(
+        companyId,
+        userId,
+        {
+          variantId: line.variantId,
+          warehouseId: order.warehouseId,
+          type: 'PURCHASE_ENTRY',
+          quantity: receipt.quantityReceived,
+          unitCost,
+          date,
+          counterpartyAccountId,
+          referenceType: 'PurchaseOrder',
+          referenceId: order.id,
+          purchaseOrderLineId: line.id,
+          lotNumber: receipt.lotNumber,
+          expirationDate: receipt.expirationDate,
+          notes: `Recepción de orden de compra #${order.id}`,
+        },
+        tx
+      );
+
+      const newQuantityReceived = new Decimal(line.quantityReceived).plus(receipt.quantityReceived);
+      const newReceivedCostTotal = new Decimal(line.receivedCostTotal).plus(movement.totalCost);
+      await tx.purchaseOrderLine.update({
+        where: { id: line.id },
+        data: { quantityReceived: newQuantityReceived, receivedCostTotal: newReceivedCostTotal },
+      });
+      linesById.set(line.id, { ...line, quantityReceived: newQuantityReceived, receivedCostTotal: newReceivedCostTotal });
+
+      const { discrepancy, hasDiscrepancy } = calculateReceiptDiscrepancy(line.quantityOrdered, newQuantityReceived);
+      discrepancies.push({ lineId: line.id, variantId: line.variantId, discrepancy: discrepancy.toFixed(4), hasDiscrepancy });
+    }
+
+    const newStatus = determinePurchaseOrderStatus([...linesById.values()], order.status);
+    const updated = await tx.purchaseOrder.update({
+      where: { id },
+      data: { status: newStatus },
+      include: { lines: true },
+    });
+
+    await auditService.log(
+      {
+        companyId,
+        userId,
+        action: 'purchase_order.received',
+        entityType: 'PurchaseOrder',
+        entityId: id,
+        oldValue: { status: order.status },
+        newValue: { status: newStatus },
+      },
+      tx
+    );
+
+    return { order: updated, discrepancies };
+  });
 }
 
 async function cancelPurchaseOrder(companyId, userId, id) {

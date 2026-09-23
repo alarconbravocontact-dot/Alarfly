@@ -18,3 +18,9 @@ export const apPaymentsApi = {
   getOne: (id) => api.get(`/accounts-payable/payments/${id}`),
   create: (data) => api.post('/accounts-payable/payments', data),
 };
+
+export const apCreditNotesApi = {
+  list: (query) => api.get('/accounts-payable/credit-notes', query),
+  getOne: (id) => api.get(`/accounts-payable/credit-notes/${id}`),
+  create: (data) => api.post('/accounts-payable/credit-notes', data),
+};

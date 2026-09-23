@@ -73,7 +73,14 @@ async function tagCogsLineWithProduct(tx, companyId, product, journalEntryLines,
 // si se pagó de contado) — no se asume ninguna cuenta por defecto,
 // porque una entrada de inventario puede originarse de formas
 // distintas que este módulo no decide por sí solo.
-async function createEntry(companyId, userId, data) {
+// `tx` (Fase 1 — Unit of Work; extendido en Fase 4 con el mismo patrón
+// ya usado en createExit/createBomExit): opcional. Lo usa
+// purchase-orders.service.receivePurchaseOrder para que cada línea
+// recibida, la actualización de quantityReceived/receivedCostTotal y el
+// estado de la orden queden en una sola transacción — antes eran
+// independientes y un fallo a mitad de camino podía dejar inventario
+// movido sin que la orden reflejara la recepción (o viceversa).
+async function createEntry(companyId, userId, data, tx = null) {
   const variant = await loadVariantWithProduct(companyId, data.variantId);
   await assertWarehouse(companyId, data.warehouseId);
 
@@ -117,6 +124,7 @@ async function createEntry(companyId, userId, data) {
         date: data.date,
         referenceType: data.referenceType || null,
         referenceId: data.referenceId || null,
+        purchaseOrderLineId: data.purchaseOrderLineId || null,
         lotId: lot?.id || null,
         journalEntryId: entry.id,
         notes: data.notes || null,
@@ -149,7 +157,7 @@ async function createEntry(companyId, userId, data) {
     );
 
     return movement;
-  });
+  }, tx);
 }
 
 // SALIDA (venta/consumo). Si la variante tiene una Lista de Materiales

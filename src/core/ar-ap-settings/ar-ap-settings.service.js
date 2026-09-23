@@ -115,6 +115,18 @@ async function getNextArCreditNoteNumber(companyId, tx) {
   return updated.currentArCreditNoteNumberSequence;
 }
 
+// Fase 4 (Compras): mismo patrón de numeración atómica, para notas de
+// crédito/débito a proveedor.
+async function getNextApCreditNoteNumber(companyId, tx) {
+  const client = tx || prisma;
+  await client.arApSettings.upsert({ where: { companyId }, create: { companyId }, update: {} });
+  const updated = await client.arApSettings.update({
+    where: { companyId },
+    data: { currentApCreditNoteNumberSequence: { increment: 1 } },
+  });
+  return updated.currentApCreditNoteNumberSequence;
+}
+
 // Fase 3 (Ventas): mismo patrón de numeración atómica, para Pedidos y
 // Entregas.
 async function getNextSalesOrderNumber(companyId, tx) {
@@ -153,6 +165,7 @@ module.exports = {
   getNextArInvoiceNumber,
   getNextApBillNumber,
   getNextArCreditNoteNumber,
+  getNextApCreditNoteNumber,
   getNextSalesOrderNumber,
   getNextSalesDeliveryNumber,
   resolveDefaultCustomerId,

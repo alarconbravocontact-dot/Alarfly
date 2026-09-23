@@ -35,4 +35,30 @@ function determinePurchaseOrderStatus(lines, currentStatus) {
   return currentStatus;
 }
 
-module.exports = { calculateSuggestedReorderQuantity, calculateReceiptDiscrepancy, determinePurchaseOrderStatus };
+// Fase 4 (Compras): espejo exacto de
+// sales-orders.rules.averageDeliveredUnitCost — costo promedio real de
+// lo recibido hasta ahora para una línea, nunca un cálculo nuevo:
+// `receivedCostTotal` es la suma exacta de lo que ya devolvió el motor
+// de valoración en cada recepción confirmada. Se usa para asignarle
+// costo a la porción que se factura contra esta línea.
+function averageReceivedUnitCost(line) {
+  const receivedQty = new Decimal(line.quantityReceived);
+  if (receivedQty.isZero()) return new Decimal(0);
+  return new Decimal(line.receivedCostTotal).dividedBy(receivedQty);
+}
+
+// Cuánto de lo YA recibido sigue sin facturar (espejo de
+// remainingToInvoice de Ventas) — nunca negativo aunque se facture de
+// más por error de redondeo.
+function remainingToBill(line) {
+  const remaining = new Decimal(line.quantityReceived).minus(line.billedQuantity);
+  return remaining.isNegative() ? new Decimal(0) : remaining;
+}
+
+module.exports = {
+  calculateSuggestedReorderQuantity,
+  calculateReceiptDiscrepancy,
+  determinePurchaseOrderStatus,
+  averageReceivedUnitCost,
+  remainingToBill,
+};

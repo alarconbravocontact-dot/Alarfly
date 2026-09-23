@@ -3,6 +3,7 @@ import { apBillsApi, vendorsApi } from '../../api/ap';
 import { accountsApi } from '../../api/accounting';
 import { taxRatesApi } from '../../api/fiscal';
 import { accountApi } from '../../api/account';
+import { productsApi, warehousesApi, purchaseOrdersApi } from '../../api/inventory';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatDate, toIsoDate } from '../../utils/format';
@@ -12,6 +13,7 @@ import DueDateStatus from '../../core/ui/DueDateStatus';
 import EmptyState from '../../core/ui/EmptyState';
 import ViewSwitcher from '../../core/ui/ViewSwitcher';
 import RecordDrawer from '../../core/ui/RecordDrawer';
+import EntityAutocomplete from '../../core/ui/EntityAutocomplete';
 
 const STATUS_LABELS = { OPEN: 'Abierta', PARTIALLY_PAID: 'Parcialmente pagada', PAID: 'Pagada', CANCELLED: 'Cancelada' };
 const STATUS_SEAL_TONE = { OPEN: 'warning', PARTIALLY_PAID: 'warning', PAID: 'positive', CANCELLED: 'negative' };
@@ -22,7 +24,7 @@ const BILL_VIEWS = [
 ];
 
 function emptyLine() {
-  return { description: '', quantity: 1, unitPrice: '' };
+  return { description: '', quantity: 1, unitPrice: '', variantId: '', warehouseId: '', purchaseOrderLineId: null };
 }
 
 export default function ApBillsPage() {
@@ -36,6 +38,15 @@ export default function ApBillsPage() {
   const [jurisdictions, setJurisdictions] = useState([]);
   const [taxRates, setTaxRates] = useState([]);
   const [withholdingRates, setWithholdingRates] = useState([]);
+  // Fase 4 (Compras): catálogo para las líneas con producto real —
+  // mismo patrón que ArInvoicesPage/SalesOrdersPage.
+  const [variants, setVariants] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
+  const [receivablePOs, setReceivablePOs] = useState([]);
+  const [poPickerOrderId, setPoPickerOrderId] = useState('');
+  const [poPickerOrder, setPoPickerOrder] = useState(null);
+  const [poLineQuantities, setPoLineQuantities] = useState({});
+  const [poLineUnitPrices, setPoLineUnitPrices] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [expandedId, setExpandedId] = useState(null);
@@ -62,16 +73,26 @@ export default function ApBillsPage() {
     setIsLoading(true);
     setLoadError('');
     try {
-      const [billsData, vendorsData, accountsData, jurisdictionsData] = await Promise.all([
-        apBillsApi.list(),
-        vendorsApi.list({ isActive: true }),
-        accountsApi.list({ isActive: true }),
-        taxRatesApi.listJurisdictions(),
-      ]);
+      const [billsData, vendorsData, accountsData, jurisdictionsData, productsData, warehousesData, partialPOs, receivedPOs] =
+        await Promise.all([
+          apBillsApi.list(),
+          vendorsApi.list({ isActive: true }),
+          accountsApi.list({ isActive: true }),
+          taxRatesApi.listJurisdictions(),
+          productsApi.list({ isActive: true }),
+          warehousesApi.list({ isActive: true }),
+          purchaseOrdersApi.list({ status: 'PARTIALLY_RECEIVED' }),
+          purchaseOrdersApi.list({ status: 'RECEIVED' }),
+        ]);
       setBills(billsData);
       setVendors(vendorsData);
       setAccounts(accountsData.filter((a) => a.isPostable));
       setJurisdictions(jurisdictionsData);
+      setVariants(
+        productsData.flatMap((p) => (p.variants || []).filter((v) => v.isActive).map((v) => ({ id: v.id, sku: v.sku, productName: p.name, isService: p.isService })))
+      );
+      setWarehouses(warehousesData);
+      setReceivablePOs([...partialPOs, ...receivedPOs]);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'No se pudieron cargar las facturas.');
     } finally {
@@ -118,6 +139,69 @@ export default function ApBillsPage() {
 
   function removeLine(index) {
     setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+  }
+
+  function variantLabel(variantId) {
+    const v = variants.find((item) => item.id === variantId);
+    return v ? `${v.productName} (${v.sku})` : variantId;
+  }
+
+  function warehouseName(warehouseId) {
+    const w = warehouses.find((item) => item.id === warehouseId);
+    return w ? w.name : '—';
+  }
+
+  // Fase 4 (Compras): elegir una orden de compra ya recibida (total o
+  // parcialmente) muestra sus líneas con lo recibido y sin facturar
+  // todavía — mismo patrón que SalesDeliveriesPage con los pedidos
+  // pendientes de entregar, pero del lado de facturar lo ya recibido.
+  async function handleSelectPO(id) {
+    setPoPickerOrderId(id);
+    setPoPickerOrder(null);
+    setPoLineQuantities({});
+    setPoLineUnitPrices({});
+    if (!id) return;
+    try {
+      const full = await purchaseOrdersApi.getOne(id);
+      setPoPickerOrder(full);
+      const quantities = {};
+      const prices = {};
+      full.lines.forEach((line) => {
+        const remaining = Number(line.quantityReceived) - Number(line.billedQuantity);
+        if (remaining > 0) {
+          quantities[line.id] = remaining;
+          const avgCost = Number(line.quantityReceived) > 0 ? Number(line.receivedCostTotal) / Number(line.quantityReceived) : 0;
+          prices[line.id] = avgCost.toFixed(2);
+        }
+      });
+      setPoLineQuantities(quantities);
+      setPoLineUnitPrices(prices);
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : 'No se pudo cargar la orden de compra.');
+    }
+  }
+
+  function handleAddPoLines() {
+    if (!poPickerOrder) return;
+    const newLines = poPickerOrder.lines
+      .filter((line) => Number(poLineQuantities[line.id]) > 0)
+      .map((line) => ({
+        description: `${variantLabel(line.variantId)} — orden #${poPickerOrder.orderDate ? poPickerOrder.id.slice(-6) : ''}`,
+        quantity: Number(poLineQuantities[line.id]),
+        unitPrice: poLineUnitPrices[line.id] || '0',
+        variantId: line.variantId,
+        warehouseId: poPickerOrder.warehouseId,
+        purchaseOrderLineId: line.id,
+      }));
+    if (newLines.length === 0) return;
+    setLines((prev) => {
+      const withoutPlaceholder = prev.length === 1 && !prev[0].description && !prev[0].purchaseOrderLineId ? [] : prev;
+      return [...withoutPlaceholder, ...newLines];
+    });
+    setPoPickerOrderId('');
+    setPoPickerOrder(null);
+    setPoLineQuantities({});
+    setPoLineUnitPrices({});
   }
 
   async function toggleExpand(bill) {
@@ -173,6 +257,9 @@ export default function ApBillsPage() {
           description: l.description,
           quantity: l.quantity ? Number(l.quantity) : undefined,
           unitPrice: Number(l.unitPrice) || 0,
+          variantId: l.variantId || undefined,
+          warehouseId: l.warehouseId || undefined,
+          purchaseOrderLineId: l.purchaseOrderLineId || undefined,
         })),
       });
       setDocumentNumber('');
@@ -268,47 +355,152 @@ export default function ApBillsPage() {
               </label>
             </div>
 
+            <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--color-border)' }}>
+              <label className="field">
+                <span className="field-label">
+                  Facturar desde una orden de compra ya recibida (opcional)
+                  <HelpTooltip text="Si esta factura es de mercancía que ya recibiste contra una orden de compra, elígela acá — el costo real se toma de lo que ya llegó, sin volver a mover inventario." />
+                </span>
+                <select value={poPickerOrderId} onChange={(e) => handleSelectPO(e.target.value)}>
+                  <option value="">Elige una orden recibida</option>
+                  {receivablePOs.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.vendor?.name} — {formatDate(new Date(o.orderDate))} ({o.status === 'RECEIVED' ? 'Recibida completa' : 'Recibida parcial'})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {poPickerOrder && (
+                <div style={{ marginTop: 8 }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Producto</th>
+                        <th className="num">Recibido sin facturar</th>
+                        <th className="num">Cantidad a facturar</th>
+                        <th className="num">Precio unitario</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {poPickerOrder.lines
+                        .map((line) => ({ line, remaining: Number(line.quantityReceived) - Number(line.billedQuantity) }))
+                        .filter(({ remaining }) => remaining > 0)
+                        .map(({ line, remaining }) => (
+                          <tr key={line.id}>
+                            <td>{variantLabel(line.variantId)}</td>
+                            <td className="num">{remaining}</td>
+                            <td className="num">
+                              <input
+                                type="number"
+                                min="0"
+                                max={remaining}
+                                step="0.0001"
+                                value={poLineQuantities[line.id] ?? ''}
+                                onChange={(e) => setPoLineQuantities((prev) => ({ ...prev, [line.id]: e.target.value }))}
+                                style={{ width: 90 }}
+                              />
+                            </td>
+                            <td className="num">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={poLineUnitPrices[line.id] ?? ''}
+                                onChange={(e) => setPoLineUnitPrices((prev) => ({ ...prev, [line.id]: e.target.value }))}
+                                style={{ width: 90 }}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                  <button type="button" className="btn btn-small btn-primary" style={{ marginTop: 8 }} onClick={handleAddPoLines}>
+                    Agregar estas líneas a la factura
+                  </button>
+                </div>
+              )}
+            </div>
+
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Descripción</th>
+                  <th>Producto (opcional)</th>
+                  <th>Almacén</th>
                   <th>Cantidad</th>
                   <th className="num">Precio unitario</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {lines.map((line, index) => (
-                  <tr key={index}>
-                    <td>
-                      <input value={line.description} onChange={(e) => updateLine(index, { description: e.target.value })} required />
-                    </td>
-                    <td>
-                      <input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={line.quantity}
-                        onChange={(e) => updateLine(index, { quantity: e.target.value })}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={line.unitPrice}
-                        onChange={(e) => updateLine(index, { unitPrice: e.target.value })}
-                        required
-                      />
-                    </td>
-                    <td>
-                      <button type="button" className="btn btn-small btn-danger" onClick={() => removeLine(index)}>
-                        Quitar
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {lines.map((line, index) => {
+                  const variant = variants.find((v) => v.id === line.variantId);
+                  const fromPO = Boolean(line.purchaseOrderLineId);
+                  return (
+                    <tr key={index}>
+                      <td>
+                        <input value={line.description} onChange={(e) => updateLine(index, { description: e.target.value })} required />
+                      </td>
+                      <td style={{ minWidth: 200 }}>
+                        {fromPO ? (
+                          <span className="text-muted">{variantLabel(line.variantId)} (de la orden)</span>
+                        ) : (
+                          <EntityAutocomplete
+                            entityType="product"
+                            items={variants}
+                            getId={(v) => v.id}
+                            getLabel={(v) => `${v.productName} (${v.sku})${v.isService ? ' — servicio' : ''}`}
+                            getSearchText={(v) => `${v.productName} ${v.sku}`}
+                            value={line.variantId}
+                            onChange={(id) => updateLine(index, { variantId: id, warehouseId: '' })}
+                            placeholder="Buscar producto…"
+                          />
+                        )}
+                      </td>
+                      <td>
+                        {fromPO ? (
+                          <span className="text-muted">{warehouseName(line.warehouseId)}</span>
+                        ) : variant && !variant.isService ? (
+                          <select value={line.warehouseId} onChange={(e) => updateLine(index, { warehouseId: e.target.value })} required>
+                            <option value="">Elige uno</option>
+                            {warehouses.map((w) => (
+                              <option key={w.id} value={w.id}>
+                                {w.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={line.quantity}
+                          onChange={(e) => updateLine(index, { quantity: e.target.value })}
+                          disabled={fromPO}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.unitPrice}
+                          onChange={(e) => updateLine(index, { unitPrice: e.target.value })}
+                          required
+                        />
+                      </td>
+                      <td>
+                        <button type="button" className="btn btn-small btn-danger" onClick={() => removeLine(index)}>
+                          Quitar
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
 

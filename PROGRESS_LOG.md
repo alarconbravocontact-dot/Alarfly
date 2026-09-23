@@ -767,3 +767,312 @@ siendo los únicos, tal como exigía la regla principal de esta fase.
 `ApPayment`/`PaymentOrder`/`ArPayment`/`Debt` siguen sin unificarse
 (pendiente heredado de Fase 1, no tocado en esta fase, fuera de su
 alcance explícito — sección 40 de este prompt tampoco lo pedía).
+
+## Fase 4 — Compras, Inventario y Cuentas por Pagar
+
+**Estado: FASE COMPLETA**
+
+### Objetivo de la fase
+
+Construir el equivalente OPERATIVO de Ventas del lado de compras:
+Proveedor → Orden de Compra → Recepción → Inventario → Factura de
+Proveedor → CxP → Pago → Tesorería → Ledger → Auditoría, reutilizando
+sin duplicar los mismos maestros, el Ledger, la Auditoría, el Unit of
+Work, el motor de Inventario, FX, la separación de estados y el patrón
+de reversión ya construidos en Fases 1-3.
+
+### Mapa de auditoría inicial (antes de tocar nada)
+
+| Componente | Responsabilidad | Estado encontrado | Decisión |
+|---|---|---|---|
+| `PurchaseOrder`/`PurchaseOrderLine` (`modules/inventory`, punto 5 de Inventario, ya existía desde antes de esta fase) | Ciclo de compra completo EN UN SOLO documento (DRAFT→SUBMITTED→PARTIALLY_RECEIVED→RECEIVED→CANCELLED) — a diferencia de Ventas, nunca separó intención de hecho físico en 2 documentos | Funcional pero con 2 huecos reales (ver abajo) | **Extender**, no crear un `GoodsReceipt` — la separación en 2 documentos que sí necesitó Ventas no aplica acá porque Compras nunca se construyó así |
+| `purchase-orders.service.receivePurchaseOrder` | Recibir mercancía, generar la entrada real de inventario | **Bug real de atomicidad**: llamaba a `createEntry` (transacción propia por línea, sin `tx` externo) y dejaba el resto de las escrituras (`quantityReceived`, estado de la orden, auditoría) fuera de esa transacción — un fallo a mitad de camino podía dejar inventario movido sin que la orden lo reflejara | **Extender**: `createEntry(...,tx)` con el mismo patrón que ya usa `createExit`/`createBomExit`, y envolver TODO `receivePurchaseOrder` en una sola transacción |
+| `PurchaseOrderLine` | Cantidad recibida | Solo `quantityReceived`; el costo REAL recibido nunca se guardaba (`unitCost` es apenas el estimado, nunca se sobreescribe) — sin equivalente de `SalesOrderLine.deliveredCostTotal` | **Extender**: `receivedCostTotal`/`billedQuantity` nuevos, espejo exacto de `deliveredCostTotal`/`invoicedQuantity` |
+| `ApBill`/`ApBillLine` | Factura de compra | Línea de gasto pura (sin producto/variante/almacén/costo) — exactamente el punto de partida que tenía `ArInvoiceLine` antes de Fase 3 | **Extender**: mismo patrón `resolveLine` de 3 casos que ya usa AR |
+| `ApPayment` | Pago a proveedor | Sin método de pago ni snapshot BCV, a diferencia de `ArPayment` | **Extender**: mismo patrón que Fase 3 le dio a `ArPayment` |
+| Nota de crédito/débito a proveedor | — | No existía ningún modelo AP-side (`ArCreditNote` no tiene mirror) | **Crear** `ApCreditNote`, espejo de `ArCreditNote` |
+| `PaymentOrder.vendorId`/`createPaymentOrderForVendorBills`/`PaymentOrderBillApplication` (Tesorería↔AP) | Flujo de aprobación multinivel para pagar facturas de AP | Ya construido y funcionando de una sesión anterior | **Reutilizar tal cual, no tocar** (sección 22 del prompt lo prohibía explícitamente) |
+| `Vendor` | Maestro de proveedores | Ya sólido (Fase 2) | **Reutilizar tal cual** |
+| `core/rbac/module-access.js` | Gate de `accounts-payable`/`inventory` | Ya en `['ADMIN','COLLABORATOR']`, mismo nivel que `sales` | **Reutilizar tal cual**, sin cambios |
+
+### Regla principal cumplida: reutilizar, no duplicar
+
+Ningún motor nuevo. Compras sigue usando exactamente `core/ledger.postEntry`,
+`fiscal-transactions.service.createFiscalTransaction`,
+`inventory-movements.service.createEntry`/`createExit`,
+`core/audit.log`, `core/fx.getLatestRate`, `core/database/unit-of-work.withTransaction`
+y `PaymentOrder` — los mismos que ya usaban Contabilidad/Fiscal/Inventario/
+Ventas/AR. Lo único genuinamente nuevo es el modelo `ApCreditNote` (no
+existía ningún equivalente AP-side) y la extensión aditiva de 4 modelos
+ya existentes.
+
+### Qué se creó
+
+- **Modelo nuevo** (migraciones `20260923181403_purchases_ap_extension`
+  y `20260923181507_purchase_order_line_billed_quantity`, ambas
+  aditivas): `ApCreditNote`/`ApCreditNoteType` — espejo exacto de
+  `ArCreditNote`, con una pieza que `ArCreditNote` dejó sin conectar en
+  ningún flujo real desde que se construyó (`relatedInventoryMovementId`
+  nunca se usaba desde ningún servicio, confirmado por `grep`): acá SÍ
+  se conecta de verdad — una devolución física a proveedor genera una
+  salida real de inventario (`VENDOR_RETURN_EXIT`, nuevo valor del enum
+  `InventoryMovementType`, vía `inventory-movements.service.createExit`,
+  nunca reimplementado) y se liga con el campo.
+- **Campos nuevos, todos aditivos**: `PurchaseOrderLine.receivedCostTotal`/`billedQuantity`
+  (espejo de `SalesOrderLine.deliveredCostTotal`/`invoicedQuantity`);
+  `InventoryMovement.purchaseOrderLineId` (opcional, 1 a muchos — a
+  diferencia de `SalesDeliveryLine.inventoryMovementId`, que es 1 a 1,
+  una línea de orden de compra puede recibirse en varias entregas
+  parciales, cada una con su propio movimiento real, así que la
+  trazabilidad es "el movimiento apunta a la línea", no al revés);
+  `ApBillLine.productVariantId`/`warehouseId`/`purchaseOrderLineId`/`discount`/`unitCost`
+  (espejo exacto de la extensión de `ArInvoiceLine` en Fase 3);
+  `ApPayment.paymentMethodId`/`foreignCurrency`/`foreignAmount`/`exchangeRate`
+  (espejo exacto de `ArPayment`); `ArApSettings.currentApCreditNoteNumberSequence`
+  (+ `getNextApCreditNoteNumber(companyId, tx)`, mismo patrón atómico
+  que las 4 numeraciones ya existentes).
+- **Servicios nuevos**: `accounts-payable/services/ap-credit-notes.rules.js`
+  (`applyCreditNoteToBill`, espejo de `applyCreditNoteToInvoice`) y
+  `ap-credit-notes.service.js` (`createCreditNote`/`getCreditNote`/`listCreditNotes`).
+- **Rutas nuevas**: `POST/GET /accounts-payable/credit-notes` (mismo
+  gate `requireModuleAccess('accounts-payable')`, `requireRole('ADMIN','COLLABORATOR')`
+  para crear — sin RBAC nuevo, reutiliza el ya existente).
+- **Frontend**: `ApCreditNotesPage.jsx` nuevo (formulario con casilla
+  opcional "¿Hubo devolución física?" que revela producto/almacén/
+  cantidad vía `EntityAutocomplete`), pestaña "Notas a Proveedores"
+  agregada a `AR_AP_TABS`/`App.jsx`; `apCreditNotesApi` en `api/ap.js`.
+
+### Qué se extendió (sin duplicar)
+
+- **`inventory-movements.service.createEntry`**: ganó un 4.º parámetro
+  `tx` opcional, exactamente el mismo patrón `withTransaction(work, tx)`
+  que Fase 3 ya le había dado a `createExit`/`createBomExit` —
+  `purchase-orders.service.receivePurchaseOrder` y
+  `ap-bills.service.createBill` (compra directa) ahora lo pasan.
+- **`purchase-orders.service.receivePurchaseOrder`**: reescrito para
+  quedar completamente atómico — TODO (cada entrada real de inventario
+  por línea recibida, el acumulado `quantityReceived`/`receivedCostTotal`
+  de cada línea, el nuevo estado de la orden, la auditoría) queda ahora
+  en una sola transacción vía `withTransaction`. Antes de esta fase,
+  `createEntry` abría su propia transacción independiente por cada
+  línea del lote de recepción y el resto de las escrituras quedaban
+  sueltas — un fallo a mitad de camino podía dejar inventario movido
+  sin que la orden lo reflejara (o viceversa). Verificado con una
+  prueba de integración que fuerza el fallo justo después de la segunda
+  entrada real y confirma que absolutamente nada queda aplicado.
+- **`purchase-orders.rules.js`**: ganó `averageReceivedUnitCost` (espejo
+  exacto de `averageDeliveredUnitCost` de Ventas) y `remainingToBill`
+  (espejo de `remainingToInvoice`) — funciones puras, sin acceso a base
+  de datos, igual criterio que el resto del proyecto.
+- **`ap-bills.service.createBill`**: ganó `resolveLine`, espejo
+  estructural exacto de `ar-invoices.service.resolveLine` — 3 casos: (a)
+  sin `variantId`: línea de texto de siempre, sin cambios; (b) con
+  `variantId` de un servicio: se factura igual, nunca toca inventario;
+  (c) con `variantId` de un producto físico: (c1) con
+  `purchaseOrderLineId` — la mercancía YA se recibió, usa
+  `averageReceivedUnitCost` y valida `remainingToBill`, **nunca genera
+  un segundo movimiento de inventario**, solo incrementa `billedQuantity`;
+  (c2) sin `purchaseOrderLineId` (compra directa) — SÍ genera una
+  entrada real de inventario dentro de la misma transacción de la
+  factura, mismo patrón `needsDirectExit`→`needsDirectEntry` que ya usa
+  AR.
+- **`ap-payments.service.recordPayment`**: ganó `resolvePaymentMethod`/
+  `resolveForeignAmount`, copiados literalmente del mismo patrón de
+  `ar-payments.service.js` (snapshot BCV histórico vía
+  `core/fx.getLatestRate`, nunca recalculado después). AP sigue sin
+  admitir anticipos (`applyPaymentToBills` sigue exigiendo suma exacta,
+  sin cambios) — a diferencia de AR, no se le agregó una rama de "cobro
+  ligado a un movimiento bancario real", porque no era parte del
+  alcance pedido para esta pieza (método + BCV, nada más).
+- **`ap-bills.service.js`/`ap-payments.service.js`**: `createBill`
+  ganó un 4.º parámetro `tx` opcional (mismo patrón de composabilidad
+  ya usado en `ar-invoices.service.createInvoice`), aunque ningún
+  llamador lo necesita todavía — queda listo si aparece uno.
+
+### El diseño contable de la compra directa (sin orden previa) — la pieza más delicada de esta fase
+
+`ApBill.expenseAccountId` es una sola cuenta por FACTURA completa (no
+por línea, simplificación ya documentada desde que AP se construyó). El
+motor fiscal (`createFiscalTransaction`) siempre postea débito
+`expenseAccountId` / crédito Cuentas por Pagar por el subtotal completo
+— eso es correcto para líneas de gasto/servicio, pero comprar
+INVENTARIO no debería debitar una cuenta de gasto/P&L, sino un activo.
+Se resolvió así, sin inventar ninguna cuenta nueva ni pedirle una al
+usuario: cuando una línea de compra directa (sin orden) genera su
+propia entrada real de inventario, esa entrada usa `expenseAccountId`
+como su propia contraparte (débito Inventario / crédito
+`expenseAccountId`) — el débito que el motor fiscal ya había hecho a
+`expenseAccountId` por esa porción queda neteado exactamente a cero por
+el crédito de la entrada de inventario, y el efecto COMBINADO de las
+dos transacciones (fiscal + entrada) termina siendo el correcto: débito
+Inventario, crédito Cuentas por Pagar. `expenseAccountId` actúa de
+pasarela/wash account, nunca queda con saldo residual. Verificado con
+una prueba de integración que suma los `JournalEntryLine` de ambas
+transacciones agrupados por cuenta y confirma el neteo exacto (débito
+Inventario = 300, crédito Cuentas por Pagar = 300, `expenseAccountId`
+neto = 0, para una compra de 20 unidades a 15).
+
+Para una línea que SÍ referencia una `purchaseOrderLineId` ya recibida,
+no se genera ningún segundo movimiento ni segunda cuenta — la
+recepción ya dejó su propio efecto contable real en el momento en que
+ocurrió (vía el `counterpartyAccountId` que el receptor eligió en ese
+momento, ej. Cuentas por Pagar directamente o una cuenta puente de
+"mercancía por facturar", según lo que la empresa use). La factura para
+esa porción es puramente documental/de trazabilidad de CxP (costo real,
+vencimiento, aplicación de pagos) — nunca vuelve a mover inventario ni
+a inventar un segundo asiento para el mismo hecho físico.
+
+### Devolución a proveedor (punto 29 — integración mínima)
+
+Interpretación explícita (documentada, no confirmada con el usuario, en
+`prisma/schema.prisma`): una devolución física a proveedor es una
+salida real de inventario (`VENDOR_RETURN_EXIT`, nunca `SALE_EXIT` ni
+`ADJUSTMENT_DECREASE` — tiene una nota de crédito de proveedor detrás,
+no es una venta ni un ajuste sin causa), generada vía
+`inventory-movements.createExit` (mismo motor de siempre, nunca
+reimplementado) desde `ap-credit-notes.service.createCreditNote` cuando
+el llamador indica `physicalReturn: {productVariantId, warehouseId,
+quantity}`. Igual que AR, la nota es opcionalmente ligada
+(`relatedInventoryMovementId`), nunca obligatoria — la mayoría de las
+notas (descuentos, cargos adicionales) no tienen devolución física
+real. No se construyó ningún flujo de inspección/calidad ni un estado
+de "stock defectuoso" separado del disponible — mismo límite consciente
+ya documentado en Fase 3 para el lado de Ventas, misma razón (habría
+sido un cambio de modelo de Inventario mucho más grande que la
+integración mínima pedida).
+
+### Bugs reales encontrados y corregidos durante la auditoría (antes de escribir código, no durante pruebas)
+
+1. **`receivePurchaseOrder` no era atómica** (ver arriba, "Qué se
+   extendió") — encontrado leyendo el código real antes de diseñar
+   nada, confirmado con una prueba de integración dedicada (rollback
+   forzado con `jest.spyOn` después de la segunda entrada real: cero
+   movimientos, cero cambios en `quantityReceived`, la orden se queda
+   en `SUBMITTED`, no en `PARTIALLY_RECEIVED` a medias).
+2. **`PurchaseOrderLine` no tenía forma de recordar el costo REAL
+   recibido** — `unitCost` es solo el estimado inicial, nunca se
+   sobreescribía en la recepción; sin esto, facturar contra una línea
+   recibida no habría tenido de dónde sacar un costo real (mismo hueco
+   que tenía `ArInvoiceLine` antes de que Fase 3 agregara
+   `deliveredCostTotal`). Corregido con `receivedCostTotal` +
+   `averageReceivedUnitCost`, mismo patrón exacto.
+
+### Atomicidad, costos, duplicación, sobre-recepción, producto vs. servicio, BCV, aislamiento (14 pruebas de integración nuevas, todas contra Postgres real)
+
+- **Atomicidad**: recepción con fallo forzado después de la segunda
+  entrada real → rollback total confirmado (cero movimientos, cero
+  cambios en la orden).
+- **Costos**: dos recepciones parciales a costos distintos (10 y 12)
+  acumulan `receivedCostTotal` exacto (600+480=1080) y
+  `averageReceivedUnitCost` correcto al facturar (16, para una
+  recepción de 20 a costo 16 en un escenario separado).
+- **Duplicación**: facturar la misma línea recibida en dos facturas
+  parciales que suman exactamente lo recibido deja `billedQuantity`
+  correcto; un tercer intento sin saldo se rechaza; facturar contra una
+  línea ya recibida NUNCA genera un segundo `InventoryMovement`
+  (verificado contando movimientos antes/después).
+- **Sobre-recepción**: recibir más de lo pedido se permite, se reporta
+  como discrepancia (`hasDiscrepancy: true`, `discrepancy: "5.0000"`) y
+  NO bloquea — mismo criterio ya documentado ("una recepción parcial,
+  o incluso una sobre-recepción, es normal en la práctica").
+- **Producto vs. servicio**: una línea de servicio nunca genera
+  movimiento, nunca pide almacén, `unitCost` queda `null`.
+- **BCV**: pago con `foreignCurrency`/`foreignAmount` deriva el monto
+  base correcto de la tasa vigente y el `exchangeRate` queda como
+  snapshot histórico.
+- **Aislamiento por empresa**: una factura o una orden de compra de la
+  Empresa A son invisibles (`404`) para la Empresa B.
+- Además: AP sin anticipos (suma aplicada debe ser exacta), devolución
+  física real con `VENDOR_RETURN_EXIT` ligado, nota sin devolución
+  física no toca inventario, numeración de notas atómica sin colisión.
+
+Fixtures nuevos en `test-helpers/integration-fixtures.js`:
+`createVendor`, `setPayableAccount`, `buildPurchaseScenario` (espejo de
+`buildSalesScenario`, producto físico SIN stock inicial — Compras es
+quien lo genera recibiendo). `cleanupCompany` ampliado con las tablas
+nuevas de AP/Compras, respetando el orden de FKs (`ApCreditNote`/
+`ApPaymentApplication`/`ApPayment`/`ApBillLine`/`ApBill` antes que
+`Vendor`, porque `vendorId` es `RESTRICT` en ambos lados;
+`PurchaseOrderLine`/`PurchaseOrder` también antes que `Vendor` por el
+mismo motivo).
+
+### Tests y resultado
+
+92 suites, 579 tests, todos en verde (565 preexistentes de Fases 1-3 +
+14 nuevos de esta fase, todos de integración contra Postgres real — no
+se necesitaron reglas puras nuevas más allá de las 2 funciones agregadas
+a `purchase-orders.rules.js`, ya cubiertas por los propios tests de
+integración). `eslint` (backend) sin advertencias nuevas. `npx prisma
+validate`/`format` sin errores. Verificado además de punta a punta con
+`curl` real (crear→enviar→recibir una orden de compra, facturar contra
+ella, pagar, emitir nota con devolución física — 11 escenarios
+adicionales corridos a mano antes de formalizar los tests) y con
+Playwright real contra los dos servidores (formulario de Facturas de
+Compra con el nuevo selector "Facturar desde una orden de compra ya
+recibida" leyendo datos reales — 30 unidades recibidas sin facturar
+mostradas correctamente —, factura creada con el monto exacto 255 y
+`billedQuantity` actualizado a 30 confirmado contra la base de datos
+real después del click; 0 errores de consola nuevos, aparte del
+bloqueo ya conocido de Google Fonts en el entorno de pruebas).
+
+### Riesgos
+
+- Ninguno nuevo más allá de los ya documentados en Fases 1-3.
+- El diseño de "compra directa neteando `expenseAccountId` a cero" (ver
+  arriba) depende de que `expenseAccountId` de una factura con líneas
+  físicas directas sea una cuenta que el usuario pueda tolerar ver
+  transitar por un asiento intermedio (nunca le queda saldo, pero si
+  alguien mira el detalle de esa cuenta verá 2 líneas por esa factura
+  en vez de una) — documentado acá para que no se interprete como un
+  error contable si aparece en un reporte de auditoría del mayor.
+
+### Pendientes documentados (no bloqueantes)
+
+1. Inspección/calidad/stock defectuoso en devoluciones a proveedor
+   (punto 29) — mismo límite ya documentado en Fase 3 para el lado de
+   Ventas.
+2. `ApPayment` no admite pago ligado a un movimiento bancario real
+   (`bankTransactionId`), a diferencia de `ArPayment` — no era parte
+   del alcance pedido ("método + BCV"); se puede agregar más adelante
+   reutilizando el mismo patrón que ya tiene AR.
+3. Frontend de Facturas de Compra es funcional pero deliberadamente
+   proporcional: el selector de línea manual usa `EntityAutocomplete` +
+   `<select>` de almacén (igual nivel que `SalesOrdersPage`), sin
+   `RecordDrawer`/`DocumentActionsMenu` en esta pieza nueva — mismo
+   criterio de recorte consciente que ya se documentó en Fase 3.
+4. Todos los pendientes ya heredados de Fases 1-3 (unificación de
+   `PaymentOrder`/`ApPayment`/`ArPayment`/`Debt`, `reverseMatch` sin
+   revertir saldo, TOCTOU de período, crons sin `lastRunAt`).
+
+### Qué debe recordar Fase 5
+
+**Heredado de Fases 1-3** (sin tocar, seguir usando): Unit of Work
+(`withTransaction`), `postEntry(data, tx)`, `core/audit.log(data, tx)`,
+`core/fx.getLatestRate`/snapshot BCV, `PaymentMethod` (core), los 5
+puntos de escritura reales del proyecto (`postEntry`, `createInvoice`,
+`createBill`, `recordPayment` ×2, `createExit`/`createEntry`) — ninguno
+se duplicó.
+
+**Construido en Fase 4** (reutilizar, no reconstruir):
+`purchase-orders.service.{createPurchaseOrder,submitPurchaseOrder,receivePurchaseOrder,cancelPurchaseOrder}`
+(ciclo completo, `receivePurchaseOrder` ahora atómico);
+`inventory-movements.service.createEntry(...,tx)` ya acepta transacción
+externa, igual que `createExit`/`createBomExit` — cualquier operación
+futura que necesite una entrada de inventario coordinada con otra
+escritura debe extender/reutilizar esto, no reimplementar;
+`ap-bills.service.resolveLine`/`ap-payments.service.resolveForeignAmount`/`resolvePaymentMethod`
+son los únicos lugares que deciden si una línea de factura de compra
+toca inventario o cómo se resuelve una moneda extranjera —
+`ApCreditNote`/`ap-credit-notes.service.createCreditNote` es el único
+lugar que genera una devolución física a proveedor
+(`VENDOR_RETURN_EXIT`). `PurchaseOrderLine.receivedCostTotal`/
+`billedQuantity` son la única fuente de costo real recibido/facturado
+— nunca recalcular esto en otro lugar.
+
+**Lo que NO debe reconstruirse**: un segundo motor de recepción, de
+facturación de compra, de costeo, o de aprobación de pagos —
+`PaymentOrder.vendorId`/`createPaymentOrderForVendorBills` (Tesorería↔AP)
+ya existía completo antes de esta fase y NO se tocó, tal como exigía la
+sección 22 del prompt. `ApPayment`/`PaymentOrder`/`ArPayment`/`Debt`
+siguen sin unificarse (mismo pendiente heredado de Fase 1, fuera de
+alcance otra vez).

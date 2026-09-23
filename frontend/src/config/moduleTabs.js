@@ -31,6 +31,7 @@ export const AR_AP_TABS = [
   { to: '/cuentas/proveedores', label: 'Proveedores' },
   { to: '/cuentas/facturas-compra', label: 'Facturas de Compra' },
   { to: '/cuentas/pagos', label: 'Pagos a Proveedores' },
+  { to: '/cuentas/notas-credito-compra', label: 'Notas a Proveedores' },
 ];
 
 export const INVENTORY_TABS = [

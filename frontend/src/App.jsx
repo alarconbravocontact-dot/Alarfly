@@ -31,6 +31,7 @@ import ArCreditNotesPage from './pages/ar-ap/ArCreditNotesPage';
 import VendorsPage from './pages/ar-ap/VendorsPage';
 import ApBillsPage from './pages/ar-ap/ApBillsPage';
 import ApPaymentsPage from './pages/ar-ap/ApPaymentsPage';
+import ApCreditNotesPage from './pages/ar-ap/ApCreditNotesPage';
 import SalesLayout from './pages/sales/SalesLayout';
 import QuickSalePage from './pages/sales/QuickSalePage';
 import SalesOrdersPage from './pages/sales/SalesOrdersPage';
@@ -120,6 +121,7 @@ function App() {
             <Route path="proveedores" element={<VendorsPage />} />
             <Route path="facturas-compra" element={<ApBillsPage />} />
             <Route path="pagos" element={<ApPaymentsPage />} />
+            <Route path="notas-credito-compra" element={<ApCreditNotesPage />} />
           </Route>
           <Route path="/ventas" element={<SalesLayout />}>
             <Route index element={<Navigate to="rapida" replace />} />

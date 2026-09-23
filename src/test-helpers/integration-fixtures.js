@@ -84,6 +84,20 @@ async function setReceivableAccount(companyId, receivableGlAccountId) {
   });
 }
 
+// Fase 4 (Compras): espejo de setReceivableAccount/createCustomer del
+// lado de proveedores.
+async function setPayableAccount(companyId, payableGlAccountId) {
+  return prisma.arApSettings.upsert({
+    where: { companyId },
+    create: { companyId, payableGlAccountId },
+    update: { payableGlAccountId },
+  });
+}
+
+async function createVendor(companyId) {
+  return prisma.vendor.create({ data: { companyId, name: unique('Proveedor de prueba') } });
+}
+
 // Fase 3 (Ventas): fixtures del lado de Inventario/Productos que las
 // pruebas de Ventas necesitan para armar un escenario real completo.
 async function createUnitOfMeasure(companyId) {
@@ -167,6 +181,50 @@ async function buildSalesScenario() {
   return { ...base, uom, warehouse, inventoryAssetAccount, cogsAccount, incomeAccount, jurisdiction, product, variant, serviceProduct: service.product, serviceVariant: service.variant };
 }
 
+// Arma un escenario completo de Compras (Fase 4): empresa, usuario,
+// periodo abierto, cuenta de Cuentas por Pagar configurada, proveedor,
+// jurisdicción fiscal, almacén, producto físico (sin stock inicial —
+// Compras es quien lo va a generar recibiendo) y producto servicio.
+async function buildPurchaseScenario() {
+  const company = await createCompany();
+  const user = await createUser(company.id);
+  const payableGlAccount = await createAccount(company.id, { type: 'LIABILITY', normalBalance: 'CREDIT' });
+  await createOpenPeriod(company.id);
+  await setPayableAccount(company.id, payableGlAccount.id);
+  const vendor = await createVendor(company.id);
+  const uom = await createUnitOfMeasure(company.id);
+  const warehouse = await createWarehouse(company.id);
+  const inventoryAssetAccount = await createAccount(company.id, { type: 'ASSET', normalBalance: 'DEBIT' });
+  const cogsAccount = await createAccount(company.id, { type: 'EXPENSE', normalBalance: 'DEBIT' });
+  const expenseAccount = await createAccount(company.id, { type: 'EXPENSE', normalBalance: 'DEBIT' });
+  const jurisdiction = await createTaxJurisdiction(company.id);
+  const { product, variant } = await createPhysicalProduct(company.id, user.id, {
+    uom,
+    assetAccount: inventoryAssetAccount,
+    cogsAccount,
+    warehouse,
+    initialQuantity: 0,
+  });
+  const service = await createServiceProduct(company.id, uom);
+
+  return {
+    company,
+    user,
+    payableGlAccount,
+    vendor,
+    uom,
+    warehouse,
+    inventoryAssetAccount,
+    cogsAccount,
+    expenseAccount,
+    jurisdiction,
+    product,
+    variant,
+    serviceProduct: service.product,
+    serviceVariant: service.variant,
+  };
+}
+
 // Arma un escenario completo listo para registrar un cobro real de AR:
 // empresa, usuario, cuenta bancaria + su GL, cuenta de CxC, periodo
 // abierto y cliente. Es el fixture que usan las pruebas de doble
@@ -208,6 +266,21 @@ async function cleanupCompany(companyId) {
   await prisma.salesOrderLine.deleteMany({ where: { order: { companyId } } });
   await prisma.salesOrder.deleteMany({ where: { companyId } });
   await prisma.paymentMethod.deleteMany({ where: { companyId } });
+
+  // Fase 4 (Compras): notas y pagos de AP antes que las facturas (billId
+  // es RESTRICT); PurchaseOrderLine/PurchaseOrder antes que Vendor
+  // (vendorId es RESTRICT en ambos lados) — el resto de FKs nuevas
+  // (ApBillLine.purchaseOrderLineId, InventoryMovement.purchaseOrderLineId,
+  // ApCreditNote.relatedInventoryMovementId) son SET NULL, no bloquean
+  // el orden.
+  await prisma.apCreditNote.deleteMany({ where: { companyId } });
+  await prisma.apPaymentApplication.deleteMany({ where: { payment: { companyId } } });
+  await prisma.apPayment.deleteMany({ where: { companyId } });
+  await prisma.apBillLine.deleteMany({ where: { bill: { companyId } } });
+  await prisma.apBill.deleteMany({ where: { companyId } });
+  await prisma.purchaseOrderLine.deleteMany({ where: { purchaseOrder: { companyId } } });
+  await prisma.purchaseOrder.deleteMany({ where: { companyId } });
+  await prisma.vendor.deleteMany({ where: { companyId } });
 
   await prisma.fiscalRiskAlert.deleteMany({ where: { companyId } });
   await prisma.fiscalTransaction.deleteMany({ where: { companyId } });
@@ -252,11 +325,14 @@ module.exports = {
   createTaxJurisdiction,
   createCustomer,
   setReceivableAccount,
+  setPayableAccount,
+  createVendor,
   buildTreasuryScenario,
   createUnitOfMeasure,
   createWarehouse,
   createPhysicalProduct,
   createServiceProduct,
   buildSalesScenario,
+  buildPurchaseScenario,
   cleanupCompany,
 };

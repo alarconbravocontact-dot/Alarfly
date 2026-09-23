@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apPaymentsApi, vendorsApi, apBillsApi } from '../../api/ap';
 import { treasuryAccountsApi } from '../../api/treasury';
+import { paymentMethodsApi } from '../../api/sales';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatDate, toIsoDate } from '../../utils/format';
@@ -17,6 +18,7 @@ export default function ApPaymentsPage() {
   const [payments, setPayments] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [treasuryAccounts, setTreasuryAccounts] = useState([]);
+  const [paymentMethods, setPaymentMethods] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -25,6 +27,7 @@ export default function ApPaymentsPage() {
   const [treasuryAccountId, setTreasuryAccountId] = useState('');
   const [date, setDate] = useState(toIsoDate(new Date()));
   const [amount, setAmount] = useState('');
+  const [paymentMethodId, setPaymentMethodId] = useState('');
   const [applications, setApplications] = useState([emptyApplication()]);
   const [formError, setFormError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -33,14 +36,16 @@ export default function ApPaymentsPage() {
     setIsLoading(true);
     setLoadError('');
     try {
-      const [paymentsData, vendorsData, treasuryData] = await Promise.all([
+      const [paymentsData, vendorsData, treasuryData, paymentMethodsData] = await Promise.all([
         apPaymentsApi.list(),
         vendorsApi.list({ isActive: true }),
         treasuryAccountsApi.list(),
+        paymentMethodsApi.list({ isActive: true }),
       ]);
       setPayments(paymentsData);
       setVendors(vendorsData);
       setTreasuryAccounts(treasuryData);
+      setPaymentMethods(paymentMethodsData);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'No se pudieron cargar los pagos.');
     } finally {
@@ -90,6 +95,7 @@ export default function ApPaymentsPage() {
         treasuryAccountId,
         date,
         amount: Number(amount),
+        paymentMethodId: paymentMethodId || undefined,
         applications: validApplications.map((a) => ({ billId: a.billId, amount: Number(a.amount) })),
       });
       setAmount('');
@@ -140,6 +146,17 @@ export default function ApPaymentsPage() {
               <label className="field">
                 <span>Monto total del pago</span>
                 <input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+              </label>
+              <label className="field">
+                <span>Método de pago (opcional)</span>
+                <select value={paymentMethodId} onChange={(e) => setPaymentMethodId(e.target.value)}>
+                  <option value="">Sin indicar</option>
+                  {paymentMethods.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
 

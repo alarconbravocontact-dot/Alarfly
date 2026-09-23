@@ -152,6 +152,7 @@ model Company {
   vendors              Vendor[]
   apBills              ApBill[]
   apPayments           ApPayment[]
+  apCreditNotes        ApCreditNote[]
   arApSettings         ArApSettings?
 
   salesOrders           SalesOrder[]
@@ -272,6 +273,7 @@ model User {
   arCreditNotesCreated ArCreditNote[]
   apBillsCreated       ApBill[]       @relation("ApBillCreatedBy")
   apPaymentsCreated    ApPayment[]    @relation("ApPaymentCreatedBy")
+  apCreditNotesCreated ApCreditNote[]
 
   salesOrdersCreated         SalesOrder[]    @relation("SalesOrderCreatedBy")
   salesDeliveriesCreated     SalesDelivery[] @relation("SalesDeliveryCreatedBy")
@@ -695,6 +697,7 @@ model JournalEntry {
 
   lines        JournalEntryLine[]
   ArCreditNote ArCreditNote[]
+  ApCreditNote ApCreditNote[]
 
   @@unique([companyId, entryNumber])
   @@index([companyId, date])
@@ -2626,8 +2629,9 @@ model Vendor {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  bills    ApBill[]
-  payments ApPayment[]
+  bills       ApBill[]
+  payments    ApPayment[]
+  creditNotes ApCreditNote[]
 
   preferredForProducts Product[]       @relation("ProductPreferredVendor")
   paymentOrders        PaymentOrder[]
@@ -2679,12 +2683,19 @@ model ApBill {
   lines                    ApBillLine[]
   paymentApplications      ApPaymentApplication[]
   paymentOrderApplications PaymentOrderBillApplication[]
+  creditNotes              ApCreditNote[]
 
   @@unique([companyId, billNumber])
   @@index([companyId, vendorId, status])
   @@index([companyId, dueDate])
 }
 
+// Fase 4 (Compras): todos los campos de producto son opcionales — una
+// línea sin `productVariantId` sigue siendo solo texto, como siempre
+// (mismo criterio que ArInvoiceLine en Fase 3). Cuando SÍ hay producto
+// físico, `unitCost` es el costo real (de esta misma factura si se
+// compró directo, o heredado de la recepción si vino de una orden de
+// compra) — nunca un cálculo propio de AP.
 model ApBillLine {
   id          String  @id @default(cuid())
   billId      String
@@ -2694,14 +2705,24 @@ model ApBillLine {
   unitPrice   Decimal @db.Decimal(18, 2)
   amount      Decimal @db.Decimal(18, 2)
   order       Int     @default(0)
+
+  productVariantId    String?
+  productVariant      ProductVariant?    @relation(fields: [productVariantId], references: [id])
+  warehouseId         String?
+  warehouse           Warehouse?         @relation(fields: [warehouseId], references: [id])
+  purchaseOrderLineId String?
+  purchaseOrderLine   PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id])
+  discount            Decimal            @default(0) @db.Decimal(18, 2)
+  unitCost            Decimal?           @db.Decimal(18, 6)
 }
 
 // Pago directo a proveedor, posteado vía core/ledger (débito Cuentas
-// por Pagar, crédito la cuenta de efectivo elegida). Pendiente
-// documentado: conectar esto con el flujo de aprobación multinivel de
-// Tesorería (PaymentOrder) queda para una siguiente pasada — por ahora
-// es un pago directo, sin maker-checker, para no bloquear el resto del
-// módulo con ese rediseño.
+// por Pagar, crédito la cuenta de efectivo elegida). Ya conectado
+// también con el flujo de aprobación multinivel de Tesorería como
+// alternativa (ver PaymentOrder.vendorId/PaymentOrderBillApplication/
+// payment-orders.service.createPaymentOrderForVendorBills) — este
+// modelo sigue siendo el pago directo, sin maker-checker, para cuando
+// no se necesita ese flujo.
 model ApPayment {
   id        String   @id @default(cuid())
   companyId String
@@ -2716,6 +2737,16 @@ model ApPayment {
 
   journalEntryId String
   journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  // Fase 4: espejo exacto de ArPayment.paymentMethodId/foreignCurrency/
+  // foreignAmount/exchangeRate — mismo patrón de snapshot histórico BCV,
+  // no un mecanismo nuevo. `amount` (arriba) siempre queda en moneda
+  // base, ya convertido con `exchangeRate`.
+  paymentMethodId String?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  foreignCurrency String?
+  foreignAmount   Decimal?       @db.Decimal(18, 4)
+  exchangeRate    Decimal?       @db.Decimal(18, 6)
 
   createdByUserId String
   createdByUser   User     @relation("ApPaymentCreatedBy", fields: [createdByUserId], references: [id])
@@ -2737,6 +2768,53 @@ model ApPaymentApplication {
   @@unique([paymentId, billId])
 }
 
+enum ApCreditNoteType {
+  CREDIT // reduce lo que se le debe al proveedor (ej. devolución)
+  DEBIT // aumenta lo que se le debe (ej. cargo adicional)
+}
+
+// Fase 4 (Compras): espejo exacto de ArCreditNote del lado de
+// proveedores. Siempre ligada a una factura de compra original. Ajusta
+// ApBill.totalAmount (nunca el paidAmount, que es pago real en
+// efectivo) y postea su propio asiento directo vía core/ledger — no
+// vuelve a pasar por el motor fiscal, es un ajuste simple sobre lo ya
+// facturado.
+model ApCreditNote {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendorId  String
+  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  billId    String
+  bill      ApBill  @relation(fields: [billId], references: [id], onDelete: Restrict)
+
+  noteNumber Int // consecutivo por empresa (ver ArApSettings)
+  type       ApCreditNoteType
+  reason     String
+  amount     Decimal          @db.Decimal(18, 2)
+  date       DateTime
+
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  // A diferencia de ArCreditNote (donde este campo quedó sin conectar
+  // en ningún flujo real), acá SÍ se conecta: una devolución física a
+  // proveedor (punto 29, "integración mínima") genera una salida real
+  // de inventario (VENDOR_RETURN_EXIT, vía inventory-movements.createExit)
+  // y la liga acá — sin forzar que toda nota implique devolución física
+  // (la mayoría no la tiene, ej. un descuento del proveedor).
+  relatedInventoryMovementId String?            @unique
+  relatedInventoryMovement   InventoryMovement? @relation(fields: [relatedInventoryMovementId], references: [id])
+
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@unique([companyId, noteNumber])
+  @@index([companyId, vendorId])
+  @@index([companyId, billId])
+}
+
 // Configuración de AR/AP por empresa (mismo patrón que
 // AccountingSettings/TreasurySettings/FpaSettings): a qué cuenta
 // contable van las Cuentas por Cobrar/Pagar por defecto (la
@@ -2755,6 +2833,9 @@ model ArApSettings {
   currentArInvoiceNumberSequence    Int @default(0)
   currentApBillNumberSequence       Int @default(0)
   currentArCreditNoteNumberSequence Int @default(0)
+  // Fase 4 (Compras): mismo patrón atómico, para notas de crédito/débito
+  // a proveedor.
+  currentApCreditNoteNumberSequence Int @default(0)
 
   // Fase 3 (Ventas): numeración consecutiva propia de Pedidos y
   // Entregas — mismo patrón atómico que ya usan facturas/notas.
@@ -2969,7 +3050,8 @@ model PaymentMethod {
   name      String
   isActive  Boolean @default(true)
 
-  payments ArPayment[]
+  payments   ArPayment[]
+  apPayments ApPayment[]
 
   @@unique([companyId, code])
 }
@@ -3125,6 +3207,7 @@ model ProductVariant {
   arInvoiceLines        ArInvoiceLine[]
   salesDeliveryLines    SalesDeliveryLine[]
   inventoryReservations InventoryReservation[]
+  apBillLines           ApBillLine[]
 
   @@unique([productId, sku])
 }
@@ -3181,6 +3264,7 @@ model Warehouse {
   arInvoiceLines        ArInvoiceLine[]
   salesDeliveryLines    SalesDeliveryLine[]
   inventoryReservations InventoryReservation[]
+  apBillLines           ApBillLine[]
 
   @@unique([companyId, code])
 }
@@ -3247,6 +3331,12 @@ enum InventoryMovementType {
   ADJUSTMENT_INCREASE
   ADJUSTMENT_DECREASE
   PHYSICAL_COUNT_ADJUSTMENT
+  // Fase 4 (Compras): salida real cuando se devuelve mercancía
+  // físicamente a un proveedor — nunca SALE_EXIT (no es una venta) ni
+  // ADJUSTMENT_DECREASE (no es un ajuste sin causa, tiene una nota de
+  // crédito de proveedor detrás). Se genera vía createExit, igual motor
+  // de siempre.
+  VENDOR_RETURN_EXIT
 }
 
 model InventoryLot {
@@ -3287,6 +3377,16 @@ model InventoryMovement {
   referenceType String?
   referenceId   String?
 
+  // Fase 4 (Compras): además del referenceType/referenceId genérico ya
+  // existente (que apunta a la orden completa), esta FK opcional liga
+  // el movimiento a la línea EXACTA de la orden que recibió — así
+  // ApBillLine puede leer el costo real recibido de esa línea sin
+  // recorrer referenceId. Una línea puede recibirse en varias entregas
+  // parciales, por eso es 1 a muchos (a diferencia de
+  // SalesDeliveryLine.inventoryMovementId, que es 1 a 1).
+  purchaseOrderLineId String?
+  purchaseOrderLine   PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id])
+
   journalEntryId String?
   journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
 
@@ -3310,8 +3410,10 @@ model InventoryMovement {
   // ligado a una devolución.
   salesDeliveryLine   SalesDeliveryLine?
   arCreditNoteRelated ArCreditNote?
+  apCreditNoteRelated ApCreditNote?
 
   @@index([companyId, variantId, warehouseId, date])
+  @@index([purchaseOrderLineId])
 }
 
 // =====================================================================
@@ -3469,6 +3571,21 @@ model PurchaseOrderLine {
   quantityOrdered  Decimal  @db.Decimal(18, 4)
   unitCost         Decimal? @db.Decimal(18, 6) // estimado; el real se fija al recibir
   quantityReceived Decimal  @default(0) @db.Decimal(18, 4)
+
+  // Fase 4 (Compras): espejo exacto de SalesOrderLine.deliveredCostTotal
+  // — suma real de lo que ya devolvió el motor de valoración en cada
+  // recepción confirmada (nunca un costo recalculado acá). Al facturar
+  // contra esta línea, el costo se toma como el promedio de esto
+  // (receivedCostTotal / quantityReceived para la porción facturada),
+  // igual criterio que ya usa AR con lo entregado.
+  receivedCostTotal Decimal @default(0) @db.Decimal(18, 2)
+  // Espejo de SalesOrderLine.invoicedQuantity: cuánto de lo recibido ya
+  // se facturó, para no dejar facturar más de lo que llegó (una línea
+  // puede recibirse una vez y facturarse en varias facturas parciales).
+  billedQuantity    Decimal @default(0) @db.Decimal(18, 4)
+
+  billLines        ApBillLine[]
+  receiptMovements InventoryMovement[]
 }
 
 // =====================================================================

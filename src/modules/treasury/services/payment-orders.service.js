@@ -9,8 +9,33 @@ const arApSettingsService = require('../../../core/ar-ap-settings/ar-ap-settings
 const { applyPaymentToBills } = require('../../accounts-payable/services/ap-bills.rules');
 const { findMatchingRule, assertCanApprove, nextApprovalLevel, isFullyApproved } = require('./payment-approval.rules');
 const { withTransaction } = require('../../../core/database/unit-of-work');
+const fxService = require('../../../core/fx/fx.service');
 
 const { Decimal } = Prisma;
+
+// Fase 6 (sección 6/32): `PaymentOrder.currency` se guardaba pero
+// `decideApproval` nunca la usaba para nada — posteaba `order.amount`
+// directo al Ledger y al saldo de tesorería, tratándolo siempre como
+// si ya estuviera en la moneda base. Eso era correcto solo mientras el
+// usuario elegía la cuenta y la moneda "bien", nunca se validaba. Esta
+// función lo hace explícito: la moneda declarada de la orden debe
+// coincidir con la de la cuenta elegida (coherencia interna) y esa
+// cuenta debe estar en la moneda base de la empresa (mismo criterio ya
+// aplicado a los cobros/pagos directos de AR/AP). Pagar una orden en
+// una moneda distinta a la base es una capacidad real que puede
+// pedirse más adelante (snapshot foreignCurrency/foreignAmount/
+// exchangeRate, igual que ya tiene ArPayment/ApPayment) — no se
+// inventa acá, documentado como límite consciente.
+async function assertOrderCurrencyCoherent(company, treasuryAccount, currency) {
+  if (currency !== treasuryAccount.currency) {
+    throw new AppError(
+      `La moneda de la orden (${currency}) no coincide con la moneda de la cuenta de tesorería elegida (${treasuryAccount.currency}).`,
+      400,
+      'ORDER_CURRENCY_MISMATCH'
+    );
+  }
+  fxService.assertBaseCurrencySettlement(company.baseCurrency, treasuryAccount, 'una orden de pago');
+}
 
 async function createPaymentOrder(companyId, userId, data) {
   const treasuryAccount = await prisma.treasuryAccount.findFirst({
@@ -23,6 +48,8 @@ async function createPaymentOrder(companyId, userId, data) {
   if (!glAccount) {
     throw new AppError('La cuenta contable indicada no existe.', 404, 'ACCOUNT_NOT_FOUND');
   }
+  const company = await prisma.company.findUnique({ where: { id: companyId } });
+  await assertOrderCurrencyCoherent(company, treasuryAccount, data.currency);
 
   return prisma.$transaction(async (tx) => {
     const order = await tx.paymentOrder.create({ data: { companyId, createdByUserId: userId, ...data } });
@@ -57,6 +84,8 @@ async function createPaymentOrderForVendorBills(companyId, userId, data) {
   if (!treasuryAccount) {
     throw new AppError('La cuenta de tesorería indicada no existe.', 404, 'TREASURY_ACCOUNT_NOT_FOUND');
   }
+  const company = await prisma.company.findUnique({ where: { id: companyId } });
+  await assertOrderCurrencyCoherent(company, treasuryAccount, data.currency);
   const payableGlAccountId = await arApSettingsService.assertPayableAccountConfigured(companyId);
 
   const billIds = data.applications.map((application) => application.apBillId);

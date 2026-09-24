@@ -10,6 +10,10 @@ export const ACCOUNTING_TABS = [
   { to: '/contabilidad/asientos', label: 'Asientos Contables' },
   { to: '/contabilidad/reportes', label: 'Reportes' },
   { to: '/contabilidad/periodos', label: 'Periodos' },
+  // Fase 6: el backend de tasas de cambio (registrar/listar, BCV o
+  // manual) ya existía desde Fase 1/3 pero nunca tuvo pantalla —
+  // "Tasas de Cambio" lo conecta, sin agregar ningún endpoint nuevo.
+  { to: '/contabilidad/tasas-de-cambio', label: 'Tasas de Cambio' },
 ];
 
 export const TREASURY_TABS = [

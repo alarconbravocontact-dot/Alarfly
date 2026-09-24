@@ -2,7 +2,7 @@ const asyncHandler = require('../../../core/utils/asyncHandler');
 const fxService = require('../../../core/fx/fx.service');
 
 const recordRate = asyncHandler(async (req, res) => {
-  const rate = await fxService.recordRate({ companyId: req.auth.companyId, ...req.body });
+  const rate = await fxService.recordRate({ companyId: req.auth.companyId, userId: req.auth.userId, ...req.body });
   res.status(201).json(rate);
 });
 

@@ -1,8 +1,9 @@
 const { Prisma } = require('@prisma/client');
 const prisma = require('../database/prisma');
 const AppError = require('../utils/AppError');
+const auditService = require('../audit/audit.service');
 const ledgerService = require('../ledger/ledger.service');
-const { calculateFxDifferential } = require('./fx.rules');
+const { calculateFxDifferential, assertBaseCurrencySettlement } = require('./fx.rules');
 
 const { Decimal } = Prisma;
 
@@ -12,12 +13,34 @@ function accountBalance(account, debit, credit) {
   return account.normalBalance === 'DEBIT' ? d.minus(c) : c.minus(d);
 }
 
-async function recordRate({ companyId, currency, rate, date }) {
-  return prisma.exchangeRate.upsert({
+// Fase 6 (sección 41): toda modificación sensible de una tasa debe
+// quedar auditada (quién/cuándo/qué tasa/valor anterior/valor nuevo) —
+// reutiliza core/audit, el mismo mecanismo que ya usa el resto del
+// proyecto, nunca un sistema de auditoría propio. `upsert` sigue siendo
+// idempotente por `[companyId, currency, date]`: volver a registrar la
+// misma fecha CORRIGE esa fila (con su rastro en el audit log), nunca
+// crea una fecha nueva ni reinterpreta una operación histórica ya
+// posterior a esa fecha (eso lo protege el snapshot de cada pago/asiento,
+// ver `resolveForeignAmountSnapshot`, no esta función).
+async function recordRate({ companyId, userId, currency, rate, date, source }) {
+  const existing = await prisma.exchangeRate.findUnique({
     where: { companyId_currency_date: { companyId, currency, date } },
-    update: { rate },
-    create: { companyId, currency, rate, date },
   });
+  const saved = await prisma.exchangeRate.upsert({
+    where: { companyId_currency_date: { companyId, currency, date } },
+    update: { rate, source: source || existing?.source || 'BCV' },
+    create: { companyId, currency, rate, date, source: source || 'BCV' },
+  });
+  await auditService.log({
+    companyId,
+    userId,
+    action: existing ? 'exchange_rate.updated' : 'exchange_rate.recorded',
+    entityType: 'ExchangeRate',
+    entityId: saved.id,
+    oldValue: existing ? { rate: existing.rate, source: existing.source } : null,
+    newValue: { currency, rate: saved.rate, date, source: saved.source },
+  });
+  return saved;
 }
 
 async function listRates(companyId, currency) {
@@ -57,6 +80,24 @@ async function getLatestRate(companyId, currency, asOfDate) {
     );
   }
   return rate;
+}
+
+// Fase 6 (sección 9/13/23/24): antes vivía duplicada, byte por byte, en
+// `ar-payments.service.js` y `ap-payments.service.js` — con esta pieza
+// AP gana el mismo mecanismo de cobro/pago en moneda extranjera que ya
+// tenía AR (bankTransactionId), así que ahora son 2 consumidores reales
+// con el mismo código exacto: se extrajo acá, la única lógica de
+// "resolver cuánto vale, en moneda base, un monto dado en moneda
+// extranjera, con la tasa vigente a esa fecha, y guardar el snapshot
+// para no recalcularlo nunca más" — no un ConversionService nuevo, es
+// la misma llamada a `getLatestRate` que ya existía, solo que ahora en
+// un solo lugar. Devuelve `null` si no se pidió conversión (caso normal,
+// pago ya en moneda base).
+async function resolveForeignAmountSnapshot(companyId, { foreignCurrency, foreignAmount, date }) {
+  if (!foreignCurrency || foreignAmount == null) return null;
+  const rate = await getLatestRate(companyId, foreignCurrency, date);
+  const amount = new Decimal(foreignAmount);
+  return { foreignCurrency, foreignAmount: amount, exchangeRate: new Decimal(rate.rate), amount: amount.times(rate.rate) };
 }
 
 // Revalúa una sola cuenta en moneda extranjera: si el saldo que "debería"
@@ -127,4 +168,13 @@ async function revalueCompany(companyId, asOfDate, userId) {
   return postedEntries;
 }
 
-module.exports = { recordRate, listRates, getAllLatestRates, getLatestRate, revalueAccount, revalueCompany };
+module.exports = {
+  recordRate,
+  listRates,
+  getAllLatestRates,
+  getLatestRate,
+  resolveForeignAmountSnapshot,
+  assertBaseCurrencySettlement,
+  revalueAccount,
+  revalueCompany,
+};

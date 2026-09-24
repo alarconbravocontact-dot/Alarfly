@@ -262,10 +262,16 @@ async function cleanupCompany(companyId) {
 
   await prisma.reconciliationMatch.deleteMany({ where: { reconciliation: { companyId } } });
   await prisma.bankReconciliation.deleteMany({ where: { companyId } });
-  await prisma.bankTransaction.deleteMany({ where: { companyId } });
-  await prisma.statementImport.deleteMany({ where: { companyId } });
+  // Fase 6: ArPayment/ApPayment.bankTransactionId es RESTRICT — tienen
+  // que borrarse ANTES que BankTransaction, no después (antes de esta
+  // fase esto nunca se había disparado porque ningún test previo dejaba
+  // un ArPayment con bankTransactionId y además llamaba a cleanupCompany).
   await prisma.arPaymentApplication.deleteMany({ where: { payment: { companyId } } });
   await prisma.arPayment.deleteMany({ where: { companyId } });
+  await prisma.apPaymentApplication.deleteMany({ where: { payment: { companyId } } });
+  await prisma.apPayment.deleteMany({ where: { companyId } });
+  await prisma.bankTransaction.deleteMany({ where: { companyId } });
+  await prisma.statementImport.deleteMany({ where: { companyId } });
   await prisma.arCreditNote.deleteMany({ where: { companyId } });
 
   // Fase 3 (Ventas): hijos antes que padres — entregas/reservas antes
@@ -288,8 +294,6 @@ async function cleanupCompany(companyId) {
   // ApCreditNote.relatedInventoryMovementId) son SET NULL, no bloquean
   // el orden.
   await prisma.apCreditNote.deleteMany({ where: { companyId } });
-  await prisma.apPaymentApplication.deleteMany({ where: { payment: { companyId } } });
-  await prisma.apPayment.deleteMany({ where: { companyId } });
   await prisma.apBillLine.deleteMany({ where: { bill: { companyId } } });
   await prisma.apBill.deleteMany({ where: { companyId } });
   await prisma.purchaseOrderLine.deleteMany({ where: { purchaseOrder: { companyId } } });

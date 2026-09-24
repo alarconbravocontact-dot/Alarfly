@@ -1,4 +1,4 @@
-const { calculateFxDifferential } = require('./fx.rules');
+const { calculateFxDifferential, assertBaseCurrencySettlement } = require('./fx.rules');
 
 describe('calculateFxDifferential', () => {
   test('detecta una ganancia cambiaria (la moneda extranjera subió de valor)', () => {
@@ -26,5 +26,33 @@ describe('calculateFxDifferential', () => {
     // tasa subiendo también genera diferencial.
     const { differential } = calculateFxDifferential(-1000, -1000, 1.2);
     expect(differential.toFixed(2)).toBe('-200.00');
+  });
+});
+
+// Fase 6 (secciones 6/9/32): hace explícito y prueba el supuesto que ya
+// estaba implícito en AR/AP/Órdenes de Pago/Deuda — liquidar una
+// operación en una cuenta de tesorería que NO está en la moneda base
+// de la empresa corrompía el saldo en silencio; ahora es un error claro.
+describe('assertBaseCurrencySettlement', () => {
+  test('no rechaza cuando la cuenta ya está en la moneda base', () => {
+    expect(() =>
+      assertBaseCurrencySettlement('USD', { name: 'Banco Principal', currency: 'USD' }, 'este cobro')
+    ).not.toThrow();
+  });
+
+  test('rechaza con un mensaje claro cuando la cuenta está en otra moneda', () => {
+    expect(() =>
+      assertBaseCurrencySettlement('USD', { name: 'Cuenta en Bs.', currency: 'VES' }, 'este pago')
+    ).toThrow(/Cuenta en Bs\..*VES.*este pago.*USD/);
+  });
+
+  test('el error trae el código SETTLEMENT_CURRENCY_MISMATCH', () => {
+    try {
+      assertBaseCurrencySettlement('USD', { name: 'Cuenta en Bs.', currency: 'VES' }, 'una deuda');
+      throw new Error('no debió llegar acá');
+    } catch (err) {
+      expect(err.code).toBe('SETTLEMENT_CURRENCY_MISMATCH');
+      expect(err.statusCode).toBe(400);
+    }
   });
 });

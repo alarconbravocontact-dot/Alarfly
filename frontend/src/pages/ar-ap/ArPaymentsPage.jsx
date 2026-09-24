@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { arPaymentsApi, customersApi, arInvoicesApi } from '../../api/ar';
 import { treasuryAccountsApi, bankFeedsApi } from '../../api/treasury';
+import { paymentMethodsApi } from '../../api/sales';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatDate, toIsoDate } from '../../utils/format';
@@ -24,6 +25,7 @@ export default function ArPaymentsPage() {
   const [customers, setCustomers] = useState([]);
   const [treasuryAccounts, setTreasuryAccounts] = useState([]);
   const [bankTransactions, setBankTransactions] = useState([]);
+  const [paymentMethods, setPaymentMethods] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -34,12 +36,21 @@ export default function ArPaymentsPage() {
   const [bankTransactionId, setBankTransactionId] = useState('');
   const [date, setDate] = useState(toIsoDate(new Date()));
   const [amount, setAmount] = useState('');
+  const [paymentMethodId, setPaymentMethodId] = useState('');
+  const [reference, setReference] = useState('');
+  // Fase 6 (sección 15/47): un cobro directo puede registrarse en
+  // moneda extranjera (ej. Bs. a la tasa BCV vigente) — reutiliza el
+  // mismo snapshot foreignCurrency/foreignAmount/exchangeRate que ya
+  // guarda el backend (Fase 3), solo faltaba exponerlo acá.
+  const [useForeignCurrency, setUseForeignCurrency] = useState(false);
+  const [foreignCurrency, setForeignCurrency] = useState('VES');
+  const [foreignAmount, setForeignAmount] = useState('');
   const [applications, setApplications] = useState([emptyApplication()]);
   const [formError, setFormError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   const selectedBankTransaction = bankTransactions.find((t) => t.id === bankTransactionId) || null;
-  const effectiveAmount = paymentSource === 'BANK' ? selectedBankTransaction?.amount ?? '' : amount;
+  const effectiveAmount = paymentSource === 'BANK' ? selectedBankTransaction?.amount ?? '' : useForeignCurrency ? '' : amount;
 
   const [advanceErrors, setAdvanceErrors] = useState({});
   const [applyingId, setApplyingId] = useState(null);
@@ -63,16 +74,18 @@ export default function ArPaymentsPage() {
     setIsLoading(true);
     setLoadError('');
     try {
-      const [paymentsData, customersData, treasuryData, bankTransactionsData] = await Promise.all([
+      const [paymentsData, customersData, treasuryData, bankTransactionsData, paymentMethodsData] = await Promise.all([
         arPaymentsApi.list(),
         customersApi.list({ isActive: true }),
         treasuryAccountsApi.list(),
         bankFeedsApi.listTransactions({ status: 'UNMATCHED' }),
+        paymentMethodsApi.list({ isActive: true }),
       ]);
       setPayments(paymentsData);
       setCustomers(customersData);
       setTreasuryAccounts(treasuryData);
       setBankTransactions(bankTransactionsData.filter((t) => Number(t.amount) > 0));
+      setPaymentMethods(paymentMethodsData);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'No se pudieron cargar los cobros.');
     } finally {
@@ -137,10 +150,19 @@ export default function ArPaymentsPage() {
         payload.bankTransactionId = bankTransactionId;
       } else {
         payload.treasuryAccountId = treasuryAccountId;
-        payload.amount = evaluateMathExpression(amount) ?? Number(amount);
+        if (useForeignCurrency) {
+          payload.foreignCurrency = foreignCurrency;
+          payload.foreignAmount = Number(foreignAmount);
+        } else {
+          payload.amount = evaluateMathExpression(amount) ?? Number(amount);
+        }
+        payload.paymentMethodId = paymentMethodId || undefined;
+        payload.reference = reference || undefined;
       }
       await arPaymentsApi.create(payload);
       setAmount('');
+      setForeignAmount('');
+      setReference('');
       setBankTransactionId('');
       setApplications([emptyApplication()]);
       await loadAll();
@@ -242,13 +264,23 @@ export default function ArPaymentsPage() {
                       ))}
                     </select>
                   </label>
-                  <label className="field">
-                    <span className="field-label">
-                      Monto total del cobro
-                      <HelpTooltip text="Puedes escribir una operación simple, ej. “150+30”, y se calcula sola al salir del campo." />
-                    </span>
-                    <AmountInput value={amount} onChange={setAmount} required />
-                  </label>
+                  {useForeignCurrency ? (
+                    <label className="field">
+                      <span className="field-label">
+                        Monto en {foreignCurrency}
+                        <HelpTooltip text="Se convierte solo a la moneda base con la tasa de cambio vigente para esa fecha (la más reciente registrada en Contabilidad › Tasas de Cambio) y esa tasa queda guardada junto al cobro para siempre, aunque después se registre una tasa nueva." />
+                      </span>
+                      <input type="number" step="0.01" min="0.01" value={foreignAmount} onChange={(e) => setForeignAmount(e.target.value)} required />
+                    </label>
+                  ) : (
+                    <label className="field">
+                      <span className="field-label">
+                        Monto total del cobro
+                        <HelpTooltip text="Puedes escribir una operación simple, ej. “150+30”, y se calcula sola al salir del campo." />
+                      </span>
+                      <AmountInput value={amount} onChange={setAmount} required />
+                    </label>
+                  )}
                 </>
               )}
 
@@ -261,6 +293,41 @@ export default function ArPaymentsPage() {
                   <span>Monto (del movimiento bancario)</span>
                   <input type="text" value={formatCurrency(selectedBankTransaction.amount, selectedBankTransaction.currency)} disabled />
                 </label>
+              )}
+              {paymentSource === 'DIRECT' && (
+                <>
+                  <label className="field">
+                    <span>Método de pago</span>
+                    <select value={paymentMethodId} onChange={(e) => setPaymentMethodId(e.target.value)}>
+                      <option value="">Sin indicar</option>
+                      {paymentMethods.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span className="field-label">
+                      Referencia (opcional)
+                      <HelpTooltip text="El número de confirmación de un Pago Móvil, Zelle o Binance, o el número de una transferencia — para poder identificarlo después." />
+                    </span>
+                    <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Ej: últimos 4 dígitos, ID de transacción…" />
+                  </label>
+                  <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <input type="checkbox" checked={useForeignCurrency} onChange={(e) => setUseForeignCurrency(e.target.checked)} />
+                    <span className="field-label">
+                      El cliente pagó en otra moneda (ej. Bs.)
+                      <HelpTooltip text="Actívalo si el cliente pagó en Bolívares u otra moneda distinta a la moneda base de la empresa — se convierte con la tasa BCV vigente." />
+                    </span>
+                  </label>
+                  {useForeignCurrency && (
+                    <label className="field">
+                      <span>Moneda</span>
+                      <input type="text" value={foreignCurrency} onChange={(e) => setForeignCurrency(e.target.value.toUpperCase())} maxLength={3} required />
+                    </label>
+                  )}
+                </>
               )}
             </div>
 

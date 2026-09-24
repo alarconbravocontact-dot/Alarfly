@@ -613,14 +613,27 @@ model Dimension {
 // movimiento en moneda extranjera (ver JournalEntryLine más abajo).
 // =====================================================================
 
+// Fase 6: distingue si una tasa es la oficial (BCV, la fuente de
+// referencia de todo el sistema, sección 11 del prompt) o una tasa
+// escrita a mano por otro motivo (ej. una tasa paralela/de acuerdo
+// puntual) — nunca se confunden entre sí. No existe "IMPORTADA" porque
+// el sistema no tiene ningún origen automático de tasas todavía (no
+// hay scraping de BCV ni importación de archivo de tasas) — las dos
+// que sí son reales hoy son estas dos.
+enum ExchangeRateSource {
+  BCV
+  MANUAL
+}
+
 model ExchangeRate {
-  id        String   @id @default(cuid())
+  id        String             @id @default(cuid())
   companyId String
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
   currency  String // código ISO de la moneda extranjera, ej: "EUR"
-  rate      Decimal  @db.Decimal(18, 6) // unidades de la moneda base por 1 unidad de `currency`
+  rate      Decimal            @db.Decimal(18, 6) // unidades de la moneda base por 1 unidad de `currency`
   date      DateTime
-  createdAt DateTime @default(now())
+  source    ExchangeRateSource @default(BCV)
+  createdAt DateTime           @default(now())
 
   @@unique([companyId, currency, date])
   @@index([companyId, currency, date])
@@ -1122,6 +1135,7 @@ model BankTransaction {
 
   matches   ReconciliationMatch[]
   arPayment ArPayment?
+  apPayment ApPayment?
 
   @@unique([treasuryAccountId, externalId])
   @@index([companyId, treasuryAccountId, status])
@@ -2516,6 +2530,15 @@ model ArPayment {
   foreignAmount   Decimal? @db.Decimal(18, 4)
   exchangeRate    Decimal? @db.Decimal(18, 6)
 
+  // Fase 6 (sección 19-21): número de referencia/confirmación de un
+  // pago registrado directamente (Pago Móvil, Zelle, Binance,
+  // transferencia) — ninguno de estos tiene un parser de extracto
+  // bancario propio, así que casi nunca llegan con un BankTransaction
+  // ya importado del que heredar `reference` (ver BankTransaction.reference,
+  // mismo nombre/propósito, no un concepto nuevo). Null cuando el cobro
+  // viene de un movimiento bancario real: ese ya trae su propia referencia.
+  reference String?
+
   createdByUserId String
   createdByUser   User     @relation("ArPaymentCreatedBy", fields: [createdByUserId], references: [id])
   createdAt       DateTime @default(now())
@@ -2743,6 +2766,16 @@ model ApPayment {
   treasuryAccountId String
   treasuryAccount   TreasuryAccount @relation(fields: [treasuryAccountId], references: [id], onDelete: Restrict)
 
+  // Fase 6 (sección 24, pendiente heredado de Fase 4 ya resuelto):
+  // espejo exacto de ArPayment.bankTransactionId — si el pago a
+  // proveedor se liga a un movimiento bancario real ya importado
+  // (UNMATCHED), el monto y la cuenta se derivan de ESE movimiento y
+  // queda marcado MATCHED al registrar el pago, mismo mecanismo que ya
+  // usa AR, sin tabla ni lógica nueva. El pago directo (sin banco)
+  // sigue funcionando igual que siempre.
+  bankTransactionId String?          @unique
+  bankTransaction   BankTransaction? @relation(fields: [bankTransactionId], references: [id], onDelete: Restrict)
+
   journalEntryId String
   journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
 
@@ -2755,6 +2788,12 @@ model ApPayment {
   foreignCurrency String?
   foreignAmount   Decimal?       @db.Decimal(18, 4)
   exchangeRate    Decimal?       @db.Decimal(18, 6)
+
+  // Fase 6 (sección 19-21): mismo campo y mismo motivo que
+  // ArPayment.reference — Pago Móvil/Zelle/Binance/transferencia
+  // registrados directamente (sin banco) necesitan un lugar para el
+  // número de confirmación.
+  reference String?
 
   createdByUserId String
   createdByUser   User     @relation("ApPaymentCreatedBy", fields: [createdByUserId], references: [id])

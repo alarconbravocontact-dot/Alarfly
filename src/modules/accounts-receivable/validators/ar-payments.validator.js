@@ -18,6 +18,10 @@ const recordPaymentSchema = z
     // ver ar-payments.service.resolveForeignAmount).
     foreignCurrency: z.string().length(3).optional(),
     foreignAmount: z.number().positive().optional(),
+    // Fase 6 (sección 19-21): número de confirmación de Pago Móvil/
+    // Zelle/Binance/transferencia cuando el cobro se registra directo
+    // (sin bankTransactionId) — opcional, ningún método lo exige.
+    reference: z.string().max(200).optional(),
     applications: z.array(applicationSchema).optional().default([]),
     applyFullyToInvoiceId: z.string().optional(),
   })

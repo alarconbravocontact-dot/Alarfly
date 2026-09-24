@@ -11,6 +11,7 @@ import ChartOfAccountsPage from './pages/accounting/ChartOfAccountsPage';
 import JournalEntriesPage from './pages/accounting/JournalEntriesPage';
 import ReportsPage from './pages/accounting/ReportsPage';
 import PeriodsPage from './pages/accounting/PeriodsPage';
+import TasasDeCambioPage from './pages/accounting/TasasDeCambioPage';
 import TreasuryLayout from './pages/treasury/TreasuryLayout';
 import CashPositionPage from './pages/treasury/CashPositionPage';
 import ReconciliationPage from './pages/treasury/ReconciliationPage';
@@ -107,6 +108,7 @@ function App() {
             <Route path="asientos" element={<JournalEntriesPage />} />
             <Route path="reportes" element={<ReportsPage />} />
             <Route path="periodos" element={<PeriodsPage />} />
+            <Route path="tasas-de-cambio" element={<TasasDeCambioPage />} />
           </Route>
           <Route path="/tesoreria" element={<TreasuryLayout />}>
             <Route index element={<Navigate to="cuentas" replace />} />

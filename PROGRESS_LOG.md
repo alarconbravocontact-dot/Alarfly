@@ -1341,3 +1341,254 @@ auditarse primero (mismo criterio de la sección 5 del prompt de Fase
 escritura solo porque ya existe.
 
 FASE 5 COMPLETA
+
+## Fase 6 — Monedas, BCV y Medios de Pago
+
+### Objetivo de la fase
+
+Auditar, consolidar y completar (nunca reconstruir) la arquitectura de
+monedas/tasas de cambio/BCV/conversión/medios de pago/cobros/pagos que
+ya existía desde Fases 1-5, garantizando: una única lógica de moneda,
+una única fuente de tasas, snapshots históricos correctos, conversión
+consistente, registro correcto de Pago Móvil/Zelle/Binance (nunca
+tratados como integraciones de procesamiento), y consistencia con
+Tesorería/Contabilidad/Ledger.
+
+### Auditoría previa (mapa Concepto→Modelo→Servicio→Ruta→Frontend→Fuente de verdad)
+
+Confirmado como **correcto y ya completo, sin tocar**:
+- `Company.baseCurrency` — única fuente de verdad de la moneda de la
+  empresa (sin tabla `Currency` separada, correcto).
+- `ExchangeRate` (`[companyId, currency, date]` único, `rate` =
+  unidades de moneda base por 1 unidad de `currency`) — única fuente
+  de tasas, ya idempotente por `upsert`.
+- `fxService.getLatestRate` — política de fallback "bloquear la
+  operación" (`RATE_NOT_FOUND` 404) al **registrar** una operación
+  nueva; `treasury-accounts.service.convertToBase` — política de
+  fallback "degradar con gracia" (`missingExchangeRates`, nunca
+  bloquea todo el reporte) al **consolidar/reportar**. Dos políticas
+  deliberadas y coherentes para dos momentos distintos — documentado
+  acá porque nunca se había explicitado juntas (sección 39/40).
+- `core/fx.revalueAccount`/`revalueCompany` + `fx.cron.js` (mensual) —
+  el único cron de FX del proyecto es de **revaluación**, no de
+  obtención automática de tasas BCV — no existe ningún scraper/API de
+  BCV integrado, cada tasa se registra a mano por diseño (sección 18).
+  Confirmado, no se construyó ninguno nuevo.
+- `TreasuryAccount.currency` — ya correctamente modelado, cuentas
+  multimoneda ya soportadas y ya usadas por `getConsolidatedCashPosition`.
+- `getConsolidatedCashPosition`/`finance-summary.service` (Fase 5) —
+  ya manejan la degradación de tasa faltante correctamente, sin tocar.
+- `PaymentMethod` (core, un solo catálogo) — ya cubre los 7 métodos
+  pedidos (Efectivo/Transferencia/Tarjeta/Pago Móvil/Zelle/Binance/
+  Otro), auditado, sembrado solo, sin procesar nada externamente.
+- `PaymentOrderStatus` (DRAFT/PENDING_APPROVAL/APPROVED/REJECTED/PAID/
+  CANCELLED) — ya distingue Workflow (DRAFT/PENDING_APPROVAL) de
+  Ejecución (APPROVED, el asiento ya se posteó) de una confirmación
+  administrativa posterior (PAID, la exportación de lote) — sin crear
+  ningún enum nuevo (sección 26).
+- Transferencias `TreasuryAccount → TreasuryAccount`: **no existen en
+  el proyecto** (confirmado por grep exhaustivo) — documentado, no
+  inventado (sección 30-31).
+
+Hallazgos reales, corregidos en esta fase (todos con evidencia de
+código, nunca especulativos):
+
+1. **`fxService.recordRate` nunca auditaba** (sección 41) — a
+   diferencia de cada otra escritura sensible del proyecto.
+2. **`ExchangeRate` no distinguía origen** (BCV vs. manual, sección 43)
+   — el modelo no lo permitía, y era una distinción real pedida
+   explícitamente.
+3. **`resolveForeignAmount` duplicada byte por byte** en
+   `ar-payments.service.js` y `ap-payments.service.js` (sección 9).
+4. **`ApPayment.bankTransactionId` faltante** — el pendiente heredado
+   nombrado explícitamente en la sección 24 del prompt, todavía real.
+5. **Ni `ArPayment` ni `ApPayment` tenían un campo `reference`** para
+   el número de confirmación de un Pago Móvil/Zelle/Binance/
+   transferencia registrado directamente (sin `bankTransactionId`) —
+   secciones 19-21, casi todos los pagos con estos métodos pasan por
+   el camino directo (no existe parser de extracto para Zelle/Binance).
+6. **`PaymentOrder.currency`/`Debt.currency` se guardaban pero nunca se
+   usaban**: `decideApproval`/`disburseLoan`/`drawdown`/
+   `repayCreditLine`/`payInstallment` posteaban el monto crudo al
+   Ledger y al saldo de tesorería como si ya estuviera en la moneda
+   base, sin validar nunca que la cuenta de tesorería elegida
+   realmente estuviera en esa moneda — un usuario podía elegir una
+   cuenta en Bs. para una orden/deuda "en dólares" y corromper el
+   saldo en silencio (secciones 6/32).
+7. **El mismo riesgo existía en el cobro/pago directo de AR/AP**: nada
+   impedía elegir una cuenta de tesorería en otra moneda para un cobro/
+   pago sin conversión — `data.amount` se trataba a la vez como si
+   estuviera en la moneda de la cuenta (para `currentBalance`) y en la
+   moneda base (para el Ledger), algo solo correcto si son la misma.
+8. **No existía ninguna pantalla de frontend para registrar/ver tasas
+   de cambio** (`/accounting/fx/rates` existía completo en el backend
+   desde Fase 1/3, nunca conectado a una pantalla) — sección 45/62.
+9. **La pantalla de Cobros (AR) nunca exponía método de pago ni
+   moneda extranjera/BCV**, a diferencia de Venta Rápida y Pagos (AP,
+   que sí tenía método de pago pero tampoco BCV ni banco) — una
+   inconsistencia real entre pantallas hermanas (sección 45).
+
+### Decisión de diseño: cerrar el hueco sin inventar un motor nuevo
+
+Regla seguida en los 3 hallazgos de moneda (6/7): en vez de construir
+conversión multimoneda nueva para PaymentOrder/Debt/cobro-pago directo
+(que hubiera exigido tocar 4 servicios y el Ledger), se hizo **explícito
+un supuesto que ya era implícito en todo el proyecto**: liquidar
+cualquiera de estas operaciones exige que la cuenta de tesorería
+elegida esté en la moneda base de la empresa — nueva función pura
+`assertBaseCurrencySettlement(baseCurrency, treasuryAccount, context)`
+en `core/fx/fx.rules.js` (testeada, reutilizada por AR/AP/PaymentOrder/
+Debt), que rechaza con un mensaje claro en vez de corromper un número.
+Una cuenta en otra moneda sigue siendo 100% válida para todo lo demás
+(verla en Dinero/Tesorería, recibir el snapshot `foreignCurrency`/
+`foreignAmount`/`exchangeRate` de AR/AP). Documentado explícitamente
+como límite consciente: liquidar una Orden de Pago o una Deuda en una
+moneda distinta a la base queda para una fase futura si se necesita de
+verdad — mismo criterio que el proyecto ya usa para "no inventar"
+transferencias multimoneda (sección 31).
+
+### Qué se creó/extendió
+
+- **Schema** (migración `fase6_currency_methods_reference`):
+  `ExchangeRateSource` (enum `BCV`/`MANUAL`, default `BCV`) +
+  `ExchangeRate.source`; `ArPayment.reference`/`ApPayment.reference`
+  (String?); `ApPayment.bankTransactionId` (String? único, espejo
+  exacto de `ArPayment.bankTransactionId`) + relación inversa en
+  `BankTransaction.apPayment`.
+- **`core/fx/fx.rules.js`**: `assertBaseCurrencySettlement` (función
+  pura nueva, testeada — 3 tests). `core/fx/fx.service.js`:
+  `recordRate` ahora recibe `userId`/`source`, audita
+  `exchange_rate.recorded`/`exchange_rate.updated` con
+  oldValue/newValue reales; `resolveForeignAmountSnapshot` (extraída,
+  única, reemplaza las 2 copias duplicadas); reexporta
+  `assertBaseCurrencySettlement`.
+- **`ar-payments.service.js`**: usa `fxService.resolveForeignAmountSnapshot`
+  (ya no una copia local); `resolvePaymentSource` ahora valida
+  `assertBaseCurrencySettlement` antes de aceptar un cobro directo;
+  `reference` se guarda si viene.
+- **`ap-payments.service.js`**: gana `resolvePaymentSource` (espejo
+  exacto del de AR — bankTransactionId con validación de salida de
+  dinero, `reference`, `assertBaseCurrencySettlement` en el camino
+  directo); `recordPayment` ahora puede recibir `bankTransactionId` en
+  vez de `treasuryAccountId`+`amount`, marca el movimiento `MATCHED`
+  igual que AR, sin duplicar el ajuste de saldo (la importación nunca
+  tocó `currentBalance`, solo el registro operativo lo hace — mismo
+  invariante de Fase 1, re-verificado).
+- **`payment-orders.service.js`**: `assertOrderCurrencyCoherent`
+  (coherencia interna moneda declarada↔cuenta + `assertBaseCurrencySettlement`)
+  en `createPaymentOrder`/`createPaymentOrderForVendorBills`.
+- **`debts.service.js`**: mismo criterio en `createDebt` (moneda
+  declarada↔cuenta + `assertBaseCurrencySettlement`) — como todas las
+  funciones de movimiento de una deuda (`disburseLoan`/`drawdown`/
+  `repayCreditLine`/`payInstallment`) operan sobre una deuda YA creada,
+  quedan seguras por construcción sin tocarlas.
+- **Frontend**: `TasasDeCambioPage.jsx` (nueva, bajo Contabilidad,
+  6ª pestaña) — registra/lista tasas, con Origen BCV/Manual, reutiliza
+  las 3 rutas del backend ya existentes, cero endpoints nuevos.
+  `ArPaymentsPage.jsx` gana método de pago + referencia + toggle de
+  moneda extranjera (BCV) en el cobro directo. `ApPaymentsPage.jsx`
+  gana el mismo "Origen del pago" (Directo/Movimiento bancario real)
+  que ya tenía Cobros, más referencia y moneda extranjera.
+
+### Tests
+
+16 tests nuevos: 3 en `fx.rules.test.js` (`assertBaseCurrencySettlement`,
+puros); 3 de integración en `fx-rate-audit.integration.test.js`
+(auditoría de `recordRate`, origen BCV por defecto, origen MANUAL,
+corregir la misma fecha audita oldValue/newValue reales); 10 de
+integración en `settlement-currency-guard.integration.test.js`
+(rechazo de cuenta en otra moneda para AR directo/PaymentOrder/Debt,
+coherencia interna de moneda declarada en PaymentOrder/Debt, el camino
+feliz de AP en la moneda base sigue funcionando, `ApPayment` ligado a
+un movimiento bancario real con `currentBalance` descontado una sola
+vez y `reference` guardada, movimiento ya conciliado rechazado,
+movimiento de entrada rechazado para AP, y el caso obligatorio de la
+sección 51 — snapshot histórico BCV de `ApPayment` que sobrevive a una
+tasa nueva registrada después).
+
+Corregido en el camino un bug real en `test-helpers/integration-fixtures.js`
+`cleanupCompany`: `ArPayment`/`ApPayment.bankTransactionId` es
+`RESTRICT`, pero la limpieza borraba `BankTransaction` ANTES que
+`ArPayment`/`ApPayment` — nunca se había disparado porque ningún test
+anterior dejaba un pago con `bankTransactionId` Y llamaba a
+`cleanupCompany`; mi test nuevo de AP fue el primero en combinarlos.
+Corregido moviendo la limpieza de pagos antes que la de movimientos
+bancarios (beneficia también a AR, mismo riesgo latente).
+
+**586 → 602 tests, sin regresiones** (96 suites, 602 passing). El
+resto del checklist de la sección 50 (monedas/tasas/BCV/pagos por
+cada método) ya estaba cubierto por los motores reutilizados sin
+modificar (`quick-sale.integration.test.js` ya prueba el snapshot
+histórico de AR, `purchases-ap.integration.test.js` ya prueba el
+snapshot BCV de AP con Zelle, `payment-approval.rules.test.js`/
+`debt-schedule.rules.test.js` cubren la mecánica pura de aprobación/
+cronograma) — no se duplicó cobertura de lógica que Fase 6 no tocó.
+
+### Verificación real
+
+`npx prisma validate`: sin errores. `npm run lint` (backend): 0
+errores. `npm run build`/`npm run lint` (frontend): sin errores
+nuevos (mismos 8 warnings preexistentes `only-export-components`).
+Verificado con `curl` autenticado contra Postgres real: tasa BCV de
+VES registrada con `source: "BCV"` y listada correctamente. Verificado
+con Playwright contra los dos servidores reales: pantalla de Tasas de
+Cambio mostrando el historial real; Cobros con los 3 campos nuevos
+visibles y el toggle de moneda extranjera cambiando el campo de monto
+en vivo; Pagos con "Origen del pago"/referencia visibles. **Cobro real
+de punta a punta con Pago Móvil**: registrado desde la pantalla,
+confirmado por API que `paymentMethodId` apunta al método Pago Móvil
+real y `reference: "REF-PM-998877"` quedó guardado, con su asiento
+contable posteado. 0 errores de consola nuevos (los 4 observados son
+el bloqueo ya conocido de Google Fonts).
+
+### Pendientes documentados (no bloqueantes)
+
+1. Pagar una Orden de Pago o una Deuda en una moneda distinta a la
+   base de la empresa (conversión completa con snapshot, como ya
+   tiene AR/AP) — decisión consciente de dejarlo fuera de Fase 6,
+   documentada arriba; se puede construir si se pide, reutilizando
+   `fxService.resolveForeignAmountSnapshot`.
+2. Un cobro/pago con snapshot BCV (`foreignCurrency`) contra una
+   cuenta de tesorería en una tercera moneda (ni la moneda extranjera
+   ni la base) sigue sin soportarse — nunca fue el caso de uso pedido,
+   la validación nueva lo rechaza con un mensaje claro en vez de
+   corromperlo en silencio.
+3. `QuickSalePage.jsx` (Venta Rápida) sigue sin exponer moneda
+   extranjera/BCV en su formulario (solo método de pago) — mismo
+   patrón de recorte de alcance ya usado en otras piezas del proyecto;
+   se puede agregar reutilizando el mismo patrón ya construido en
+   Cobros/Pagos.
+4. Todos los pendientes ya heredados de Fases 1-5 no resueltos acá
+   (unificación de `PaymentOrder`/`ApPayment`/`ArPayment`/`Debt`, RBAC
+   granular de Finanzas, Dashboard/rediseño visual de Fases 9-10).
+
+### Qué debe recordar Fase 7
+
+**Heredado de Fases 1-5** (sin tocar, seguir usando): Unit of Work,
+`postEntry(data, tx)`, `core/audit.log(data, tx)`, `modules/finance`
+como única capa de lectura consolidada, `reverseMatch`/`reverseEntry(tx)`.
+
+**Construido/corregido en Fase 6** (reutilizar, no reconstruir):
+`fxService.resolveForeignAmountSnapshot(companyId, {foreignCurrency,
+foreignAmount, date})` es ahora la ÚNICA función que resuelve un monto
+en moneda extranjera a moneda base con snapshot — cualquier operación
+futura que necesite este patrón (una eventual Orden de Pago o Deuda en
+moneda extranjera, por ejemplo) debe reutilizarla, nunca escribir una
+copia nueva. `fxService.assertBaseCurrencySettlement(baseCurrency,
+treasuryAccount, context)` es la única función que valida coherencia
+de moneda de liquidación — cualquier operación futura que mueva dinero
+contra una `TreasuryAccount` debe llamarla antes de postear, tal como
+ya hacen AR/AP/PaymentOrder/Debt. `ExchangeRate.source` (BCV/MANUAL)
+es ahora el único lugar donde se distingue el origen de una tasa.
+`TasasDeCambioPage.jsx` es la única pantalla de gestión de tasas — no
+construir una segunda.
+
+**Lo que NO debe reconstruirse**: un segundo motor de monedas, de
+conversión, o de pagos — los ya existentes (`core/fx`, `PaymentMethod`,
+`ar-payments.service`/`ap-payments.service`, `payment-orders.service`,
+`debts.service`) siguen siendo los únicos. Ningún método de pago
+(Pago Móvil/Zelle/Binance) debe convertirse en una integración de
+procesamiento real — siguen siendo, por diseño, solo registro/control/
+conciliación/trazabilidad.
+
+FASE 6 COMPLETA

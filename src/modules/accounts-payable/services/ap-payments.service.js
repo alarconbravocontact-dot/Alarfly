@@ -18,22 +18,37 @@ const { withTransaction } = require('../../../core/database/unit-of-work');
 
 const { Decimal } = Prisma;
 
-// Fase 4 (punto BCV, espejo de ar-payments.service.resolveForeignAmount):
-// si el pago se registra en una moneda distinta a la base (ej. Bs.),
-// resuelve la tasa vigente UNA vez y la devuelve para guardarla como
-// snapshot — reutiliza core/fx.getLatestRate, ya probado.
-async function resolveForeignAmount(companyId, data) {
-  if (!data.foreignCurrency || data.foreignAmount == null) return null;
-  const rate = await fxService.getLatestRate(companyId, data.foreignCurrency, data.date);
-  if (!rate) {
-    throw new AppError(
-      `No hay una tasa de cambio registrada para ${data.foreignCurrency} en o antes de esa fecha.`,
-      400,
-      'EXCHANGE_RATE_NOT_FOUND'
-    );
+// Fase 6 (sección 24, pendiente heredado ya resuelto): mismo mecanismo
+// que ya usa AR — si se liga a un movimiento bancario real ya
+// importado (UNMATCHED, una salida de dinero), el monto y la cuenta se
+// derivan de ESE movimiento y queda marcado MATCHED al registrar el
+// pago. El pago directo (con treasuryAccountId) sigue funcionando igual
+// que siempre; ahí, la cuenta debe estar en la moneda base de la
+// empresa (ver fxService.assertBaseCurrencySettlement).
+async function resolvePaymentSource(companyId, company, data) {
+  if (data.bankTransactionId) {
+    const bankTransaction = await prisma.bankTransaction.findFirst({ where: { id: data.bankTransactionId, companyId } });
+    if (!bankTransaction) {
+      throw new AppError('El movimiento bancario indicado no existe.', 404, 'BANK_TRANSACTION_NOT_FOUND');
+    }
+    if (bankTransaction.status !== 'UNMATCHED') {
+      throw new AppError('Este movimiento bancario ya está conciliado con otra cosa.', 409, 'BANK_TRANSACTION_ALREADY_MATCHED');
+    }
+    const amount = new Decimal(bankTransaction.amount);
+    if (!amount.isNegative()) {
+      throw new AppError('El movimiento bancario indicado no es una salida de dinero.', 400, 'BANK_TRANSACTION_NOT_OUTFLOW');
+    }
+    const treasuryAccount = await prisma.treasuryAccount.findUnique({ where: { id: bankTransaction.treasuryAccountId } });
+    return { treasuryAccount, amount: amount.abs(), bankTransaction, foreign: null };
   }
-  const foreignAmount = new Decimal(data.foreignAmount);
-  return { foreignCurrency: data.foreignCurrency, foreignAmount, exchangeRate: new Decimal(rate.rate), amount: foreignAmount.times(rate.rate) };
+
+  const treasuryAccount = await prisma.treasuryAccount.findFirst({ where: { id: data.treasuryAccountId, companyId } });
+  if (!treasuryAccount) {
+    throw new AppError('La cuenta de Tesorería indicada no existe.', 404, 'TREASURY_ACCOUNT_NOT_FOUND');
+  }
+  fxService.assertBaseCurrencySettlement(company.baseCurrency, treasuryAccount, 'este pago');
+  const foreign = await fxService.resolveForeignAmountSnapshot(companyId, data);
+  return { treasuryAccount, amount: foreign ? foreign.amount : new Decimal(data.amount), bankTransaction: null, foreign };
 }
 
 async function resolvePaymentMethod(companyId, paymentMethodId) {
@@ -50,21 +65,16 @@ async function recordPayment(companyId, userId, data) {
   if (!vendor) {
     throw new AppError('El proveedor indicado no existe.', 404, 'VENDOR_NOT_FOUND');
   }
+  const company = await prisma.company.findUnique({ where: { id: companyId } });
 
-  const treasuryAccount = await prisma.treasuryAccount.findFirst({ where: { id: data.treasuryAccountId, companyId } });
-  if (!treasuryAccount) {
-    throw new AppError('La cuenta de Tesorería indicada no existe.', 404, 'TREASURY_ACCOUNT_NOT_FOUND');
-  }
-
+  const { treasuryAccount, amount, bankTransaction, foreign } = await resolvePaymentSource(companyId, company, data);
   const paymentMethod = await resolvePaymentMethod(companyId, data.paymentMethodId);
-  const foreign = await resolveForeignAmount(companyId, data);
   const payableGlAccountId = await arApSettingsService.assertPayableAccountConfigured(companyId);
 
   const billIds = data.applications.map((application) => application.billId);
   const bills = await prisma.apBill.findMany({ where: { id: { in: billIds }, companyId, vendorId: vendor.id } });
   const billsById = new Map(bills.map((bill) => [bill.id, bill]));
 
-  const amount = foreign ? foreign.amount : new Decimal(data.amount);
   const applicationResults = applyPaymentToBills(amount, data.applications, billsById);
 
   // Fase 1: asiento + registro del pago + saldo de tesorería en una sola
@@ -81,12 +91,14 @@ async function recordPayment(companyId, userId, data) {
         ],
         origin: 'AUTOMATIC',
         sourceModule: 'accounts-payable',
-        sourceReference: vendor.id,
+        sourceReference: bankTransaction?.id || vendor.id,
         createdByUserId: userId,
         autoApprove: true,
       },
       tx
     );
+
+    const cashLine = entry.lines.find((line) => line.accountId === treasuryAccount.glAccountId);
 
     const payment = await tx.apPayment.create({
       data: {
@@ -95,11 +107,13 @@ async function recordPayment(companyId, userId, data) {
         date: data.date,
         amount,
         treasuryAccountId: treasuryAccount.id,
+        bankTransactionId: bankTransaction?.id || null,
         journalEntryId: entry.id,
         paymentMethodId: paymentMethod?.id || null,
         foreignCurrency: foreign?.foreignCurrency || null,
         foreignAmount: foreign?.foreignAmount || null,
         exchangeRate: foreign?.exchangeRate || null,
+        reference: data.reference || null,
         createdByUserId: userId,
         applications: {
           create: applicationResults.map((result) => ({ billId: result.billId, amount: result.amount })),
@@ -119,6 +133,13 @@ async function recordPayment(companyId, userId, data) {
       where: { id: treasuryAccount.id },
       data: { currentBalance: { decrement: amount } },
     });
+
+    if (bankTransaction) {
+      await tx.bankTransaction.update({
+        where: { id: bankTransaction.id },
+        data: { status: 'MATCHED', matchedJournalEntryLineId: cashLine.id },
+      });
+    }
 
     await auditService.log(
       { companyId, userId, action: 'ap_payment.recorded', entityType: 'ApPayment', entityId: payment.id, oldValue: null, newValue: payment },

@@ -7,6 +7,7 @@ const periodLockService = require('../../../core/period-lock/period-lock.service
 const { assertPeriodOpen } = require('../../../core/period-lock/period-lock.rules');
 const { generateInstallmentSchedule } = require('./debt-schedule.rules');
 const { withTransaction } = require('../../../core/database/unit-of-work');
+const fxService = require('../../../core/fx/fx.service');
 
 const { Decimal } = Prisma;
 
@@ -25,6 +26,23 @@ async function createDebt(companyId, userId, data) {
   if (!treasuryAccount) {
     throw new AppError('La cuenta de tesorería indicada no existe.', 404, 'TREASURY_ACCOUNT_NOT_FOUND');
   }
+  // Fase 6 (sección 6/32): mismo criterio ya aplicado a Órdenes de Pago
+  // — `Debt.currency` se guardaba pero `disburseLoan`/`drawdown`/
+  // `repayCreditLine`/`payInstallment` nunca la usaban, posteaban el
+  // monto crudo al Ledger y al saldo de tesorería como si ya estuviera
+  // en la moneda base. Se hace explícito acá, sin inventar conversión
+  // nueva: una deuda genuinamente en otra moneda (ej. un préstamo en
+  // USD con libros en Bs.) queda documentada como capacidad futura, no
+  // construida en esta fase.
+  if (data.currency !== treasuryAccount.currency) {
+    throw new AppError(
+      `La moneda de la deuda (${data.currency}) no coincide con la moneda de la cuenta de tesorería elegida (${treasuryAccount.currency}).`,
+      400,
+      'DEBT_CURRENCY_MISMATCH'
+    );
+  }
+  const company = await prisma.company.findUnique({ where: { id: companyId } });
+  fxService.assertBaseCurrencySettlement(company.baseCurrency, treasuryAccount, 'una deuda');
   await assertAccountBelongsToCompany(companyId, data.liabilityAccountId, 'pasivo');
   await assertAccountBelongsToCompany(companyId, data.interestExpenseAccountId, 'gasto financiero');
 

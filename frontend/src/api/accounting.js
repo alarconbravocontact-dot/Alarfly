@@ -32,3 +32,12 @@ export const periodsApi = {
   close: (id) => api.post(`/accounting/periods/${id}/close`),
   reopen: (id, reason) => api.post(`/accounting/periods/${id}/reopen`, { reason }),
 };
+
+// Fase 6: el backend (core/fx) ya existía completo desde antes
+// (registrar/listar tasas, revaluar cuentas en moneda extranjera) pero
+// no tenía ninguna pantalla — esta pieza solo lo conecta.
+export const fxRatesApi = {
+  list: (currency) => api.get('/accounting/fx/rates', currency ? { currency } : undefined),
+  record: (data) => api.post('/accounting/fx/rates', data),
+  revalue: (asOfDate) => api.post('/accounting/fx/revalue', asOfDate ? { asOfDate } : {}),
+};

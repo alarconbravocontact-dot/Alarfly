@@ -98,6 +98,11 @@ async function getFinanceSummary(companyId) {
     // ¿Cuánto me deben? (fuente: reports/aging.service, la misma que
     // usa Reportes > Antigüedad de Saldos — nunca un segundo cálculo)
     totalReceivable: receivablesAging.totalOutstanding,
+    // ¿Cuánto de eso ya está vencido? (Fase 9, Centro Operativo: todo lo
+    // que NO cae en el balde "CURRENT" de la MISMA agregación de arriba
+    // — nunca una segunda consulta ni una segunda regla de qué es
+    // "vencido", ya la define aging.rules.classifyAgingBucket).
+    overdueReceivable: new Decimal(receivablesAging.totalOutstanding).minus(receivablesAging.totalsByBucket.CURRENT).toFixed(2),
     // ¿Cuánto debo? (proveedores, misma fuente que Antigüedad de Saldos)
     totalPayable: payablesAging.totalOutstanding,
     // ¿Cuánto debo de financiamiento? (préstamos activos; las líneas de

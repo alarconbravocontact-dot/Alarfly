@@ -8,6 +8,7 @@ const treasuryRoutes = require('./modules/treasury/routes');
 const fpaRoutes = require('./modules/fpa/routes');
 const fiscalRoutes = require('./modules/fiscal/routes');
 const reportsRoutes = require('./modules/reports/routes');
+const dashboardRoutes = require('./modules/reports/routes/dashboard.routes');
 const financeRoutes = require('./modules/finance/routes');
 const accountsReceivableRoutes = require('./modules/accounts-receivable/routes');
 const accountsPayableRoutes = require('./modules/accounts-payable/routes');
@@ -52,6 +53,12 @@ app.use('/accounting', accountingRoutes);
 app.use('/treasury', treasuryRoutes);
 app.use('/fpa', fpaRoutes);
 app.use('/fiscal', fiscalRoutes);
+// Fase 9: dashboardRoutes se monta ANTES del router de Reportes
+// (gateado a ADMIN/FINANCE) — Express prueba primero las rutas de
+// dashboardRoutes (/reports/dashboard*, con su propio requireAuth, sin
+// gate de módulo) y solo si ninguna calza sigue con reportsRoutes. El
+// resto de `/reports/*` sigue exactamente igual de protegido.
+app.use('/reports', dashboardRoutes);
 app.use('/reports', reportsRoutes);
 app.use('/finance', financeRoutes);
 app.use('/accounts-receivable', accountsReceivableRoutes);

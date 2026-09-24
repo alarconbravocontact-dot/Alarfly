@@ -76,6 +76,40 @@ function WidgetContent({ widgetKey, data }) {
       </table>
     );
   }
+  if (widgetKey === 'finance_summary') {
+    return (
+      <table className="data-table">
+        <tbody>
+          <tr>
+            <td>Caja disponible</td>
+            <td className="num">{formatCurrency(data.cashOnHand, data.baseCurrency)}</td>
+          </tr>
+          <tr>
+            <td>Cuentas por cobrar vencidas</td>
+            <td className="num">{formatCurrency(data.overdueReceivable, data.baseCurrency)}</td>
+          </tr>
+          <tr>
+            <td>Cuentas por pagar próximas (8 semanas)</td>
+            <td className="num">{formatCurrency(data.expectedNearTermOutflows, data.baseCurrency)}</td>
+          </tr>
+        </tbody>
+      </table>
+    );
+  }
+  if (widgetKey === 'liquidity_forecast') {
+    return (
+      <table className="data-table">
+        <tbody>
+          {data.weeks.slice(0, 4).map((week) => (
+            <tr key={week.weekStart}>
+              <td>{formatDate(new Date(week.weekStart))}</td>
+              <td className="num">{formatCurrency(week.projectedBalance)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
   if (widgetKey === 'active_alerts') {
     return (
       <>

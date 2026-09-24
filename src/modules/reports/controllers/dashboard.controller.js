@@ -9,23 +9,34 @@ function defaultRange(query) {
 }
 
 const listWidgets = asyncHandler(async (req, res) => {
-  res.json(dashboardService.listAvailableWidgets());
+  res.json(dashboardService.listAvailableWidgets(req.auth.role));
 });
 
 const getPreferences = asyncHandler(async (req, res) => {
-  const preferences = await dashboardService.getWidgetPreferences(req.auth.companyId, req.auth.userId);
+  const preferences = await dashboardService.getWidgetPreferences(req.auth.companyId, req.auth.userId, req.auth.role);
   res.json(preferences);
 });
 
 const setPreference = asyncHandler(async (req, res) => {
-  const updated = await dashboardService.setWidgetPreference(req.auth.companyId, req.auth.userId, req.params.widgetKey, req.body);
+  const updated = await dashboardService.setWidgetPreference(
+    req.auth.companyId,
+    req.auth.userId,
+    req.auth.role,
+    req.params.widgetKey,
+    req.body
+  );
   res.json(updated);
+});
+
+const resetPreferences = asyncHandler(async (req, res) => {
+  await dashboardService.resetWidgetPreferences(req.auth.userId);
+  res.status(204).end();
 });
 
 const getDashboard = asyncHandler(async (req, res) => {
   const range = defaultRange(req.query);
-  const dashboard = await dashboardService.getDashboard(req.auth.companyId, req.auth.userId, range);
+  const dashboard = await dashboardService.getDashboard(req.auth.companyId, req.auth.userId, req.auth.role, range);
   res.json(dashboard);
 });
 
-module.exports = { listWidgets, getPreferences, setPreference, getDashboard };
+module.exports = { listWidgets, getPreferences, setPreference, resetPreferences, getDashboard };

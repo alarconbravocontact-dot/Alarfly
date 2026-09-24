@@ -2,25 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { notificationsApi } from '../api/notifications';
 import { ApiError } from '../api/client';
+import { alertLink } from '../config/alertLinks';
 import Icon from '../core/ui/Icon';
 import './NotificationCenter.css';
-
-// A qué pantalla lleva cada tipo de alerta al hacer clic — "cada
-// notificación debe llevar directo a la acción correspondiente", no
-// solo mostrar el aviso. Un tipo nuevo que se agregue más adelante cae
-// en el enlace genérico de abajo hasta que se le asigne uno propio.
-const TYPE_LINKS = {
-  LOW_BALANCE: '/tesoreria/cuentas',
-  CREDIT_CARD_NEAR_LIMIT: '/tesoreria/tarjetas',
-  PAYMENT_DUE_SOON: '/tesoreria/liquidez',
-  FISCAL_OBLIGATION_DUE: '/fiscal/calendario',
-  CUSTOMER_RECURRING_LATE_PAYMENT: '/cuentas/clientes',
-  LOW_STOCK: '/inventario/compras',
-  PRODUCT_EXPIRING_SOON: '/inventario/lotes',
-  AR_COLLECTION_ESCALATION: '/cuentas/facturas-venta',
-  ADVANCED_ANALYSIS_ALERT: '/analisis-avanzados/repositorio',
-  BANK_ACCOUNT_DISCONNECTED: '/tesoreria/cuentas',
-};
 
 const SEVERITY_DOT = { CRITICAL: 'is-critical', WARNING: 'is-warning', INFO: 'is-info' };
 
@@ -71,7 +55,7 @@ export default function NotificationCenter() {
 
   function handleGoTo(alert) {
     setIsOpen(false);
-    navigate(TYPE_LINKS[alert.type] || '/');
+    navigate(alertLink(alert.type));
   }
 
   return (

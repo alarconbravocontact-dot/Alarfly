@@ -70,7 +70,7 @@ describe('Test de una fuente (sección 62): Dashboard, Finance Summary, Glosario
     });
 
     const fromFpa = await kpisService.getEbitda(scenario.company.id, { from, to });
-    const dashboard = await dashboardService.getDashboard(scenario.company.id, scenario.user.id, { from, to });
+    const dashboard = await dashboardService.getDashboard(scenario.company.id, scenario.user.id, scenario.user.role, { from, to });
     const ebitdaWidget = dashboard.widgets.find((w) => w.widgetKey === 'ebitda');
 
     expect(Number(ebitdaWidget.data.ebitda)).toBe(Number(fromFpa.ebitda));
@@ -83,7 +83,7 @@ describe('Test de una fuente (sección 62): Dashboard, Finance Summary, Glosario
     const now = new Date();
     const rangeFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const rangeTo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
-    const dashboard = await dashboardService.getDashboard(scenario.company.id, scenario.user.id, {
+    const dashboard = await dashboardService.getDashboard(scenario.company.id, scenario.user.id, scenario.user.role, {
       from: rangeFrom,
       to: rangeTo,
       asOfDate: rangeTo,
@@ -293,7 +293,7 @@ describe('Test de moneda (sección 66): un monto en moneda extranjera convierte 
     });
 
     const financeSummary = await financeSummaryService.getFinanceSummary(scenario.company.id);
-    const dashboard = await dashboardService.getDashboard(scenario.company.id, scenario.user.id, {
+    const dashboard = await dashboardService.getDashboard(scenario.company.id, scenario.user.id, scenario.user.role, {
       from: rateDate,
       to: rateDate,
       asOfDate: rateDate,

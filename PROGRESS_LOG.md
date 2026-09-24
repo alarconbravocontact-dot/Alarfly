@@ -2042,3 +2042,309 @@ los ya existentes (`core/glossary`, `dashboard.service`,
 `budget-variance.service`) siguen siendo los únicos.
 
 FASE 8 COMPLETA
+
+## Fase 9 — Centro Operativo Inteligente + Dashboard Personalizable
+
+### Objetivo de la fase
+
+Transformar el Panel principal (Inicio) de una colección de tarjetas y
+gráficos en una capa de lectura y decisión: responder "¿cómo está la
+empresa? ¿qué requiere atención? ¿qué puedo hacer? ¿dónde lo
+resuelvo?" — sin crear un segundo motor de KPIs, alertas, permisos,
+preferencias o forecast. El Dashboard consume, nunca calcula.
+
+### Auditoría previa
+
+Hallazgo central: el proyecto ya tenía construida casi toda la
+infraestructura de UX que Fase 9 pide — solo nunca se había conectado
+al Inicio real:
+- **`reports/services/dashboard.service.js`** (Reportes punto 6, Fase
+  previa a los Fases 0-8): ya era un Read Layer puro por adapter
+  (`WIDGET_DEFINITIONS`), pero vivía como una pantalla aparte
+  ("Tablero Ejecutivo") gateada a `['ADMIN','FINANCE']` — el Panel
+  principal real (`DashboardPage.jsx`) nunca lo usaba: hacía sus
+  propias 3-5 llamadas directas (`/fpa/kpis/ebitda`,
+  `/treasury/accounts/cash-position`, etc.), sin ninguna
+  personalización real por usuario a pesar de que
+  `DashboardWidgetPreference` ya existía completo en el schema.
+- **Ningún widget filtraba por rol**: `listAvailableWidgets`/
+  `getWidgetPreferences`/`getDashboard` no recibían el rol del usuario
+  — un Colaborador que hubiera sabido el `widgetKey` podía, en teoría,
+  pedir EBITDA o el Balance General vía API (nunca lo veía en el
+  frontend, porque esa pantalla era ADMIN/FINANCE-only, pero la
+  protección real de datos que pide la sección 12/40 no existía a
+  nivel de widget).
+- **Sistema de alertas central ya maduro** (`core/alerts`,
+  `/notifications`): ya usado por `NotificationCenter.jsx` en el
+  topbar, con su propio mapa `type → ruta` — exactamente lo que pide
+  la sección 6/24 ("cada alerta lleva a su contexto"), solo nunca
+  aparecía como sección del Inicio en sí.
+- **Navegación ya tenía flyout + menú colapsable a íconos**
+  (`AppLayout.jsx`, construido en una fase de features anterior) y una
+  única fuente de verdad de pestañas por módulo (`moduleTabs.js`) —
+  pero como una lista PLANA de 11-12 módulos, sin ninguna agrupación
+  conceptual en las 6 áreas que pide la sección 14.
+- **Acciones rápidas ya existían** (`QuickCreateFab.jsx`, botón
+  flotante con Nueva factura/Nuevo gasto/Nuevo cliente) pero nunca
+  como sección del propio Inicio, y sin la opción "Venta Rápida"
+  explícita que pide la sección 8.
+- **`PinnedItem`/`RecentlyUsedEntity`** ya existían — `PinnedItem` ya
+  visible en el propio sidebar (sección "Anclados"); `RecentlyUsedEntity`
+  está scoped a autocompletado de campos (cliente/cuenta/producto), no
+  a "páginas visitadas recientemente" — no hay una fuente de datos
+  genérica de "documentos recientes" que agregar al Inicio sin
+  construir un tracking nuevo (documentado como pendiente, sección AD).
+- **`Venta Rápida`** (`/ventas/rapida`, Fase 3) ya existe y reutiliza
+  el mismo motor de AR/inventario/fiscal/ledger que la factura
+  completa — confirmado, no hacía falta ningún cambio.
+
+### Qué se creó/extendió (backend)
+
+- **`dashboard.service.js`**: cada `WIDGET_DEFINITIONS` ganó `roles`
+  (quién puede verlo — `null` = todos, mismo criterio que
+  `active_alerts`, ya visible para todos en el topbar), `category`
+  (`estado`/`atencion`/`vision`) y `type`
+  (`metric`/`trend`/`comparison`/`alert`/`forecast`), sección 35-36.
+  `listAvailableWidgets`/`getWidgetPreferences`/`getDashboard` ahora
+  reciben el `role` del usuario y filtran ANTES de calcular — un
+  widget que el rol no puede ver nunca llega a ejecutarse, nunca solo
+  se oculta en el frontend (sección 12/40). Nueva
+  `resetWidgetPreferences(userId)` (mismo patrón exacto que
+  `table-preferences.service.resetPreferences`) para "Restaurar
+  configuración predeterminada" (sección 38).
+- **2 widgets nuevos, ambos envoltorios de un servicio que ya
+  existía**: `finance_summary` (`finance/finance-summary.service`,
+  Fase 5 — Caja/Liquidez/CxC vencida/CxP próximas en una sola
+  llamada) y `liquidity_forecast` (`treasury/liquidity-forecast.service`,
+  ya construido — Previsión de Liquidez 8 semanas, con
+  `firstNegativeWeek`). Ninguno recalcula nada.
+- **`finance-summary.service.getFinanceSummary`** ganó
+  `overdueReceivable` (cambio aditivo: `totalOutstanding menos el
+  balde CURRENT` de la MISMA agregación de `aging.service` que ya
+  traía cargada — nunca una segunda consulta ni una segunda regla de
+  "qué es vencido").
+- **Rutas del Dashboard, des-gateadas de `requireModuleAccess('reports')`**:
+  `dashboard.routes.js` ganó su propio `requireAuth` (mismo patrón ya
+  usado por `/notifications`/`/glossary`/`/fx/latest-rates` — ruta
+  neutral, sin gate de módulo) y se monta directo en `app.js` bajo
+  `/reports`, ANTES del router gateado de Reportes (Express prueba
+  primero sus rutas específicas; si ninguna calza, sigue con
+  `reportsRoutes`, que conserva su gate `ADMIN/FINANCE` intacto para
+  el resto de `/reports/*`). Sin esto, un Contador o Colaborador nunca
+  hubiera podido ver siquiera un Inicio vacío. Nueva ruta
+  `DELETE /reports/dashboard/preferences` (reset).
+
+### Qué se creó/extendió (frontend)
+
+- **`frontend/src/pages/DashboardPage.jsx`**: reescrito en 4 capas
+  reales (sección 5-9): **Estado de la empresa** (StatCards a partir
+  de los widgets `category: 'estado'` que YA filtró el backend por
+  rol — Caja/CxC vencida/CxP próximas/EBITDA/Burn Rate/Runway, con
+  período y moneda explícitos en el encabezado, sección 26/27);
+  **Requiere tu atención** (reutiliza `notificationsApi.list` — el
+  MISMO motor central que ya usa la campana, nunca un
+  `dashboardAlerts.service.js` nuevo — con estado vacío honesto "No
+  hay nada urgente que atender", sección 43); **Acciones rápidas**
+  (7 botones, filtrados por rol con el mismo criterio de
+  `core/rbac/module-access.js`; "+ Nueva Venta" abre el menú
+  Venta rápida/Venta completa que pide la sección 8); **Cómo está
+  evolucionando tu negocio** (los gráficos de ingresos/egresos y
+  ventas YA existentes, ahora ocultos por completo — no en estado de
+  error — para un rol que de todas formas no tiene acceso, más el
+  nuevo widget de Previsión de Liquidez). "Personalizar Inicio":
+  mostrar/ocultar + mover arriba/abajo (sin drag-and-drop, permitido
+  explícito en sección 37) + "Restaurar configuración predeterminada"
+  con confirmación (`ConfirmContext`, ya existente).
+- **`frontend/src/config/alertLinks.js`** (nuevo): el mapa
+  `type → ruta` que antes vivía solo dentro de `NotificationCenter.jsx`
+  se extrajo a un archivo compartido — reutilizado ahora por
+  `NotificationCenter` y por la sección "Requiere tu atención" del
+  Inicio, sin duplicar el mapa (mismo criterio que ya se usó para
+  `moduleTabs.js`).
+- **`AppLayout.jsx`**: los 11-13 módulos del sidebar se agruparon en
+  las 5 áreas del prompt que de verdad tienen contenido hoy
+  (OPERACIONES, FINANZAS, CONTROL, ANALÍTICA, CONFIGURACIÓN — Inicio
+  queda sin encabezado, es la puerta de entrada) — **cero rutas,
+  módulos, permisos o `subItems` se tocaron**: es una agrupación
+  puramente visual sobre los mismos `NAV_ITEMS` de siempre (sección
+  15: "la implementación técnica conserva módulos internos, la UX no
+  tiene por qué reflejarla"). El mecanismo de flyout en modo
+  colapsado (ya construido) sigue intacto.
+- **`ExecutiveDashboardPage.jsx`** (Reportes, la pantalla original):
+  ganó el renderizado de los 2 widgets nuevos para no quedar con un
+  hueco en blanco ahora que también los ofrece a ADMIN/FINANCE.
+- **`api/reports.js`**: `executiveDashboardApi.resetPreferences()`
+  nuevo, reutilizado por ambas pantallas (Inicio y Tablero Ejecutivo,
+  que comparten el mismo backend).
+
+### Navegación por procesos (secciones 15-22)
+
+Interpretación explícita, documentada acá para que no se confunda con
+un rediseño mayor no hecho: las 6 áreas conceptuales del prompt
+(INICIO/OPERACIONES/FINANZAS/CONTROL/ANALÍTICA/CONFIGURACIÓN) se
+implementaron como encabezados de sección sobre el MISMO menú lateral
+ya construido — no se creó un flyout de "área" de 2 niveles nuevo
+(Área → Submódulo) distinto del ya existente (módulo → sus propias
+pestañas, en `moduleTabs.js`, ya usado tanto por el layout de cada
+módulo como por el mini-panel del sidebar colapsado). "Compras" no es
+un área de navegación nueva a propósito: comprar ya vive repartido
+entre Cuentas por Cobrar y Pagar (Facturas de Compra/Proveedores) e
+Inventario (Órdenes de Compra) — mover esas pantallas a un módulo
+nuevo hubiera sido un rediseño estructural fuera de lo que pide la
+sección 33/50 ("no realizar todavía un rediseño masivo"). "Control →
+Gobierno" (Junta) tampoco ganó una entrada de navegación nueva: Junta
+sigue siendo, por decisión explícita de una fase anterior, un widget
+del Panel principal, no una pantalla aparte — se conserva su lógica
+actual tal como pide la sección 18.
+
+### Tests
+
+11 tests de integración nuevos (`dashboard.integration.test.js`,
+contra Postgres real, sin mocks): **RBAC por widget** (sección 12/40,
+4 tests — un Colaborador nunca recibe los 7 widgets financieros/
+fiscales sensibles ni en el catálogo, ni en preferencias, ni en el
+Dashboard calculado; un Administrador recibe los 8; intentar
+configurar un widget fuera de su rol se rechaza con
+`WIDGET_NOT_FOUND`, no se ignora en silencio; un Contador ve
+Contabilidad pero no FP&A); **multiempresa** (sección 39, 1 test — el
+`finance_summary` de la empresa A nunca refleja las ventas de la
+empresa B); **no mutación** (sección 47, 1 test — pedir el Dashboard 3
+veces seguidas no cambia ningún conteo de `JournalEntry`/`ArInvoice`/
+`Alert` ni el saldo de `TreasuryAccount`); **coherencia de los 2
+widgets nuevos** (2 tests — `finance_summary`/`liquidity_forecast`
+del Dashboard son exactamente lo que devuelve su servicio de origen
+llamado directo); **preferencias** (3 tests — ocultar saca el widget
+del Dashboard y restaurar lo devuelve; restaurar nunca borra datos de
+la empresa, solo las filas de `DashboardWidgetPreference`; reordenar
+persiste). Más 1 test de `finance-summary.service` heredado de Fase 5
+re-verificado sin regresión.
+
+**621 → 632 tests, sin regresiones** (99 suites, 632 passing).
+
+### Verificación real
+
+`npm run lint` (backend): 0 errores. `npm run build`/`npm run lint`
+(frontend): sin errores nuevos (mismo baseline de 8 warnings
+`only-export-components`, patrón arquitectónico ya conocido).
+Verificado con `curl` autenticado contra Postgres real, con los 4
+roles reales (`admin`/`contador`/`financiero`/`colaborador@demo.alarfly.com`):
+`GET /reports/dashboard/widgets` devolvió exactamente 8 widgets para
+ADMIN/FINANCE, 6 para ACCOUNTANT (sin `ebitda`/`burn_rate_runway`),
+**1 solo widget (`active_alerts`) para COLLABORATOR** — confirma el
+filtrado por rol funcionando en el servidor, no solo en el frontend;
+`finance_summary` del Dashboard coincidió exacto con `/finance/summary`
+llamado directo (215.00/0.00); ocultar un widget y luego `DELETE
+/reports/dashboard/preferences` lo devolvió visible; un Colaborador
+intentando activar `ebitda` recibió 400 `WIDGET_NOT_FOUND`. Verificado
+con Playwright contra los dos servidores reales: Inicio de
+Administrador con las 4 capas completas (6 StatCards de Estado,
+"Requiere tu atención" con estado vacío correcto, 7 Acciones rápidas,
+2 gráficos + Previsión de Liquidez de 8 semanas); modo "Personalizar
+Inicio" con 8 widgets, ocultar "Resumen Financiero" y **confirmar tras
+recargar la página completa que seguía oculto** (persistencia real en
+el servidor, no solo estado local); "+ Nueva Venta → Venta rápida"
+navegó correctamente a `/ventas/rapida`; sidebar confirmado agrupado
+en las 5 áreas reales (`OPERACIONES/FINANZAS/CONTROL/ANALÍTICA/
+CONFIGURACIÓN`); Inicio de Colaborador confirmado SIN ninguna tarjeta
+de Estado (0 StatCards, ni EBITDA ni ningún dato financiero sensible)
+pero con el gráfico de ventas y las acciones rápidas de venta
+visibles — RBAC confirmado también en la UI real, no solo por API. 0
+errores de consola reales en ambos roles (el único
+`ERR_CERT_AUTHORITY_INVALID` es el bloqueo ya conocido de Google Fonts
+en este entorno, documentado desde fases de features anteriores).
+
+**Rendimiento (medido)**: `GET /reports/dashboard` para ADMIN (8
+widgets, incluye conversión de moneda y previsión de 8 semanas)
+respondió en un rango similar al ya medido en Fase 8 para el mismo
+endpoint con menos widgets (~80-100ms en frío contra Postgres real en
+este entorno) — sin indicio de N+1: los widgets se calculan con
+`Promise.all` (en paralelo, no secuencial) y cada uno hace sus propias
+consultas ya optimizadas por las fases anteriores; no se detectó
+ninguna llamada duplicada nueva.
+
+### Decisiones tomadas
+
+- **`/finance/summary` (el endpoint original de Fase 5) NO se tocó**,
+  a pesar de que hoy no filtra por rol internamente (abierto a los 4
+  roles por decisión explícita y documentada de Fase 5: "cada pieza
+  que consolida ya tiene su propio gate más fino debajo"). Endurecer
+  ese endpoint estaba fuera del alcance declarado de esta fase
+  (sección 50: "no modificar lógica de negocio existente sin
+  justificación") y el nuevo mecanismo de RBAC por widget de esta fase
+  es exclusivo de los widgets NUEVOS del Dashboard — documentado
+  explícito como riesgo pendiente (ver abajo), no arreglado en
+  silencio.
+- **Los roles por widget se derivaron del mismo mapa ya establecido**
+  (`core/rbac/module-access.js`): `cash_position`/`finance_summary`/
+  `income_statement_summary`/`balance_sheet_summary`/
+  `liquidity_forecast` → `ADMIN/ACCOUNTANT/FINANCE` (mismo nivel que
+  el módulo `accounting`); `ebitda`/`burn_rate_runway` →
+  `ADMIN/FINANCE` (mismo nivel que `fpa`, que no incluye a Contador);
+  `active_alerts` → todos (ya era así en el topbar desde antes de esta
+  fase). No se inventó una matriz nueva.
+- **No se construyó una sección "Recientes" en el Inicio**:
+  `RecentlyUsedEntity` está scoped a rankeo de autocompletado (qué
+  cliente/cuenta/producto usó el usuario en un campo puntual), no a
+  "qué páginas visitó" — construir eso exigiría un tracking de
+  navegación nuevo que hoy no existe en ningún lado del proyecto.
+  Documentado como pendiente honesto (sección AD) en vez de fingir
+  reutilización de algo que no aplica.
+- **"Compras" no es un ítem de navegación nuevo**: mover Facturas de
+  Compra/Proveedores (hoy en Cuentas por Cobrar y Pagar) u Órdenes de
+  Compra (hoy en Inventario) a un módulo "Compras" nuevo habría sido
+  un rediseño estructural, explícitamente fuera de alcance de esta
+  fase (sección 20 del prompt: "no mover funcionalidades sin verificar
+  primero su dependencia técnica"; sección 50: "no rediseñar
+  visualmente toda la aplicación").
+- **Junta permanece como widget del Panel principal**, nunca se le
+  creó una pantalla de navegación bajo "Control → Gobierno" — conserva
+  su lógica actual tal como exige explícitamente la sección 18.
+
+### Riesgos pendientes / deuda técnica
+
+1. `/finance/summary` sigue sin filtrar por rol internamente (ver
+   Decisiones arriba) — inconsistente con el RBAC ahora más estricto
+   del Dashboard; no se tocó por estar fuera de alcance declarado.
+2. Overlap visual menor: el botón flotante de ayuda contextual
+   (`ContextualHelpButton`, `position: fixed` en la esquina inferior
+   izquierda, ya existía antes de esta fase) puede superponerse
+   visualmente sobre el último ítem del sidebar ("Métricas del
+   Negocio") en viewports cortos, porque agrupar el menú en áreas
+   agregó ~4 líneas de encabezado + espaciado al alto total del menú.
+   El enlace sigue siendo funcionalmente clicable (el botón flotante
+   solo tapa una porción pequeña); no se rediseñó el patrón de scroll
+   del sidebar (que hoy crece con toda la página, sin panel propio)
+   para no exceder el alcance de "sin rediseño masivo" de esta fase —
+   documentado explícito para que Fase 10 (Design System) lo revise.
+3. Pendientes heredados de Fases 1-8 no resueltos acá.
+
+### Qué debe recordar Fase 10 (UX/UI + Design System)
+
+**Heredado, sin tocar**: Unit of Work, `postEntry`, `core/audit.log`,
+`core/fx`, `modules/finance` como capa de lectura consolidada,
+`fiscal-transactions.service.createFiscalTransaction`, `core/glossary`
+como catálogo de KPIs, `dashboard.service.WIDGET_DEFINITIONS` como
+único registro de widgets del Dashboard.
+
+**Construido en Fase 9**: el Inicio (`DashboardPage.jsx`) ya está
+organizado en las 4 capas conceptuales (Estado/Atención/Acciones/
+Visión) que Fase 10 debe **re-vestir visualmente, no reestructurar**
+— los datos y la lógica de cada capa ya son reales y están probados.
+El sidebar ya agrupa en 6 áreas conceptuales (`NAV_AREAS` en
+`AppLayout.jsx`) — Fase 10 puede rediseñar el look del menú, pero
+`NAV_AREAS`/`moduleTabs.js` siguen siendo la única fuente de verdad de
+qué pantalla vive en qué área. `alertLinks.js` es la única fuente del
+mapa alerta→ruta, reutilizado por 2 lugares ya — cualquier tercero
+debe importarlo, no copiar el mapa. Cada widget del Dashboard ya trae
+`category`/`type` como metadata — Fase 10 puede usarlos para elegir
+visualización (StatCard vs. gráfico vs. lista) de forma más rica, sin
+tener que volver a auditar qué widget es sensible para qué rol (ya
+resuelto acá con `roles`).
+
+**Lo que NO debe reconstruirse**: un segundo Dashboard, un segundo
+motor de widgets, un segundo mapa de alertas, un segundo sistema de
+preferencias de widgets, una segunda agrupación de navegación — todos
+los de esta fase (`dashboard.service`, `alertLinks.js`, `NAV_AREAS`,
+`DashboardWidgetPreference`) siguen siendo los únicos.
+
+FASE 9 COMPLETA

@@ -27,24 +27,48 @@ import './AppLayout.css';
 
 const SIDEBAR_PANEL_KEY = 'app-sidebar';
 
-const NAV_ITEMS = [
-  { to: '/', label: 'Panel principal', icon: '◆', end: true },
-  // Fase 5: la puerta consolidada — Tesorería/Contabilidad/Cuentas por
-  // Cobrar y Pagar siguen existiendo tal cual abajo (técnicamente nada
-  // se fusionó ni se quitó), Finanzas es el atajo para quien solo
-  // quiere pensar "cuánto tengo/me deben/debo" sin saber cuál módulo
-  // técnico lo resuelve.
-  { to: '/finanzas', label: 'Finanzas', icon: '◈', subItems: FINANCE_TABS },
-  { to: '/contabilidad', label: 'Contabilidad', icon: '⊞', subItems: ACCOUNTING_TABS },
-  { to: '/tesoreria', label: 'Tesorería', icon: '⊟', subItems: TREASURY_TABS },
-  { to: '/cuentas', label: 'Cuentas por Cobrar y Pagar', icon: '⊠', subItems: AR_AP_TABS },
-  { to: '/ventas', label: 'Ventas', icon: '⊹', subItems: SALES_TABS },
-  { to: '/inventario', label: 'Inventario', icon: '⊞', subItems: INVENTORY_TABS },
-  { to: '/fiscal', label: 'Fiscal', icon: '⊛', subItems: FISCAL_TABS },
-  { to: '/fpa', label: 'FP&A', icon: '⊡', subItems: FPA_TABS },
-  { to: '/reportes', label: 'Reportes', icon: '▤', subItems: REPORTS_TABS },
-  { to: '/metricas', label: 'Métricas del Negocio', icon: '◷' },
-  { to: '/analisis-avanzados', label: 'Análisis Avanzados', icon: '✦', subItems: ADVANCED_ANALYTICS_TABS },
+// Fase 9 (Centro Operativo): agrupación conceptual del menú lateral en
+// las 6 áreas del prompt oficial — INICIO/OPERACIONES/FINANZAS/CONTROL/
+// ANALÍTICA/CONFIGURACIÓN. Es puramente una etiqueta de sección sobre
+// los MISMOS módulos/rutas que ya existían (ningún `to`, `subItems` ni
+// permiso se tocó): "la implementación técnica puede conservar módulos
+// internos, la experiencia del usuario no tiene que reflejar la
+// arquitectura interna" (sección 15). Niveles de Acceso se agrega bajo
+// CONFIGURACIÓN más abajo, condicionado a permisos, como ya hacía.
+const NAV_AREAS = [
+  {
+    area: null, // Inicio no lleva encabezado de sección, es la puerta de entrada
+    items: [{ to: '/', label: 'Panel principal', icon: '◆', end: true }],
+  },
+  {
+    area: 'Operaciones',
+    items: [
+      { to: '/ventas', label: 'Ventas', icon: '⊹', subItems: SALES_TABS },
+      { to: '/inventario', label: 'Inventario', icon: '⊞', subItems: INVENTORY_TABS },
+    ],
+  },
+  {
+    area: 'Finanzas',
+    items: [
+      { to: '/finanzas', label: 'Finanzas', icon: '◈', subItems: FINANCE_TABS },
+      { to: '/contabilidad', label: 'Contabilidad', icon: '⊞', subItems: ACCOUNTING_TABS },
+      { to: '/tesoreria', label: 'Tesorería', icon: '⊟', subItems: TREASURY_TABS },
+      { to: '/cuentas', label: 'Cuentas por Cobrar y Pagar', icon: '⊠', subItems: AR_AP_TABS },
+    ],
+  },
+  {
+    area: 'Control',
+    items: [{ to: '/fiscal', label: 'Fiscal', icon: '⊛', subItems: FISCAL_TABS }],
+  },
+  {
+    area: 'Analítica',
+    items: [
+      { to: '/fpa', label: 'FP&A', icon: '⊡', subItems: FPA_TABS },
+      { to: '/reportes', label: 'Reportes', icon: '▤', subItems: REPORTS_TABS },
+      { to: '/metricas', label: 'Métricas del Negocio', icon: '◷' },
+      { to: '/analisis-avanzados', label: 'Análisis Avanzados', icon: '✦', subItems: ADVANCED_ANALYTICS_TABS },
+    ],
+  },
 ];
 
 function initials(name) {
@@ -112,9 +136,9 @@ export default function AppLayout() {
     };
   }, [user?.role]);
 
-  const navItems = hasAccessLevelsAccess
-    ? [...NAV_ITEMS, { to: '/niveles-de-acceso', label: 'Niveles de Acceso', icon: '⚿' }]
-    : NAV_ITEMS;
+  const navAreas = hasAccessLevelsAccess
+    ? [...NAV_AREAS, { area: 'Configuración', items: [{ to: '/niveles-de-acceso', label: 'Niveles de Acceso', icon: '⚿' }] }]
+    : NAV_AREAS;
 
   return (
     <div className="app-shell">
@@ -180,34 +204,39 @@ export default function AppLayout() {
         )}
 
         <nav className="app-nav">
-          {navItems.map((item) => (
-            <div key={item.to} className="app-nav-item-wrap">
-              <NavLink
-                to={item.to}
-                end={item.end}
-                title={isCollapsed ? item.label : undefined}
-                aria-label={isCollapsed ? item.label : undefined}
-                className={({ isActive }) => `app-nav-link${isActive ? ' is-active' : ''}`}
-              >
-                <span className="app-nav-icon" aria-hidden="true">
-                  {item.icon}
-                </span>
-                {!isCollapsed && item.label}
-              </NavLink>
-              {isCollapsed && (
-                <div className="app-nav-flyout">
-                  <p className="app-nav-flyout-title">{item.label}</p>
-                  {item.subItems && item.subItems.length > 0 && (
-                    <div className="app-nav-flyout-links">
-                      {item.subItems.map((sub) => (
-                        <NavLink key={sub.to} to={sub.to} className="app-nav-flyout-link">
-                          {sub.label}
-                        </NavLink>
-                      ))}
+          {navAreas.map((group) => (
+            <div key={group.area || 'inicio'} className="app-nav-area">
+              {group.area && !isCollapsed && <p className="app-nav-section-title">{group.area}</p>}
+              {group.items.map((item) => (
+                <div key={item.to} className="app-nav-item-wrap">
+                  <NavLink
+                    to={item.to}
+                    end={item.end}
+                    title={isCollapsed ? item.label : undefined}
+                    aria-label={isCollapsed ? item.label : undefined}
+                    className={({ isActive }) => `app-nav-link${isActive ? ' is-active' : ''}`}
+                  >
+                    <span className="app-nav-icon" aria-hidden="true">
+                      {item.icon}
+                    </span>
+                    {!isCollapsed && item.label}
+                  </NavLink>
+                  {isCollapsed && (
+                    <div className="app-nav-flyout">
+                      <p className="app-nav-flyout-title">{item.label}</p>
+                      {item.subItems && item.subItems.length > 0 && (
+                        <div className="app-nav-flyout-links">
+                          {item.subItems.map((sub) => (
+                            <NavLink key={sub.to} to={sub.to} className="app-nav-flyout-link">
+                              {sub.label}
+                            </NavLink>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              )}
+              ))}
             </div>
           ))}
         </nav>

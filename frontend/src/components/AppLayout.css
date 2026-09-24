@@ -119,6 +119,13 @@
   color: var(--color-text-muted);
 }
 
+/* Fase 9: separación visual entre las áreas conceptuales del menú
+   (Operaciones/Finanzas/Control/Analítica/Configuración) — cada una es
+   su propio grupo de módulos, ya existentes, solo etiquetados. */
+.app-nav-area + .app-nav-area {
+  margin-top: var(--space-3);
+}
+
 .app-nav-pinned-row {
   display: flex;
   align-items: center;

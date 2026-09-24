@@ -33,6 +33,11 @@ export const executiveDashboardApi = {
   listWidgets: () => api.get('/reports/dashboard/widgets'),
   getPreferences: () => api.get('/reports/dashboard/preferences'),
   setPreference: (widgetKey, data) => api.patch(`/reports/dashboard/preferences/${widgetKey}`, data),
+  // Fase 9: "Restaurar configuración predeterminada" del Inicio — borra
+  // solo las preferencias de widgets de este usuario, reutilizado tanto
+  // por el nuevo Centro Operativo (Inicio) como por el Tablero
+  // Ejecutivo de Reportes, que comparten el mismo backend.
+  resetPreferences: () => api.delete('/reports/dashboard/preferences'),
 };
 
 async function downloadBlob(path, { method = 'GET', fallbackFilename = 'reporte' } = {}) {

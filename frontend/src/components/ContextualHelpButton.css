@@ -2,7 +2,7 @@
   position: fixed;
   left: var(--space-5);
   bottom: var(--space-5);
-  z-index: 150;
+  z-index: var(--z-index-fab);
 }
 
 .contextual-help-fab {
@@ -11,7 +11,7 @@
   border-radius: 50%;
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface-raised);
-  color: var(--color-silver);
+  color: var(--color-brand);
   font-family: var(--font-family-serif);
   font-size: 18px;
   font-weight: 700;
@@ -53,8 +53,8 @@
 }
 
 .contextual-help-prior {
-  background: rgba(var(--color-silver-rgb), 0.1);
-  border: 1px solid rgba(var(--color-silver-rgb), 0.35);
+  background: rgba(var(--color-brand-rgb), 0.1);
+  border: 1px solid rgba(var(--color-brand-rgb), 0.35);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   margin-bottom: 12px;
@@ -65,7 +65,7 @@
   font-size: var(--text-2xs, 0.75rem);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--color-silver-strong);
+  color: var(--color-brand-strong);
   font-weight: 700;
 }
 

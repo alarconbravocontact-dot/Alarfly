@@ -6,7 +6,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  z-index: var(--z-index-overlay-top);
   padding: var(--space-5);
 }
 
@@ -19,7 +19,7 @@
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
   padding: var(--space-5);
-  box-shadow: var(--shadow-elevated);
+  box-shadow: var(--shadow-modal);
 }
 
 .import-wizard-header {
@@ -44,8 +44,8 @@
 }
 
 .import-wizard-dropzone.is-dragging {
-  border-color: var(--color-silver-strong);
-  background: rgba(var(--color-silver-rgb), 0.06);
+  border-color: var(--color-brand-strong);
+  background: rgba(var(--color-brand-rgb), 0.06);
 }
 
 .import-wizard-file-label {

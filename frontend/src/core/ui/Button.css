@@ -29,15 +29,15 @@
 }
 
 .ui-btn-primary {
-  background: var(--color-silver);
-  border-color: var(--color-silver);
-  color: var(--color-bg);
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-on-accent);
   font-weight: 600;
 }
 
 .ui-btn-primary:hover:not(:disabled) {
-  background: var(--color-silver-strong);
-  border-color: var(--color-silver-strong);
+  background: var(--color-brand-strong);
+  border-color: var(--color-brand-strong);
 }
 
 .ui-btn-secondary {

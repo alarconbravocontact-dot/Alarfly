@@ -45,8 +45,8 @@
 }
 
 .filter-builder-logic-toggle button.is-active {
-  background: var(--color-silver);
-  color: var(--color-bg);
+  background: var(--color-brand);
+  color: var(--color-on-accent);
   font-weight: 600;
 }
 

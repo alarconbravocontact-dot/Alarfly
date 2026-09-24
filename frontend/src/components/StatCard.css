@@ -23,7 +23,7 @@
   font-variant-numeric: tabular-nums;
   color: var(--color-text-primary);
   padding-bottom: 6px;
-  border-bottom: 2px solid var(--color-silver);
+  border-bottom: 2px solid var(--color-brand);
 }
 
 .stat-card-value--positive {

@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   background: var(--color-overlay);
-  z-index: 140;
+  z-index: var(--z-index-drawer);
   display: flex;
   justify-content: flex-end;
 }
@@ -13,7 +13,7 @@
   height: 100%;
   background: var(--color-surface-raised);
   border-left: 1px solid var(--color-border-strong);
-  box-shadow: var(--shadow-elevated);
+  box-shadow: var(--shadow-modal);
   display: flex;
   flex-direction: column;
   animation: record-drawer-slide-in 0.2s ease-out;

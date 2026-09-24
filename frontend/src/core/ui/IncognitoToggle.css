@@ -19,7 +19,7 @@
 }
 
 .incognito-toggle.is-active {
-  background: rgba(var(--color-silver-rgb), 0.15);
-  border-color: var(--color-silver);
-  color: var(--color-silver-strong, var(--color-silver));
+  background: rgba(var(--color-brand-rgb), 0.15);
+  border-color: var(--color-brand);
+  color: var(--color-brand-strong, var(--color-brand));
 }

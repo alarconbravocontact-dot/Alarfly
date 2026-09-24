@@ -33,7 +33,7 @@
 }
 
 .junta-item-unread {
-  border-color: var(--color-silver-dim);
+  border-color: var(--color-brand-dim);
   background: var(--color-surface-raised);
 }
 
@@ -55,5 +55,5 @@
 }
 
 .junta-item-file {
-  color: var(--color-silver-dim);
+  color: var(--color-brand-dim);
 }

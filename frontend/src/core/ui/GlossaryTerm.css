@@ -17,13 +17,13 @@
 
 .glossary-term-trigger:hover,
 .glossary-term-trigger:focus-visible {
-  border-bottom-color: var(--color-silver-strong);
-  color: var(--color-silver-strong);
+  border-bottom-color: var(--color-brand-strong);
+  color: var(--color-brand-strong);
 }
 
 .glossary-term-popover {
   position: absolute;
-  z-index: 20;
+  z-index: var(--z-index-dropdown);
   top: calc(100% + 8px);
   left: 0;
   width: max-content;

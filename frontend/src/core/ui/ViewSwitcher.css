@@ -24,6 +24,6 @@
 }
 
 .view-switcher-btn.is-active {
-  background: var(--color-silver);
+  background: var(--color-brand);
   color: var(--color-on-accent);
 }

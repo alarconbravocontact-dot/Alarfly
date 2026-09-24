@@ -4,15 +4,15 @@
   left: 0;
   right: 0;
   height: 3px;
-  z-index: 200;
+  z-index: var(--z-index-overlay-top);
   background: transparent;
   pointer-events: none;
 }
 
 .global-progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--color-silver-dim), var(--color-silver));
-  box-shadow: 0 0 8px rgba(var(--color-silver-rgb), 0.6);
+  background: linear-gradient(90deg, var(--color-brand-dim), var(--color-brand));
+  box-shadow: 0 0 8px rgba(var(--color-brand-rgb), 0.6);
   transition: width 250ms ease;
 }
 

@@ -12,23 +12,38 @@
   --color-text-secondary: #8b93a1;
   --color-text-muted: #6b7280;
 
-  /* "Sello": el único acento cálido del sistema — reservado para CTA
-     principal, montos destacados y el Sello de Estado. Nunca decorativo. */
-  --color-silver: #c9a227;
-  --color-silver-strong: #ddb84a;
-  --color-silver-dim: #8b93a1;
-  /* Color del texto/ícono que va ENCIMA de un fondo --color-silver (el
-     botón principal). No es lo mismo que --color-bg: en el tema oscuro
-     el dorado es claro y necesita texto oscuro (coinciden), pero en el
-     tema claro el dorado se oscureció para tener contraste sobre el
-     fondo hueso — ahí ese mismo botón necesita texto claro. Por eso es
-     su propia variable, no un alias de --color-bg. */
-  --color-on-accent: #0b0d10;
+  /* Marca (Fase 10 — reemplaza el acento dorado "Sello" anterior por
+     un rojo vino intenso y controlado, decisión de marca confirmada
+     explícitamente por el usuario): el único acento cálido-rojo del
+     sistema — reservado para CTA principal, acciones activas, montos
+     destacados y el Sello de Estado. Nunca decorativo, nunca usado
+     como color de fondo general (sección 7 del prompt: "no convertir
+     toda la interfaz en roja"). Deliberadamente distinto en matiz de
+     --color-negative (que es óxido/terracota, no vino) para que un
+     botón de marca nunca se confunda con un estado de error —
+     confirmado lado a lado, ver docs/DESIGN_SYSTEM.md. */
+  --color-brand: #9c2740;
+  --color-brand-strong: #c23253;
+  --color-brand-dim: #7a4a52;
+  /* Color del texto/ícono que va ENCIMA de un fondo --color-brand (el
+     botón principal). No es lo mismo que --color-bg: el rojo vino es
+     oscuro/saturado en los dos temas, así que el texto que va encima
+     siempre es claro — por eso es su propia variable, no un alias de
+     --color-bg (en el tema claro --color-bg SÍ es claro, y ahí un
+     texto claro sobre un botón también claro sería ilegible). */
+  --color-on-accent: #f5efe9;
 
-  /* Estados: siempre apagados, nunca verde/rojo de semáforo */
+  /* Estados: siempre apagados, nunca verde/rojo de semáforo puro.
+     --color-negative es intencionalmente óxido/terracota (no vino),
+     para que nunca se confunda con --color-brand a pesar de que
+     ambos están en la familia "rojo". */
   --color-positive: #6e9b7b;
   --color-negative: #b4695e;
   --color-warning: #c9a227;
+  /* Nuevo en Fase 10 (sección 14: la jerarquía de tokens pedía "Info"
+     explícito, que no existía) — azul apagado, para mensajes
+     informativos que no son ni éxito ni alerta ni error. */
+  --color-info: #6b8fae;
 
   /* Mismos colores de arriba, pero como tripleta "R, G, B" (sin
      "rgb(...)" alrededor) — así cualquier estilo que necesite una
@@ -40,7 +55,8 @@
   --color-positive-rgb: 110, 155, 123;
   --color-negative-rgb: 180, 105, 94;
   --color-warning-rgb: 201, 162, 39;
-  --color-silver-rgb: 201, 162, 39;
+  --color-info-rgb: 107, 143, 174;
+  --color-brand-rgb: 156, 39, 64;
 
   /* Fondo oscuro semitransparente detrás de un diálogo — mismo tono en
      los dos temas a propósito (siempre debe verse como "apagar" el
@@ -66,9 +82,13 @@
   --text-xs: 12px;
   --text-2xs: 11px;
 
+  /* Radio: pocos niveles, reutilizados siempre igual (sección 18). Se
+     agregó "pill" en Fase 10 — antes cada badge/estado redondeado
+     escribía su propio 999px/50% a mano en vez de un token. */
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 10px;
+  --radius-pill: 999px;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -78,11 +98,40 @@
   --space-6: 32px;
   --space-7: 48px;
 
+  /* Elevación: 3 niveles (sección 11/19) — tarjeta/superficie normal,
+     elevado (flyouts/dropdowns/tooltips), y modal/drawer (el nivel más
+     alto, una sombra más marcada porque cubre contenido real detrás). */
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.3);
   --shadow-elevated: 0 4px 10px rgba(0, 0, 0, 0.5), 0 14px 32px rgba(0, 0, 0, 0.4);
+  --shadow-modal: 0 8px 16px rgba(0, 0, 0, 0.5), 0 24px 48px rgba(0, 0, 0, 0.45);
 
   --transition-fast: 140ms ease;
+
+  /* z-index: escala única (sección 13/45) — antes cada componente
+     flotante escribía su propio número arbitrario (5/20/30/40/50/60/
+     100/140/150/200 convivían sin ningún orden documentado). Los
+     valores exactos se conservaron 1 a 1 para no alterar qué elemento
+     queda encima de cuál; solo se les puso nombre. */
+  --z-index-dropdown: 20; /* tooltips y popovers dentro de un componente */
+  --z-index-dropdown-elevated: 30; /* listas de autocompletado */
+  --z-index-flyout: 40; /* flyout del sidebar, menú del botón de creación rápida */
+  --z-index-panel: 50; /* panel de notificaciones */
+  --z-index-popover: 60; /* popovers de vista previa (RecordLink, menú de acciones) */
+  --z-index-modal-backdrop: 100; /* fondo oscuro detrás de un diálogo de confirmación */
+  --z-index-drawer: 140; /* panel deslizable de detalle */
+  --z-index-fab: 150; /* botón flotante de ayuda contextual */
+  --z-index-overlay-top: 200; /* toasts, modales de creación rápida, barra de progreso global */
 }
+
+/* Breakpoints (sección 13/42): las CSS custom properties no pueden
+   usarse dentro de la condición de un @media (limitación real de CSS,
+   no de este proyecto) — estos valores son la convención documentada
+   que cualquier @media nuevo debe repetir literalmente. Ver también
+   frontend/DESIGN_SYSTEM.md.
+     --breakpoint-tablet: 768px
+     --breakpoint-desktop-sm: 1024px
+     --breakpoint-desktop: 1280px
+*/
 
 /* Tema claro: mismos nombres de variable de arriba, valores distintos
    — así ninguna pantalla ni componente nuevo necesita saber que existe
@@ -105,22 +154,26 @@
   --color-text-secondary: #5c574a;
   --color-text-muted: #8a8371;
 
-  --color-silver: #96721c;
-  --color-silver-strong: #7a5c16;
-  --color-silver-dim: #8a8371;
-  /* El dorado se oscureció para tener contraste sobre el fondo hueso
-     claro — como fondo de botón ya no es "claro", así que el texto
-     encima pasa a ser claro, no oscuro. */
+  /* Rojo vino más oscuro que en el tema oscuro, para tener contraste
+     real sobre el fondo hueso claro — mismo criterio que ya usaba el
+     dorado anterior (más oscuro = más énfasis en un tema claro). */
+  --color-brand: #8a2438;
+  --color-brand-strong: #6f1c2c;
+  --color-brand-dim: #a97972;
+  /* El fondo de botón sigue siendo oscuro/saturado incluso en el tema
+     claro, así que el texto encima sigue siendo claro, no oscuro. */
   --color-on-accent: #fdfcf9;
 
   --color-positive: #3f7a53;
   --color-negative: #a1453a;
   --color-warning: #96721c;
+  --color-info: #3f6a8a;
 
   --color-positive-rgb: 63, 122, 83;
   --color-negative-rgb: 161, 69, 58;
   --color-warning-rgb: 150, 114, 28;
-  --color-silver-rgb: 150, 114, 28;
+  --color-info-rgb: 63, 106, 138;
+  --color-brand-rgb: 138, 36, 56;
 
   /* Sombras mucho más suaves que en el tema oscuro: una sombra tan
      oscura como la de arriba, sobre un fondo claro, se ve como una
@@ -222,12 +275,12 @@ textarea {
 }
 
 ::selection {
-  background: var(--color-silver-dim);
-  color: var(--color-bg);
+  background: var(--color-brand-dim);
+  color: var(--color-on-accent);
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-silver);
+  outline: 2px solid var(--color-brand);
   outline-offset: 2px;
 }
 
@@ -246,5 +299,5 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-silver-dim);
+  background: var(--color-brand-dim);
 }

@@ -43,7 +43,7 @@
 
 .module-tab.is-active {
   color: var(--color-text-primary);
-  border-bottom-color: var(--color-silver-strong);
+  border-bottom-color: var(--color-brand-strong);
 }
 
 .panel {
@@ -99,6 +99,33 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Fase 10 — bug real encontrado en la auditoría, ya existía antes de
+   esta fase: un `<input>`/`<select>` dentro de una celda de tabla
+   (ej. las líneas de una factura) nunca estaba envuelto en `.field`
+   (que es lo único que le daba fondo/borde oscuro), así que caía en
+   el blanco por defecto del navegador con texto casi blanco encima —
+   prácticamente ilegible. Regla nueva, puramente aditiva, sin tocar
+   ningún archivo .jsx: cualquier input/select suelto dentro de una
+   `.data-table` hereda automáticamente el mismo estilo que ya usa
+   `.field input`. */
+.data-table input,
+.data-table select,
+.data-table textarea {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  outline: none;
+  width: 100%;
+  transition: border-color var(--transition-fast);
+}
+
+.data-table input:focus,
+.data-table select:focus,
+.data-table textarea:focus {
+  border-color: var(--color-brand-dim);
+}
+
 .data-table-empty {
   padding: var(--space-5);
   text-align: center;
@@ -146,7 +173,7 @@
 .field input:focus,
 .field select:focus,
 .field textarea:focus {
-  border-color: var(--color-silver-dim);
+  border-color: var(--color-brand-dim);
 }
 
 .field-checkbox {
@@ -181,15 +208,15 @@
 }
 
 .btn-primary {
-  background: var(--color-silver);
-  border-color: var(--color-silver);
+  background: var(--color-brand);
+  border-color: var(--color-brand);
   color: var(--color-on-accent);
   font-weight: 600;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--color-silver-strong);
-  border-color: var(--color-silver-strong);
+  background: var(--color-brand-strong);
+  border-color: var(--color-brand-strong);
 }
 
 .btn-danger {
@@ -289,7 +316,7 @@
 }
 
 .section-title-icon {
-  color: var(--color-silver-dim);
+  color: var(--color-brand-dim);
 }
 
 /* Árbol de cuentas: filas plegables con guía de jerarquía visual, para
@@ -411,7 +438,7 @@
 }
 
 .kanban-card:hover {
-  border-color: var(--color-silver-dim);
+  border-color: var(--color-brand-dim);
 }
 
 .kanban-card-title {
@@ -485,7 +512,7 @@
 }
 
 .payment-calendar-order--payment_order {
-  border-left-color: var(--color-silver);
+  border-left-color: var(--color-brand);
 }
 
 /* Día con concentración alta de pagos — señal distinta de la semana en

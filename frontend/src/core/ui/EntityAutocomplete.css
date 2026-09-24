@@ -13,7 +13,7 @@
 }
 
 .ui-entity-autocomplete input:focus {
-  border-color: var(--color-silver-dim);
+  border-color: var(--color-brand-dim);
 }
 
 .ui-entity-autocomplete-menu {
@@ -21,7 +21,7 @@
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  z-index: 30;
+  z-index: var(--z-index-dropdown-elevated);
   max-height: 280px;
   overflow-y: auto;
   background: var(--color-surface-raised);
@@ -52,7 +52,7 @@
 }
 
 .ui-entity-autocomplete-option.is-selected {
-  color: var(--color-silver-strong);
+  color: var(--color-brand-strong);
   font-weight: 600;
 }
 
@@ -79,8 +79,8 @@
   padding: 8px 10px;
   border: none;
   border-radius: var(--radius-sm);
-  background: rgba(var(--color-silver-rgb), 0.1);
-  color: var(--color-silver-strong);
+  background: rgba(var(--color-brand-rgb), 0.1);
+  color: var(--color-brand-strong);
   font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
@@ -88,7 +88,7 @@
 
 .ui-entity-autocomplete-create:hover,
 .ui-entity-autocomplete-create.is-highlighted {
-  background: rgba(var(--color-silver-rgb), 0.2);
+  background: rgba(var(--color-brand-rgb), 0.2);
 }
 
 /* Resalte breve al cerrar el modal de creación rápida (innovación
@@ -100,13 +100,13 @@
 
 @keyframes ui-entity-autocomplete-flash-pulse {
   0% {
-    border-color: var(--color-silver-strong);
-    box-shadow: 0 0 0 3px rgba(var(--color-silver-rgb), 0.35);
-    background: rgba(var(--color-silver-rgb), 0.14);
+    border-color: var(--color-brand-strong);
+    box-shadow: 0 0 0 3px rgba(var(--color-brand-rgb), 0.35);
+    background: rgba(var(--color-brand-rgb), 0.14);
   }
   100% {
     border-color: var(--color-border);
-    box-shadow: 0 0 0 0 rgba(var(--color-silver-rgb), 0);
+    box-shadow: 0 0 0 0 rgba(var(--color-brand-rgb), 0);
     background: var(--color-bg);
   }
 }

@@ -203,7 +203,7 @@ export default function AppLayout() {
           </nav>
         )}
 
-        <nav className="app-nav">
+        <nav className="app-nav app-nav-main">
           {navAreas.map((group) => (
             <div key={group.area || 'inicio'} className="app-nav-area">
               {group.area && !isCollapsed && <p className="app-nav-section-title">{group.area}</p>}

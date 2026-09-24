@@ -9,20 +9,20 @@
   padding: 0;
   margin: 0;
   font: inherit;
-  color: var(--color-silver-strong, var(--color-silver));
+  color: var(--color-brand-strong, var(--color-brand));
   text-decoration: underline dotted;
   text-underline-offset: 2px;
   cursor: pointer;
 }
 
 .record-link:hover {
-  color: var(--color-silver);
+  color: var(--color-brand);
   text-decoration-style: solid;
 }
 
 .record-link-popover {
   position: absolute;
-  z-index: 60;
+  z-index: var(--z-index-popover);
   bottom: calc(100% + 6px);
   left: 0;
   min-width: 220px;

@@ -18,7 +18,7 @@
 }
 
 .ui-pin-button.is-pinned {
-  color: var(--color-silver-strong);
-  border-color: rgba(var(--color-silver-rgb), 0.5);
-  background: rgba(var(--color-silver-rgb), 0.1);
+  color: var(--color-brand-strong);
+  border-color: rgba(var(--color-brand-rgb), 0.5);
+  background: rgba(var(--color-brand-rgb), 0.1);
 }

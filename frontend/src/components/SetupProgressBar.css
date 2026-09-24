@@ -1,6 +1,6 @@
 .setup-progress-bar {
-  border: 1px solid var(--color-silver-dim);
-  border-left: 3px solid var(--color-silver);
+  border: 1px solid var(--color-brand-dim);
+  border-left: 3px solid var(--color-brand);
   border-radius: var(--radius-md);
   background: var(--color-surface-raised);
   padding: var(--space-4);
@@ -39,7 +39,7 @@
 
 .setup-progress-bar-dismiss:hover {
   color: var(--color-text-primary);
-  border-color: var(--color-silver-dim);
+  border-color: var(--color-brand-dim);
 }
 
 .setup-progress-bar-steps {

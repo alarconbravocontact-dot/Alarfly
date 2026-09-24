@@ -22,7 +22,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--color-silver);
+  background: var(--color-brand);
   border: 2px solid var(--color-bg);
 }
 

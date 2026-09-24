@@ -2348,3 +2348,267 @@ los de esta fase (`dashboard.service`, `alertLinks.js`, `NAV_AREAS`,
 `DashboardWidgetPreference`) siguen siendo los únicos.
 
 FASE 9 COMPLETA
+
+## Fase 10 — UX/UI + Design System + Rediseño Visual Global
+
+### Objetivo de la fase
+
+Transformar visual y experiencialmente Alarfly sin alterar su
+arquitectura funcional ni sus motores de negocio: auditoría visual
+completa → Design System consolidado → implementación progresiva
+(Prioridad 1: tokens/Core UI/Layout/Inicio → pantallas piloto) →
+verificación de que 0 lógica de negocio cambió.
+
+### Decisión de marca (confirmada explícitamente por el usuario antes de tocar nada)
+
+El prompt oficial (sección 7) pide que "el rojo sea el color de marca
+de Alarfly" — pero la identidad visual ya construida en sesiones
+anteriores (documentada extensamente en `CLAUDE.md`) usa un acento
+dorado ("Sello dorado", con `StatusSeal` diseñado alrededor de ese
+color como elemento de firma). Antes de tocar un solo archivo se
+preguntó explícitamente al usuario cómo proceder — **confirmó cambiar
+el color de marca a rojo**, una migración de marca real, no un ajuste
+cosmético menor. Se avisa acá porque es la decisión de mayor impacto
+de toda la fase y determina todo lo demás.
+
+### Auditoría visual (hallazgo central)
+
+El sistema visual ya estaba **considerablemente más maduro y
+consistente** de lo que un rediseño típico "desde cero" asumiría —
+Alarfly ya tenía, de sesiones de features anteriores a las Fases 0-9:
+un archivo único de tokens (`theme.css`, paleta dark-first ya
+escalonada en niveles Tinta/Papel/Papel elevado, exactamente el
+"Nivel 0/1/2/3" que pide la sección 6), tipografía de 2 familias con
+escala definida, `frontend/DESIGN_SYSTEM.md` ya existente y detallado,
+`core/ui/Icon.jsx` como sistema de iconografía único, `StatusSeal`
+como patrón de estado dominante (41 archivos, contra 1 solo uso de un
+badge suelto), y **0 colores hardcodeados fuera de `theme.css`** en
+todo el frontend (confirmado con `grep` exhaustivo). Esto cambió el
+enfoque de la fase de "construir un Design System" a "auditar,
+consolidar lo que ya funciona, corregir lo que no, y ejecutar la
+migración de marca con disciplina".
+
+Hallazgos reales de la auditoría (matriz de inconsistencias):
+
+| Elemento | Hallazgo | Acción |
+|---|---|---|
+| Botón | `core/ui/Button.jsx` (1 archivo) vs. clases `.btn*` planas (78 archivos) — visualmente idénticas, duplicadas en código | Documentado, no consolidado (ver Deuda técnica) |
+| Modal/diálogo | `ConfirmContext`/`QuickCreateModal`/`ImportWizard` — mismos tokens exactos, sin componente `Modal` compartido | Documentado, no consolidado |
+| Badge/Estado | `StatusSeal` ya dominante (41 vs. 1) | Sin acción necesaria |
+| z-index | 10 valores arbitrarios sin escala (5/20/30/40/50/60/100/140/150/200) en 21 archivos | **Corregido**: escala de 9 tokens semánticos, mismo orden relativo preservado 1 a 1 |
+| Radio | Sin nivel "pill" (badges escribían `999px`/`50%` a mano) | **Corregido**: `--radius-pill` |
+| Elevación | Solo 2 niveles (`--shadow-card`/`--shadow-elevated`) para todo, desde un tooltip hasta un modal | **Corregido**: `--shadow-modal` nuevo, 6 consumidores reales (modal/drawer/toast) migrados |
+| Color "Info" | No existía como token semántico (sección 14 lo pedía explícito) | **Corregido**: `--color-info` nuevo |
+| Responsive | 0 `@media` en todo el frontend; scroll horizontal confirmado con Playwright por debajo de 1024px | **Corregido** (chrome de la app; alcance documentado abajo) |
+
+### Bugs reales encontrados y corregidos durante la migración de marca
+
+1. **Contraste roto por el cambio de marca** (`.ui-btn-primary` y 4
+   lugares más: el logo "A" del sidebar, el botón flotante de creación
+   rápida, el toggle activo de `FilterBuilder`, `::selection`): todos
+   usaban `color: var(--color-bg)` para el texto encima de un fondo de
+   marca — una coincidencia inofensiva con el dorado anterior (donde
+   `--color-bg` oscuro ≈ el texto oscuro correcto), que con el rojo
+   nuevo se volvió **texto casi negro sobre fondo vino**, confirmado
+   con el color computado real (`rgb(11,13,16)` sobre `rgb(156,39,64)`).
+   Corregidos los 5 a `--color-on-accent`, el token que ya existía
+   justo para este caso.
+2. **Bug preexistente, no introducido por esta fase, encontrado durante
+   la revisión visual de las pantallas piloto**: cualquier
+   `<input>`/`<select>` suelto dentro de una celda de
+   `<table className="data-table">` (ej. las líneas de una factura de
+   venta) nunca estaba envuelto en `.field` — la única regla que le
+   daba fondo/borde oscuro — así que caía en el blanco por defecto del
+   navegador con el texto casi blanco del tema encima, prácticamente
+   invisible. Corregido con una regla nueva y aditiva
+   (`.data-table input/select/textarea`), sin tocar ningún `.jsx` —
+   arregla el patrón en cualquier tabla del proyecto que lo tuviera.
+3. **Sidebar tapado por el botón flotante de ayuda contextual**
+   (hallazgo ya documentado como pendiente en Fase 9): el sidebar
+   creció con la nueva agrupación en 6 áreas y el último ítem
+   ("Métricas del Negocio") quedaba parcialmente detrás del botón
+   fijo. Corregido con una reestructuración real (no un parche): el
+   sidebar pasa a `position: sticky; height: 100vh`, con una única
+   zona de scroll interno (`.app-nav-main`) — el encabezado y el pie
+   (Cerrar sesión) quedan siempre visibles. **Efecto secundario real
+   encontrado con el propio E2E de esta fase**: el botón de contraer/
+   expandir el sidebar terminó en la MISMA esquina que el botón de
+   ayuda, y Playwright confirmó que el clic quedaba bloqueado
+   (`intercepts pointer events`, con las bounding boxes idénticas).
+   Corregido reservando espacio real (`padding-bottom`) en el pie del
+   sidebar. Verificado con un test dedicado: el toggle cambia de
+   estado y ya no se superpone con el botón de ayuda.
+
+### Qué se creó/extendió
+
+- **`theme.css`**: renombre global `--color-silver*` → `--color-brand*`
+  (34 archivos CSS/JSX, un solo `sed` — cero cambios de comportamiento,
+  solo nombre), valores nuevos de rojo vino (dark y light theme),
+  `--color-negative` sin tocar a propósito (deliberadamente un matiz
+  distinto — óxido, no vino — para que un botón de marca nunca se
+  confunda con un error), `--color-info` nuevo, `--radius-pill`,
+  `--shadow-modal`, escala de 9 tokens `--z-index-*`, documentación de
+  3 breakpoints (768/1024/1280px, no usables como custom property
+  dentro de un `@media` por limitación real de CSS).
+- **`Button.css`, `FilterBuilder.css`, `AppLayout.css`, `QuickCreateFab.css`,
+  `theme.css`**: los 5 bugs de contraste corregidos (ver arriba).
+- **`module.css`**: regla nueva `.data-table input/select/textarea`
+  (bug #2 de arriba).
+- **`AppLayout.css`/`.jsx`**: sidebar `position: sticky` con scroll
+  interno propio (bug #3), `padding-bottom` del pie para no tapar el
+  toggle, `@media (max-width: 1024px)` (sidebar 200px + topbar sin
+  nombre/rol — elimina el scroll horizontal confirmado por debajo de
+  1024px).
+- **`ExecutiveDashboardPage.jsx`, `context/ConfirmContext.css`,
+  `core/ui/{QuickCreateModal,ImportWizard,RecordDrawer,BulkActionBar}.css`,
+  `context/ToastContext.css`**: migrados a `--shadow-modal` (elevación
+  correcta para el nivel modal/drawer/toast, antes compartían el
+  mismo tier que un simple tooltip).
+- **`frontend/DESIGN_SYSTEM.md`**: actualizado completo — paleta,
+  tipografía, radio/sombras/z-index/breakpoints nuevos, la matriz de
+  inconsistencias de arriba, y la reinterpretación del "Sello" (un
+  sello de cera clásico es rojo, no dorado — la metáfora del documento
+  oficial se mantiene intacta, si acaso más literal).
+
+### Pantallas piloto (validación del Design System)
+
+Verificadas con Playwright (capturas revisadas una por una): Inicio
+(Fase 9), Finanzas → Resumen, Ventas → Venta Rápida, Inventario →
+Catálogo, Cuentas por Cobrar y Pagar → Facturas de Venta (la pantalla
+compleja con tabla + formulario que pedía la sección 47). Las 5 ya
+heredaron la marca nueva y los tokens corregidos **sin necesitar
+ningún cambio de código propio** — confirma que el sistema de tokens
+ya estaba lo bastante disciplinado como para que un rebrand de esta
+magnitud se resolviera casi enteramente en `theme.css` + los 3 archivos
+de bugs puntuales de arriba, no archivo por archivo.
+
+### Tests
+
+Sin tests de backend nuevos (fase estrictamente de frontend, sin tocar
+ningún endpoint/modelo/regla de negocio) — **632/632 tests de backend
+sin regresiones** (confirmado 2 veces; una corrida intermedia con 1
+fallo fue diagnosticada como contención transitoria del pool de
+Postgres al correr las 99 suites en paralelo, no una regresión real —
+la misma prueba pasó aislada y en una repetición completa
+inmediatamente después). `npm run lint` backend: 0 errores.
+`npm run build`/`npm run lint` frontend: sin errores nuevos (mismo
+baseline de 8 warnings preexistentes `only-export-components`).
+
+### E2E (17 verificaciones, todas contra los dos servidores reales)
+
+Login, Dashboard (4 capas), Personalización (panel de 8 widgets),
+Venta Rápida, Venta completa (Facturas de Venta), Compra (Facturas de
+Compra), Inventario, Cobros, Pagos, Finanzas → Resumen, Reportes,
+Navegación (breadcrumb), Sidebar colapsa/expande, Flyout visible en
+modo colapsado, Toggle de colapso ya no tapado por el botón de ayuda
+(confirma el fix del bug #3), Logout, Permisos (Colaborador confirmado
+sin ninguna tarjeta de Estado financiero, ni EBITDA ni caja — RBAC de
+Fase 9 intacto). **17/17 OK, 0 errores de consola reales** (el único
+`ERR_CERT_AUTHORITY_INVALID` es el bloqueo ya conocido de Google Fonts
+en este entorno).
+
+### Regresión funcional
+
+Ningún endpoint, modelo, migración, regla de negocio, permiso o
+workflow se tocó — confirmado por diseño (todos los cambios de esta
+fase son CSS/tokens + 2 archivos de layout, `git diff` limitado a
+`frontend/src/**/*.css`, `frontend/src/**/*.jsx` de layout/dashboard, y
+`frontend/DESIGN_SYSTEM.md`) y por los 632 tests de backend + los 17
+checks E2E, que ejercitan los mismos flujos de negocio de siempre
+(crear factura, ver dashboard, navegar) sin que ninguno cambiara de
+resultado.
+
+### Responsive
+
+Auditado con Playwright a 1280/1024/768px. Corregido el scroll
+horizontal del chrome de la aplicación (sidebar + topbar) por debajo
+de 1024px. **Alcance reconocido explícitamente**: no se auditó ni se
+rediseñó el contenido interno de cada pantalla individual (~150) para
+mobile — la prioridad declarada por el propio prompt es desktop, y
+esta fase se limitó a que el chrome permanente no se rompa, documentado
+como pendiente honesto para una fase futura si se pide.
+
+### Accesibilidad
+
+`:focus-visible` sigue con anillo de 2px visible (ahora en el color de
+marca nuevo). Los 3 estados semánticos (Verificado/Alerta/Objeción) y
+el nuevo Info nunca dependen solo del color — `StatusSeal` ya combina
+color + ícono + texto desde antes de esta fase, sin cambios. Los 5
+bugs de contraste corregidos (arriba) son, en sí mismos, una mejora de
+accesibilidad real (texto antes casi ilegible, ahora con contraste
+correcto). No se corrió un auditor WCAG automatizado dedicado en esta
+pasada — verificación manual dirigida por los hallazgos reales
+encontrados.
+
+### Performance frontend
+
+Sin dependencias nuevas agregadas. Bundle CSS 65.57kB → 66.97kB
+(+1.4kB, la nueva sección de z-index/breakpoints documentados y las
+reglas de `.data-table input`) — sin impacto real. Bundle JS sin
+cambios de tamaño relevantes (mismo aviso preexistente de chunk >500kB,
+no nuevo de esta fase, fuera de alcance resolverlo acá).
+
+### Decisiones tomadas
+
+- **Botón y Modal: documentados como duplicación real, NO consolidados
+  en código esta fase.** Ambos ya comparten exactamente los mismos
+  tokens/valores (verificado línea por línea) — la duplicación es de
+  código, no de apariencia, así que consolidar 78 archivos (Botón) o
+  extraer un `core/ui/Modal.jsx` compartido (3 diálogos) es un
+  refactor mecánico de tamaño considerable sin beneficio visual
+  inmediato — se prefirió documentarlo con precisión (qué archivos,
+  cuántos usos) para una fase de mantenimiento futura, en vez de
+  apurar un cambio de 78 archivos bajo presión de tiempo.
+- **`--color-negative` no se tocó a propósito**: aunque tanto la marca
+  nueva como "negativo" están en la familia "rojo", se mantuvieron
+  deliberadamente en matices distintos (vino vs. óxido/terracota) —
+  la sección 15 del prompt explícitamente advierte contra depender
+  solo del color, y la sección 7 advierte contra "convertir toda la
+  interfaz en roja"; un botón de marca que se pudiera confundir con un
+  estado de error habría violado ambas reglas a la vez.
+- **Responsive limitado al chrome de la aplicación** (sidebar/topbar),
+  no a las ~150 pantallas de módulo — decisión de alcance explícita,
+  ver "Responsive" arriba.
+
+### Riesgos pendientes / deuda técnica
+
+1. Consolidación de código de Botón (78 archivos) y Modal (3 diálogos)
+   — visualmente ya unificados, pendiente solo a nivel de
+   mantenibilidad de código.
+2. Responsive de contenido interno por pantalla (más allá del chrome)
+   no auditado.
+3. Venta Rápida (sección 33 del prompt: "debe convertirse en una de
+   las experiencias UX más refinadas") sigue siendo, visualmente, un
+   formulario administrativo compacto — ya hereda el Design System
+   nuevo por completo, pero no se rediseñó su FLUJO (colapsar campos
+   avanzados, defaults inteligentes) porque eso toca la lógica de la
+   pantalla, no solo su presentación, y se prefirió no arriesgar un
+   cambio de flujo bajo presión de tiempo sin poder verificarlo a
+   fondo. Documentado explícito como pendiente, no resuelto en
+   silencio.
+4. Pendientes heredados de Fases 1-9 no resueltos acá.
+
+### Qué debe recordar Fase 11
+
+**Heredado, sin tocar**: toda la arquitectura de backend de Fases 0-9
+(Ledger, Fiscal, FX, RBAC, Centro Operativo). El Design System vive en
+`theme.css` + `frontend/DESIGN_SYSTEM.md` — cualquier pantalla nueva
+sigue construyendo ÚNICAMENTE con `core/ui/*` y las clases de
+`module.css`, nunca estilos aislados nuevos.
+
+**Construido en Fase 10**: la marca de Alarfly es roja
+(`--color-brand`), no dorada — cualquier mención futura de "el color
+dorado" en código o conversación se refiere ahora a `--color-warning`,
+no a la marca. La escala de z-index/el radio "pill"/el 3er nivel de
+sombra ya existen — un componente flotante nuevo reutiliza
+`--z-index-*`, nunca un número arbitrario nuevo. El sidebar tiene su
+propio scroll interno (`.app-nav-main`) — cualquier ítem nuevo del
+menú se agrega a `NAV_AREAS` (`AppLayout.jsx`), nunca a una lista
+plana aparte.
+
+**Lo que NO debe reconstruirse**: un segundo sistema de tokens, una
+segunda paleta, un segundo componente de ícono, un segundo sistema de
+navegación — todos los de esta fase y las anteriores siguen siendo los
+únicos.
+
+FASE 10 COMPLETA

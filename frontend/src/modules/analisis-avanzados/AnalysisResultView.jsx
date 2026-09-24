@@ -17,7 +17,7 @@ import {
 import HelpTooltip from '../../components/HelpTooltip';
 import { formatDate } from '../../utils/format';
 
-const SERIES_COLORS = ['var(--color-positive)', 'var(--color-warning)', 'var(--color-negative)', 'var(--color-silver-dim)'];
+const SERIES_COLORS = ['var(--color-positive)', 'var(--color-warning)', 'var(--color-negative)', 'var(--color-brand-dim)'];
 const LABEL_KEYS = ['name', 'period', 'month', 'semana', 'volume', 'periodo'];
 
 function inferChartFields(rows) {

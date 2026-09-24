@@ -12,6 +12,21 @@
   flex-direction: column;
   padding: var(--space-5) var(--space-3);
   transition: width var(--transition-fast);
+  /* Fase 10: el sidebar se queda fijo a la altura del viewport y
+     desplaza su propio contenido cuando no entra (en vez de estirar
+     toda la página) — así nunca vuelve a chocar visualmente con el
+     botón flotante de ayuda contextual, que está fijo a la esquina
+     inferior izquierda del viewport (hallazgo documentado en Fase 9). */
+  /* El sidebar se queda fijo a la altura del viewport; el bloque de
+     navegación (abajo, .app-nav-main) es la única zona que hace su
+     propio scroll interno cuando no entra — así "Cerrar sesión" y el
+     pie del sidebar siempre quedan visibles y nunca terminan detrás
+     del botón flotante de ayuda contextual (fijo en esa misma esquina
+     del viewport; hallazgo documentado en Fase 9). */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
 }
 
 /* Menú colapsable a íconos (Feature M) */
@@ -46,8 +61,8 @@
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-sm);
-  background: linear-gradient(155deg, var(--color-silver-strong), var(--color-silver));
-  color: var(--color-bg);
+  background: linear-gradient(155deg, var(--color-brand-strong), var(--color-brand));
+  color: var(--color-on-accent);
   font-family: var(--font-family-serif);
   font-weight: 700;
   font-size: 14px;
@@ -64,6 +79,16 @@
   flex-direction: column;
   gap: var(--space-1);
   flex: 1;
+}
+
+/* Única zona del sidebar que hace scroll interno cuando el listado de
+   módulos no entra completo — "min-height: 0" es lo que permite que un
+   hijo flex con overflow realmente se recorte en vez de estirar a su
+   padre (el bug clásico de flexbox + overflow). */
+.app-nav-main {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 }
 
 .app-nav-link {
@@ -97,7 +122,7 @@
 }
 
 .app-nav-link.is-active .app-nav-icon {
-  color: var(--color-silver);
+  color: var(--color-brand);
 }
 
 /* Sección "Anclados" (Feature K): reportes/vistas filtradas fijados
@@ -195,7 +220,12 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-2) 0;
+  /* El padding-bottom deja espacio real (no solo visual) para que el
+     botón de contraer/expandir nunca quede debajo del botón flotante
+     de ayuda contextual (fixed, misma esquina del viewport) — antes
+     de este ajuste el clic sobre el toggle lo interceptaba el botón
+     de ayuda, confirmado con Playwright (bounding boxes idénticos). */
+  padding: var(--space-3) var(--space-2) calc(var(--space-5) + 44px);
   border-top: 1px solid var(--color-border);
 }
 
@@ -215,7 +245,7 @@
 
 .app-sidebar-collapse-toggle:hover {
   color: var(--color-text-primary);
-  border-color: var(--color-silver-dim);
+  border-color: var(--color-brand-dim);
 }
 
 /* Mini-panel ("flyout") de un ítem del menú colapsado: aparece al
@@ -241,7 +271,7 @@
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-elevated);
   padding: var(--space-2);
-  z-index: 40;
+  z-index: var(--z-index-flyout);
 }
 
 .app-nav-item-wrap:hover .app-nav-flyout,
@@ -347,7 +377,7 @@
   border: 1px solid var(--color-border-strong);
   font-size: 12px;
   font-weight: 600;
-  color: var(--color-silver);
+  color: var(--color-brand);
 }
 
 .app-topbar-logout {
@@ -365,7 +395,7 @@
 }
 
 .app-topbar-logout:hover {
-  border-color: var(--color-silver-dim);
+  border-color: var(--color-brand-dim);
   color: var(--color-text-primary);
 }
 
@@ -373,4 +403,27 @@
   flex: 1;
   padding: var(--space-6);
   overflow-y: auto;
+}
+
+/* Responsive (sección 42/30): el sidebar fijo (240px) + el bloque de
+   usuario del topbar sin comprimir eran lo que producía scroll
+   horizontal por debajo de ~1024px (auditado con Playwright: 827px de
+   contenido en un viewport de 768px). Un sidebar más angosto y ocultar
+   el nombre/rol de texto (el avatar y los botones reales — moneda,
+   incógnito, notificaciones, cerrar sesión — siguen intactos y
+   funcionando) alcanza para eliminar el desborde sin colapsar
+   funcionalidad. Ver frontend/DESIGN_SYSTEM.md para los valores de
+   quiebre documentados (--breakpoint-tablet / --breakpoint-desktop-sm). */
+@media (max-width: 1024px) {
+  .app-sidebar:not(.is-collapsed) {
+    width: 200px;
+  }
+
+  .app-topbar-user-info {
+    display: none;
+  }
+
+  .app-content {
+    padding: var(--space-4);
+  }
 }

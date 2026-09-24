@@ -38,21 +38,21 @@ export default function SalesTrendChart({ data, currency = 'USD', onPointClick }
         aria-label="Comportamiento de ventas de los últimos meses"
         preserveAspectRatio="xMidYMid meet"
       >
-        <path d={areaPath} fill="var(--color-silver-strong)" opacity="0.12" stroke="none" />
-        <path d={path} fill="none" stroke="var(--color-silver-strong)" strokeWidth="2" />
+        <path d={areaPath} fill="var(--color-brand-strong)" opacity="0.12" stroke="none" />
+        <path d={path} fill="none" stroke="var(--color-brand-strong)" strokeWidth="2" />
         {points.map((p, i) => (
           <g key={i}>
             <circle
               cx={p.x}
               cy={p.y}
               r={clickable ? 8 : 4}
-              fill={clickable ? 'transparent' : 'var(--color-silver-strong)'}
+              fill={clickable ? 'transparent' : 'var(--color-brand-strong)'}
               className={clickable ? 'sales-trend-chart-hit' : undefined}
               onClick={clickable ? () => onPointClick(p.point) : undefined}
             >
               <title>{`${monthLabel(p.point.month)}: ${formatCurrency(p.point.totalSales, currency)} en ${p.point.invoiceCount} factura(s)${clickable ? ' — clic para ver las facturas' : ''}`}</title>
             </circle>
-            {clickable && <circle cx={p.x} cy={p.y} r="4" fill="var(--color-silver-strong)" style={{ pointerEvents: 'none' }} />}
+            {clickable && <circle cx={p.x} cy={p.y} r="4" fill="var(--color-brand-strong)" style={{ pointerEvents: 'none' }} />}
             <text x={p.x} y={HEIGHT + 20} textAnchor="middle" className="sales-trend-chart-label">
               {monthLabel(p.point.month)}
             </text>

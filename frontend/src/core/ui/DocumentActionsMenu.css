@@ -5,7 +5,7 @@
 
 .document-actions-dropdown {
   position: absolute;
-  z-index: 60;
+  z-index: var(--z-index-popover);
   top: calc(100% + 4px);
   right: 0;
   min-width: 220px;

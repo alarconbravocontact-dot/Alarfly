@@ -17,7 +17,7 @@ export default function Sparkline({ values, width = 90, height = 26, tone = 'neu
     .join(' ');
 
   const colorVar =
-    tone === 'positive' ? 'var(--color-positive)' : tone === 'negative' ? 'var(--color-negative)' : 'var(--color-silver-strong)';
+    tone === 'positive' ? 'var(--color-positive)' : tone === 'negative' ? 'var(--color-negative)' : 'var(--color-brand-strong)';
 
   return (
     <svg className="ui-sparkline" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-hidden="true">

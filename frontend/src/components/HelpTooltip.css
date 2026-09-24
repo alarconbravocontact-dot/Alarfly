@@ -25,14 +25,14 @@
 
 .help-tooltip-trigger:hover,
 .help-tooltip-trigger:focus-visible {
-  color: var(--color-silver-strong);
-  border-color: var(--color-silver-dim);
+  color: var(--color-brand-strong);
+  border-color: var(--color-brand-dim);
   background: var(--color-surface-hover);
 }
 
 .help-tooltip-popover {
   position: absolute;
-  z-index: 20;
+  z-index: var(--z-index-dropdown);
   top: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);

@@ -24,7 +24,7 @@
 .exec-summary-chevron {
   display: inline-block;
   width: 1em;
-  color: var(--color-silver-strong);
+  color: var(--color-brand-strong);
 }
 
 .exec-summary-cards {

@@ -2,7 +2,7 @@
   position: fixed;
   right: var(--space-5);
   bottom: var(--space-5);
-  z-index: 40;
+  z-index: var(--z-index-flyout);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -13,9 +13,9 @@
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  border: 1px solid var(--color-silver);
-  background: var(--color-silver);
-  color: var(--color-bg);
+  border: 1px solid var(--color-brand);
+  background: var(--color-brand);
+  color: var(--color-on-accent);
   font-size: 28px;
   line-height: 1;
   display: flex;
@@ -27,7 +27,7 @@
 }
 
 .quick-create-button:hover {
-  background: var(--color-silver-strong);
+  background: var(--color-brand-strong);
   transform: translateY(-1px);
 }
 
@@ -72,7 +72,7 @@
 }
 
 .quick-create-menu-item.is-suggested {
-  border-left: 2px solid var(--color-silver);
+  border-left: 2px solid var(--color-brand);
 }
 
 .quick-create-menu-item-label {

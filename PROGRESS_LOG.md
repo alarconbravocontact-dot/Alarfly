@@ -1802,3 +1802,243 @@ los ya existentes (`fiscal-transactions.service`, `Customer`/`Vendor`,
 los únicos.
 
 FASE 7 COMPLETA
+
+## Fase 8 — Analítica, KPIs, Reportes y Forecast
+
+### Objetivo de la fase
+
+Auditar y unificar la arquitectura de analítica/KPIs/reportes/
+presupuesto/forecast a través de FP&A, Métricas del Negocio, Reportes
+y Análisis Avanzados, garantizando una sola fuente de verdad por
+métrica — sin construir un segundo motor de KPIs/métricas/dashboard a
+menos que la auditoría demostrara que hace falta de verdad (sección
+38 del prompt oficial: demostrar necesidad antes de crear).
+
+### Auditoría previa (mapa Concepto→Modelo→Servicio→Ruta→Frontend→Fuente de verdad)
+
+Hallazgo central: **la arquitectura analítica ya estaba bien
+distribuida y correctamente unificada desde antes de esta fase** — no
+hay una segunda realidad de datos para ninguna métrica auditada.
+Confirmado con evidencia de código (no solo lectura de la bitácora):
+
+- **`reports/services/dashboard.service.js` es un CONSUMIDOR PURO**
+  (patrón adapter/registro, igual que los parsers de Tesorería y los
+  proveedores de Fiscal): su `WIDGET_DEFINITIONS` no tiene ni una
+  línea de cálculo propio — cada widget llama directo a
+  `treasuryAccountsService.getConsolidatedCashPosition`,
+  `fpa/kpisService.getEbitda`/`getBurnRateAndRunway`,
+  `accounting/reportsService.getIncomeStatement`/`getBalanceSheet` o
+  `core/alerts.listAlerts`. Confirmado leyendo el archivo completo, no
+  solo su firma.
+- **`fpa/services/scenario.rules.js` (What-If) es genuinamente puro**:
+  cero llamadas a `prisma.` en todo el archivo — confirmado con
+  `grep`. `scenarios.service.simulateScenario` (solo lectura, proyecta
+  sobre la Previsión de Liquidez real de Tesorería) y `saveScenario`
+  (función aparte, la única que escribe) siguen siendo funciones
+  distintas — la garantía de "la simulación nunca muta datos reales"
+  queda por construcción del código, no por convención. Confirmado
+  ahora también con un test de integración real (ver Tests).
+- **`business-metrics.rules.computeMetricStats`** es conceptualmente y
+  arquitectónicamente distinta de un KPI: opera solo sobre valores que
+  el usuario escribió a mano, nunca sobre una fórmula del mayor
+  contable — confirma la distinción ya documentada en una fase
+  anterior, no encontró superposición real con FP&A.
+- **`advanced-analytics/services/shared-data.js`** llama directo a
+  `kpisService.getEbitda` y a
+  `accountingReportsService.getIncomeStatement` — nunca recalcula
+  EBITDA ni el Estado de Resultados por su cuenta, confirma reuso, no
+  duplicación.
+- **RBAC**: `MODULE_ROLES` ya tenía la matriz correcta para los
+  módulos analíticos — sin cambios.
+- **`core/glossary`** (construido en una fase anterior) resultó ser el
+  análogo más cercano que el proyecto ya tenía a un "catálogo de
+  KPIs": 6 términos con `hasLiveValue: true` que ya resuelven un valor
+  real reutilizando el mismo servicio que otra pantalla (ej. el Panel
+  principal) — la decisión de la fase fue extender esto, no crear un
+  `core/analytics` nuevo.
+
+**Conclusión de la auditoría**: construir un `core/analytics` nuevo no
+se justificaba con la evidencia encontrada — se decidió extender
+`core/glossary` con la metadata estructurada que pide la sección 8 del
+prompt (fórmula/fuente/unidad/periodicidad/dimensiones) y sumar la
+única métrica genuinamente faltante detectada ("Ventas de este mes",
+que el Panel principal ya graficaba sin que el glosario la conociera).
+
+### Qué se creó/extendió
+
+- **`core/glossary/glossary-catalog.js`**: los 6 términos con
+  `hasLiveValue: true` ganaron `formula`/`sourceRef`/`unit`/
+  `periodicity`/`dimensions` (metadata estática, nunca calculada) +
+  nuevo 7° término `sales-this-month` ("Ventas de este mes"),
+  `sourceRef: ar-invoices.service.js#getSalesTrend`.
+- **`core/glossary/glossary.service.js`**: `listTerms()` ahora expone
+  también esos campos de metadata; `getLiveValue()` ganó el caso
+  `sales-this-month`, que llama a `arInvoicesService.getSalesTrend(
+  companyId, { months: 1 })` y toma el único balde que devuelve — la
+  MISMA función que ya alimenta el gráfico de ventas del Panel
+  principal, nunca una suma de facturas aparte.
+- **Frontend**: `GlossaryTerm.jsx` ganó una línea "Cómo se calcula:
+  <fórmula>" (solo si el término la trae); `DashboardPage.jsx` envolvió
+  la palabra "ventas" del título del gráfico de tendencia con
+  `<GlossaryTerm termKey="sales-this-month">`.
+- **Ningún cambio de schema** — Fase 8 no necesitó ninguna migración:
+  todo se resolvió extendiendo catálogo + servicio ya existentes.
+
+### Tests
+
+12 tests nuevos, todos contra Postgres real donde aplica (sin mocks
+para los de integración):
+
+- **`glossary.service.test.js`** (+2): `sales-this-month` reutiliza
+  `getSalesTrend` con `{ months: 1 }`, nunca recalcula; `listTerms`
+  expone la metadata de catálogo (fórmula/fuente/unidad/periodicidad)
+  para los términos con valor en vivo, y confirma que un término sin
+  valor en vivo (`double-entry`) no trae `sourceRef`.
+- **`src/modules/reports/services/analytics-coherence.integration.test.js`**
+  (nuevo, 9 tests):
+  - **Test de una fuente** (sección 62, 3 tests): EBITDA del widget de
+    Dashboard = EBITDA de FP&A directo = EBITDA del Glosario, los 3
+    exactamente el mismo número; posición de caja del Dashboard =
+    colchón de liquidez de Finance Summary/Glosario; cuentas por
+    cobrar del Glosario = Finance Summary, ambos derivados de
+    `aging.service`.
+  - **Test multiempresa** (sección 63, 1 test): EBITDA y CxC de 2
+    empresas reales nunca se mezclan.
+  - **Test histórico** (sección 64, 1 test): el Estado de Resultados
+    de enero no cambia al facturar en febrero (un reporte ya cerrado
+    no se recalcula con datos futuros).
+  - **Test de fecha de corte** (sección 67, 1 test): el Balance
+    General al 31/01 y al 28/02 respeta exactamente el corte de fecha
+    pedido, sin adelantar ni atrasar ningún movimiento.
+  - **Test de presupuesto/variación** (sección 8, 1 test, NUEVO — el
+    módulo FP&A nunca había tenido un test de integración real): un
+    presupuesto de $1000 (agosto) contra un asiento real de $700
+    etiquetado con la misma `FpaDimension` da exactamente -$300/-30% de
+    desviación, `requiresJustification: true` (supera el umbral
+    default de 10%), y el mismo $700 real coincide exacto con lo que
+    ya reporta el Estado de Resultados de Contabilidad para ese mes —
+    una sola fuente para "lo real".
+  - **Test de moneda** (sección 66, 1 test, NUEVO): una cuenta de
+    tesorería en EUR (200 EUR, tasa real registrada 1 EUR = 1.1 USD)
+    se convierte exactamente igual (720.00 USD) tanto en el widget de
+    caja del Dashboard como en Finance Summary — misma tasa, mismo
+    resultado, sin `missingExchangeRates`.
+  - **Test What-If** (secciones 32/65, 1 test): `simulateScenario` con
+    un ajuste real (+10% ventas) no cambia ni el conteo de
+    `JournalEntry`/`ArInvoice`/`BankTransaction` ni el saldo de
+    `TreasuryAccount` — la simulación es de solo lectura, verificado
+    con datos reales, no solo por inspección del código.
+- **`fpa/services/budget.rules.test.js`** (+1): `calculateVariance`
+  con presupuesto en cero y algo real gastado da 100% de desviación
+  sin dividir entre cero (caso límite que faltaba junto a los ya
+  existentes de 0%/+20%/0-contra-0).
+
+**609 → 621 tests, sin regresiones** (98 suites, 621 passing).
+
+Corregido en el camino un 4° bug latente del mismo patrón en
+`test-helpers/integration-fixtures.js` `cleanupCompany` (ya encontrado
+y corregido 3 veces antes — Fase 6 ×2, Fase 7 ×1): `BudgetLine.accountId`
+es `RESTRICT` hacia `Account`, pero la limpieza nunca borraba ningún
+`Budget` antes de `account.deleteMany` — nunca se había disparado
+porque ningún test anterior había combinado un Presupuesto real de
+FP&A con `cleanupCompany`. Corregido agregando
+`budget.deleteMany({ where: { companyId } })` antes de la limpieza de
+cuentas (cascada automática a `BudgetLine`/`BudgetVarianceJustification`
+vía `onDelete: Cascade` del propio schema, sin tener que borrarlas a
+mano).
+
+### Verificación real
+
+`npx prisma validate`: sin errores (sin migración esta fase). `npm run
+lint` (backend): sin errores nuevos. Verificado con `curl` autenticado
+contra Postgres real (dos servidores levantados, login real como
+Administrador):
+- `GET /glossary` → los 7 términos con valor en vivo devuelven su
+  metadata completa (`formula`/`sourceRef`/`unit`/`periodicity`).
+- `GET /glossary/ebitda/value` → `360.00`, exactamente igual a
+  `GET /fpa/kpis/ebitda` (`ebitda: "360.00"`) y al widget `ebitda` de
+  `GET /reports/dashboard`.
+- `GET /glossary/sales-this-month/value` → `560.00`, exactamente igual
+  a `GET /accounting/reports/income-statement` (`totalIncome: "560.00"`).
+- `GET /reports/aging/receivables` (`CURRENT: 360.00`) exactamente
+  igual a `GET /finance/summary` (`totalReceivable: "360.00"`).
+
+Verificado con Playwright contra los dos servidores reales: clic en el
+término "ventas" del Panel principal abre el popover con la definición
++ la nueva línea "Cómo se calcula" + el valor real "560,00 US$"; clic
+en "EBITDA" muestra su fórmula y "360,00 US$" — coincide exacto con el
+`curl` de arriba. 0 errores de consola reales (el único
+`ERR_CERT_AUTHORITY_INVALID` es el bloqueo ya conocido de Google Fonts
+en este entorno de pruebas, documentado en fases anteriores, sin
+relación con este cambio). Captura de pantalla revisada.
+
+**Rendimiento (medido, no un objetivo artificial fijado sin medir)**:
+`GET /reports/dashboard` (4 widgets, incluye EBITDA/Burn-Runway/
+Cash Position con conversión de moneda) respondió en 81ms en frío; 5
+peticiones secuenciales tardaron 105ms en total (~21ms/petición en
+caliente) contra Postgres real en este entorno — sin ningún indicio de
+problema de N+1 ni de consulta lenta a esta escala de datos de prueba.
+
+### Decisiones tomadas
+
+- **No se construyó `core/analytics`**: la auditoría (sección 38 del
+  prompt oficial exige demostrar necesidad antes de crear) no encontró
+  evidencia de una segunda fuente de verdad ni de cálculo duplicado
+  que justificara un módulo nuevo — el patrón consumidor-puro ya
+  presente en Dashboard/What-If/Advanced Analytics/Glosario cumple el
+  objetivo de la fase sin construir infraestructura nueva.
+- **`core/glossary` queda como el catálogo de KPIs del proyecto**: en
+  vez de crear una tabla/catálogo nuevo, se extendió el que ya existía
+  y ya cumplía el mismo rol (definición + valor en vivo reutilizando
+  el servicio canónico) — agregarle metadata estructurada era
+  extender, no fusionar ni duplicar.
+- **"Ventas de este mes" reutiliza `getSalesTrend` con `months: 1`**,
+  nunca una consulta nueva de agregación — es literalmente la misma
+  función que ya usa el gráfico del Panel principal, pidiendo un solo
+  balde en vez de 6.
+
+### Pendientes documentados (no bloqueantes)
+
+1. `lastRunAt` centralizado en los crons sigue sin resolverse —
+   pendiente heredado, fuera de esta fase.
+2. Ninguna integración externa real de facturación electrónica — sigue
+   siendo decisión consciente, documentada desde que se construyó.
+3. Pendientes heredados de Fases 1-7 no resueltos acá.
+
+### Qué debe recordar Fase 9
+
+**Heredado de Fases 1-7** (sin tocar, seguir usando): Unit of Work,
+`postEntry(data, tx)`, `core/audit.log(data, tx)`, `core/fx`
+(`resolveForeignAmountSnapshot`/`assertBaseCurrencySettlement`),
+`modules/finance` como única capa de lectura consolidada,
+`fiscal-transactions.service.createFiscalTransaction` como único punto
+de cálculo fiscal, `fiscal-books.service` como única fuente de libros
+fiscales (incluye notas), `determineInvoiceStatus`/`determineBillStatus`
+como única fuente del estado de un documento.
+
+**Construido/confirmado en Fase 8** (reutilizar, no reconstruir):
+`core/glossary` es el catálogo central de KPIs/métricas del proyecto
+— cualquier métrica nueva que necesite una definición + un valor en
+vivo debe registrarse ahí (`glossary-catalog.js` + un `case` en
+`glossary.service.getLiveValue`), nunca en un catálogo paralelo.
+`reports/services/dashboard.service.WIDGET_DEFINITIONS` es el único
+registro de widgets del Dashboard — un widget nuevo es una entrada más
+en ese registro que llama a un servicio ya existente, nunca cálculo
+propio. `fpa/services/scenarios.service.simulateScenario` sigue siendo
+la única simulación de solo lectura del proyecto (confirmado con test
+real, no solo por diseño) — cualquier simulación futura debe seguir el
+mismo patrón de función separada para leer vs. función separada para
+guardar. `budget-variance.service.getActualAmount` sigue siendo la
+única fuente de "lo real" de una línea de presupuesto (vía
+`JournalEntryLineFpaDimension`) — nunca sumar `JournalEntryLine` por
+cuenta sola, sin la etiqueta de dimensión.
+
+**Lo que NO debe reconstruirse**: un segundo catálogo de KPIs/métricas,
+un segundo motor de widgets de dashboard, una segunda capa de
+simulación What-If, un segundo cálculo de EBITDA/Burn Rate/Runway, ni
+una segunda fuente de "lo real" para desviación presupuestaria — todos
+los ya existentes (`core/glossary`, `dashboard.service`,
+`scenarios.service`, `fpa/services/kpis.service`,
+`budget-variance.service`) siguen siendo los únicos.
+
+FASE 8 COMPLETA

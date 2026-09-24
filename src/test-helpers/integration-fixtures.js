@@ -334,6 +334,14 @@ async function cleanupCompany(companyId) {
   await prisma.taxJurisdiction.deleteMany({ where: { companyId } });
   await prisma.accountingPeriod.deleteMany({ where: { companyId } });
   await prisma.accountingSettings.deleteMany({ where: { companyId } });
+  // Fase 8: BudgetLine.accountId es RESTRICT hacia Account — hay que
+  // borrar Budget antes (cascada a BudgetLine y, desde ahí, a
+  // BudgetVarianceJustification, ambas onDelete: Cascade en el schema).
+  // Mismo patrón de "FK nueva que cleanupCompany nunca había topado"
+  // que ya se corrigió para AR/AP (Fase 6) y para Fiscal (Fase 7) — acá
+  // porque ningún test anterior había combinado un Budget real con
+  // cleanupCompany.
+  await prisma.budget.deleteMany({ where: { companyId } });
   await prisma.account.deleteMany({ where: { companyId } });
   await prisma.user.deleteMany({ where: { companyId } });
   await prisma.company.deleteMany({ where: { id: companyId } });

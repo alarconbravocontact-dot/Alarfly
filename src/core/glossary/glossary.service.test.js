@@ -5,9 +5,13 @@ jest.mock('../../modules/fpa/services/kpis.service', () => ({
 jest.mock('../../modules/finance/services/finance-summary.service', () => ({
   getFinanceSummary: jest.fn(),
 }));
+jest.mock('../../modules/accounts-receivable/services/ar-invoices.service', () => ({
+  getSalesTrend: jest.fn(),
+}));
 
 const kpisService = require('../../modules/fpa/services/kpis.service');
 const financeSummaryService = require('../../modules/finance/services/finance-summary.service');
+const arInvoicesService = require('../../modules/accounts-receivable/services/ar-invoices.service');
 const glossaryService = require('./glossary.service');
 
 describe('glossary.service', () => {
@@ -63,5 +67,27 @@ describe('glossary.service', () => {
     const result = await glossaryService.getLiveValue('c1', 'accounts-payable');
     expect(financeSummaryService.getFinanceSummary).toHaveBeenCalledWith('c1');
     expect(result.value).toBe('110.00');
+  });
+
+  // Fase 8 (sección 8, catálogo de KPIs): "Ventas de este mes" reutiliza
+  // exactamente la misma función que ya alimenta el gráfico de ventas
+  // del Panel principal — nunca suma facturas por su cuenta.
+  test('getLiveValue de "sales-this-month" reutiliza ar-invoices.getSalesTrend con 1 solo mes', async () => {
+    arInvoicesService.getSalesTrend.mockResolvedValue([{ month: '2026-09', totalSales: '4500.00', invoiceCount: 3 }]);
+    const result = await glossaryService.getLiveValue('c1', 'sales-this-month');
+    expect(arInvoicesService.getSalesTrend).toHaveBeenCalledWith('c1', { months: 1 });
+    expect(result.value).toBe('4500.00');
+  });
+
+  test('listTerms devuelve la metadata de catálogo de KPI (fórmula/fuente/unidad) para los términos con valor en vivo', () => {
+    const terms = glossaryService.listTerms();
+    const ebitda = terms.find((t) => t.key === 'ebitda');
+    expect(ebitda.formula).toEqual(expect.any(String));
+    expect(ebitda.sourceRef).toBe('src/modules/fpa/services/kpis.service.js#getEbitda');
+    expect(ebitda.unit).toBe('currency');
+    expect(ebitda.periodicity).toBe('monthly');
+
+    const doubleEntry = terms.find((t) => t.key === 'double-entry');
+    expect(doubleEntry.sourceRef).toBeUndefined(); // término sin valor en vivo, sin fuente que trazar
   });
 });

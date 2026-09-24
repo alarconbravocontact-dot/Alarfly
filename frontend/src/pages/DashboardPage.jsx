@@ -239,7 +239,9 @@ export default function DashboardPage() {
 
       <section className="panel">
         <div className="panel-header">
-          <h2>Comportamiento de ventas de los últimos 6 meses</h2>
+          <h2>
+            Comportamiento de <GlossaryTerm termKey="sales-this-month">ventas</GlossaryTerm> de los últimos 6 meses
+          </h2>
         </div>
         {isSalesTrendLoading && <p className="text-muted">Cargando…</p>}
         {!isSalesTrendLoading && salesTrendError && (

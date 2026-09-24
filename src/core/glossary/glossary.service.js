@@ -17,9 +17,24 @@ const AppError = require('../utils/AppError');
 const { TERMS, TERMS_BY_KEY } = require('./glossary-catalog');
 const kpisService = require('../../modules/fpa/services/kpis.service');
 const financeSummaryService = require('../../modules/finance/services/finance-summary.service');
+const arInvoicesService = require('../../modules/accounts-receivable/services/ar-invoices.service');
 
+// Fase 8 (sección 8): se devuelven también los campos de catálogo de
+// KPI (formula/sourceRef/unit/periodicity/dimensions) cuando el
+// término los tiene — nunca se calculan acá, son metadata estática de
+// glossary-catalog.js.
 function listTerms() {
-  return TERMS.map(({ key, label, definition, hasLiveValue }) => ({ key, label, definition, hasLiveValue }));
+  return TERMS.map(({ key, label, definition, hasLiveValue, formula, sourceRef, unit, periodicity, dimensions }) => ({
+    key,
+    label,
+    definition,
+    hasLiveValue,
+    formula,
+    sourceRef,
+    unit,
+    periodicity,
+    dimensions,
+  }));
 }
 
 function currentMonthRange() {
@@ -60,6 +75,15 @@ async function getLiveValue(companyId, key) {
     case 'accounts-payable': {
       const r = await financeSummaryService.getFinanceSummary(companyId);
       return { value: r.totalPayable, label: 'Tu total por pagar ahora mismo' };
+    }
+    // Fase 8: reutiliza exactamente la misma función que ya alimenta el
+    // gráfico de ventas del Panel principal (getSalesTrend) — se pide
+    // solo 1 mes y se toma el único balde que devuelve, en vez de
+    // sumar facturas por su cuenta con una consulta nueva.
+    case 'sales-this-month': {
+      const trend = await arInvoicesService.getSalesTrend(companyId, { months: 1 });
+      const bucket = trend[trend.length - 1];
+      return { value: bucket.totalSales, label: 'Tus ventas de este mes' };
     }
     default:
       throw new AppError('Este término no tiene un valor en vivo para mostrar.', 400, 'GLOSSARY_TERM_HAS_NO_LIVE_VALUE');

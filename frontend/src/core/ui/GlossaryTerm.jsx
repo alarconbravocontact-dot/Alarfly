@@ -59,6 +59,11 @@ export default function GlossaryTerm({ termKey, children }) {
           {term === undefined && <span className="text-muted">Cargando…</span>}
           {term === null && <span className="text-muted">No se encontró la definición.</span>}
           {term && <span>{term.definition}</span>}
+          {term?.formula && (
+            <span className="glossary-term-formula text-muted" title={term.sourceRef}>
+              Cómo se calcula: {term.formula}
+            </span>
+          )}
           {term?.hasLiveValue && (
             <span className="glossary-term-live">
               {isLoadingLive && 'Calculando tu valor actual…'}

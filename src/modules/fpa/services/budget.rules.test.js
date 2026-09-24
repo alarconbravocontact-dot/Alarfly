@@ -86,6 +86,12 @@ describe('calculateVariance / exceedsThreshold (desviación presupuesto vs. real
     expect(variancePercentage.toNumber()).toBe(0);
   });
 
+  test('presupuesto en cero con algo real gastado es 100% de desviación (nunca división entre cero)', () => {
+    const { varianceAmount, variancePercentage } = calculateVariance(0, 350);
+    expect(varianceAmount.toNumber()).toBe(350);
+    expect(variancePercentage.toNumber()).toBe(100);
+  });
+
   test('exceedsThreshold compara valor absoluto contra el umbral', () => {
     expect(exceedsThreshold(15, 10)).toBe(true);
     expect(exceedsThreshold(-15, 10)).toBe(true);

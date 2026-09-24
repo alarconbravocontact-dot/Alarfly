@@ -324,6 +324,13 @@ async function cleanupCompany(companyId) {
   await prisma.treasuryAccount.deleteMany({ where: { companyId } });
   await prisma.arApSettings.deleteMany({ where: { companyId } });
   await prisma.customer.deleteMany({ where: { companyId } });
+  // Fase 7: TaxRate.jurisdictionId y FiscalObligation.jurisdictionId son
+  // RESTRICT — tienen que borrarse antes que TaxJurisdiction. FiscalRiskRule
+  // no depende de nada más, se borra acá por prolijidad (no bloqueaba nada,
+  // pero es fiscal y companyId-scoped como el resto de esta sección).
+  await prisma.fiscalRiskRule.deleteMany({ where: { companyId } });
+  await prisma.fiscalObligation.deleteMany({ where: { companyId } });
+  await prisma.taxRate.deleteMany({ where: { companyId } });
   await prisma.taxJurisdiction.deleteMany({ where: { companyId } });
   await prisma.accountingPeriod.deleteMany({ where: { companyId } });
   await prisma.accountingSettings.deleteMany({ where: { companyId } });

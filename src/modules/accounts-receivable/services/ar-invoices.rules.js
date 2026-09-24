@@ -12,11 +12,19 @@ function calculateDueDate(issueDate, paymentTermsDays) {
 }
 
 // Función pura: decide el estado de una factura según lo pagado.
+// Fase 7 (secciones 16/26/61): el chequeo de "ya está saldada" va
+// PRIMERO — antes vivía después de `paid.isZero()`, así que una
+// factura reducida a $0 por una nota de crédito total (nunca cobrada,
+// paid=0 también) leía "OPEN" en vez de "PAID". Una nota de crédito
+// por el 100% es la forma ya existente en el proyecto de "revertir"
+// una factura (nunca se borra, se ajusta con su propio asiento — mismo
+// criterio que core/ledger.reverseEntry) y necesita que el estado
+// resultante refleje correctamente que ya no queda nada pendiente.
 function determineInvoiceStatus(totalAmount, paidAmount) {
   const total = new Decimal(totalAmount);
   const paid = new Decimal(paidAmount);
-  if (paid.isZero()) return 'OPEN';
   if (paid.greaterThanOrEqualTo(total)) return 'PAID';
+  if (paid.isZero()) return 'OPEN';
   return 'PARTIALLY_PAID';
 }
 

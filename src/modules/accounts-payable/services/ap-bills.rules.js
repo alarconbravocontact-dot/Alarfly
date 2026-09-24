@@ -11,11 +11,15 @@ function calculateDueDate(issueDate, paymentTermsDays) {
   return due;
 }
 
+// Fase 7 (secciones 16/26/61): mismo fix que el espejo de AR — el
+// chequeo de "ya está saldada" va primero, para que una factura
+// reducida a $0 por una nota de crédito total lea "PAID" en vez de
+// "OPEN".
 function determineBillStatus(totalAmount, paidAmount) {
   const total = new Decimal(totalAmount);
   const paid = new Decimal(paidAmount);
-  if (paid.isZero()) return 'OPEN';
   if (paid.greaterThanOrEqualTo(total)) return 'PAID';
+  if (paid.isZero()) return 'OPEN';
   return 'PARTIALLY_PAID';
 }
 

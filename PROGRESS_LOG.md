@@ -1592,3 +1592,213 @@ procesamiento real — siguen siendo, por diseño, solo registro/control/
 conciliación/trazabilidad.
 
 FASE 6 COMPLETA
+
+## Fase 7 — Fiscalidad y Cumplimiento
+
+### Objetivo de la fase
+
+Auditar, integrar y completar la arquitectura fiscal ya existente
+(impuestos, retenciones, documentos fiscales, facturación electrónica,
+libros fiscales, calendario fiscal, riesgo fiscal), garantizando que
+Fiscal represente y controle el efecto tributario de las operaciones
+reales del negocio — nunca una fuente de verdad paralela a Ventas/
+Compras/CxC/CxP/Ledger.
+
+### Auditoría previa (mapa Concepto→Modelo→Servicio→Ruta→Frontend→Fuente de verdad)
+
+Hallazgo central de la auditoría: **el módulo Fiscal ya estaba
+completo, correctamente integrado y bien diseñado desde antes de esta
+fase** — construido en su propio orden histórico (Fiscal antes que AR/
+AP), con AR/AP conectándose DESPUÉS como consumidores del motor fiscal
+ya existente, exactamente como pide la sección 2 del prompt
+("Fiscal... no convertirse en una fuente de verdad paralela"). Fase 7
+fue mayormente confirmación con evidencia de código, con 2 correcciones
+reales encontradas y cerradas.
+
+Confirmado correcto, sin tocar (con evidencia de código, no solo
+lectura de la bitácora anterior):
+- **`FiscalTransaction`** — 1 a 1 con `JournalEntry` (única), 1 a 1
+  opcional con `ArInvoice`/`ApBill`; puede existir standalone (registro
+  manual desde la pantalla de Transacciones) o nacer de una factura de
+  venta/compra. `fiscal-transactions.service.createFiscalTransaction`
+  es el ÚNICO punto que calcula impuesto/retención y postea el asiento
+  — nunca se duplica ese cálculo en otro lugar (confirmado leyendo
+  `ar-invoices.service.createInvoice`: `ArInvoice.taxAmount`/
+  `withholdingAmount`/`totalAmount` se copian DIRECTO del resultado de
+  `createFiscalTransaction`, nunca se recalculan — el único cálculo
+  "propio" que hace AR es una ESTIMACIÓN de solo lectura para validar
+  el límite de crédito ANTES de tocar Fiscal, documentada como tal,
+  resolviendo la MISMA tasa, nunca una lógica distinta).
+- **Unit of Work end a end**: `createInvoice`/`createBill` pasan `tx`
+  a `createFiscalTransaction`, que a su vez pasa `tx` a
+  `ledgerService.postEntry` — asiento + FiscalTransaction + factura
+  quedan en una sola transacción (secciones 8/9/25).
+- **Retención vs. impuesto**: `TaxType` (`VAT`/`WITHHOLDING`/`OTHER`)
+  nunca los confunde; `FiscalTransaction` tiene `taxRateId`/
+  `taxAmount` y `withholdingRateId`/`withholdingAmount` como pares
+  completamente separados (sección 15).
+- **Vigencia/históricos**: `TaxRate.validFrom`/`validTo`, nunca se
+  edita una tasa vencida (se cierra y nace una nueva) — una
+  `FiscalTransaction`/factura ya emitida guarda el `taxAmount`
+  calculado como valor, nunca una referencia viva a la tasa (secciones
+  11/47-49). Confirmado con test dedicado.
+- **Devoluciones vs. notas de crédito**: `ArCreditNote`/
+  `ApCreditNote.relatedInventoryMovementId` es opcional — una
+  devolución física (con salida de inventario real,
+  `VENDOR_RETURN_EXIT` del lado de compras) se liga aparte de un
+  simple ajuste financiero (ej. un descuento), nunca se fuerza el
+  vínculo (sección 17).
+- **Facturación electrónica**: confirmado 100% MOCK
+  (`FiscalDocumentProvider { MOCK }`, patrón adapter listo para un
+  proveedor real sin tocar el resto), estados
+  `GENERATED/REJECTED/CANCELLED` ya cubren el ciclo, el proveedor MOCK
+  simula un rechazo real (NIT/RFC faltante) para poder probar el
+  camino de error sin depender de una API — nada de esto se tocó
+  (secciones 18-20, 55).
+- **RBAC ya correcto**: `MODULE_ROLES.fiscal = ['ADMIN','ACCOUNTANT']`
+  (puerta del módulo) + `canManage = requireRole('ADMIN')` en cada
+  ruta de escritura de los 6 sub-módulos — Contador entra con
+  solo-lectura, Financiero/Colaborador no entran, exactamente la
+  matriz ya documentada en una fase anterior. Confirmado en el código,
+  no solo en la bitácora (sección 52).
+- **Multimoneda**: `FiscalTransaction` nunca necesitó su propia lógica
+  de conversión — sus montos son siempre moneda base (mismo invariante
+  del Ledger), y el único lugar donde el pago de una factura puede
+  venir en moneda extranjera (`ArPayment`/`ApPayment.foreignCurrency`)
+  ya reutiliza Fase 6 completa desde que se construyó — no había nada
+  que hacer acá, confirmado que no existe una segunda lógica de
+  conversión fiscal (secciones 33-34).
+
+### Hallazgos reales, corregidos
+
+1. **`determineInvoiceStatus`/`determineBillStatus`: bug real de
+   estado** (secciones 16/26/61). El orden de los chequeos hacía que
+   una factura reducida a $0 por una nota de crédito del 100% (nunca
+   cobrada, `paidAmount` también 0) leyera **`OPEN`** en vez de
+   `PAID` — porque `paid.isZero()` se evaluaba antes que
+   `paid >= total`. Una nota de crédito total es, en esta
+   arquitectura, la forma ya existente de "revertir" una factura
+   (nunca se borra, se ajusta con su propio asiento — mismo criterio
+   que `core/ledger.reverseEntry`) y necesitaba que el estado
+   resultante reflejara correctamente que ya no queda nada pendiente.
+   Corregido invirtiendo el orden de los 2 chequeos en ambas funciones
+   (espejo exacto AR/AP) — sin cambiar ningún otro caso ya probado.
+2. **El libro fiscal (venta/compra) nunca reflejaba notas de crédito/
+   débito** (sección 43, explícitamente nombrada como algo a auditar;
+   sección 16, "Ajuste fiscal" como paso nombrado del flujo). Una nota
+   de crédito NUNCA vuelve a pasar por el motor fiscal (decisión ya
+   tomada y correcta, ver arriba), así que nunca generaba ni ajustaba
+   una `FiscalTransaction` — el libro, que solo sumaba
+   `FiscalTransaction`, quedaba ciego a cualquier nota emitida en el
+   periodo. Para una declaración de IVA real esto era un hueco
+   genuino. Corregido: `getSalesBook`/`getPurchasesBook` ahora
+   incluyen una sección aparte con las notas reales del periodo
+   (`ArCreditNote`/`ApCreditNote`, leídas tal cual — nunca se inventa
+   un desglose base/impuesto que esas notas nunca tuvieron) y un
+   `netTotal` (base + impuesto ajustado por el efecto neto de las
+   notas). Nunca se mezclan con las líneas de `FiscalTransaction`, para
+   no sugerir una precisión que no existe en el dato.
+
+### Qué se creó/extendió
+
+- **`ar-invoices.rules.js`/`ap-bills.rules.js`**: `determineInvoiceStatus`/
+  `determineBillStatus` reordenados (fix #1).
+- **`fiscal-books.service.js`**: `getCreditNotesForBook` (nueva),
+  `buildBookWithNotes` (nueva, envuelve la función `getBook` ya
+  existente sin duplicar su lógica) — `getSalesBook`/`getPurchasesBook`
+  ahora devuelven `creditNotes`/`netCreditNoteEffect`/`netTotal` además
+  de los campos que ya devolvían (aditivo, compatible).
+- **Frontend**: `FiscalBooksPage.jsx` gana la sección "Notas de crédito
+  y débito del periodo" + "Total neto del periodo", debajo de la tabla
+  de ventas/compras ya existente — reutiliza `StatusSeal`/`EmptyState`/
+  `HelpTooltip` ya usados en el resto de la pantalla, sin ningún
+  componente nuevo.
+- **Ningún cambio de schema** — Fase 7 no necesitó ninguna migración:
+  los 2 hallazgos se resolvieron con lógica de servicio, reutilizando
+  datos que ya existían.
+
+### Tests
+
+7 tests de integración nuevos (`fiscal-coherence.integration.test.js`,
+contra Postgres real, con la tasa REAL que cada test configura, nunca
+una regla fiscal impuesta): **test de coherencia** (sección 59, venta
+con la tasa configurada → Factura = Fiscal = CxC = Ledger balanceado,
+los 4 exactamente iguales); **test de nota de crédito** (sección 60,
+nota del 100% deja la factura en `PAID` — confirma el fix #1 — sin
+crear una segunda `FiscalTransaction`, y el libro fiscal ya la
+refleja — confirma el fix #2); **test de reversión** (sección 61, el
+asiento original de la venta nunca se toca, la nota queda auditada);
+**test multiempresa** (sección 62, tasas/transacciones/libros
+aislados entre 2 empresas reales); **test de históricos** (sección 63,
+cerrar una tasa y crear una nueva y más alta no recalcula una factura
+ya emitida con la tasa anterior); **2 tests de idempotencia/
+atomicidad** (secciones 25/56/57/64: una regla de riesgo bloqueante no
+deja ningún asiento/FiscalTransaction/factura huérfano; generar un
+comprobante electrónico dos veces sobre la misma transacción se
+rechaza, nunca duplica el documento).
+
+Corregido en el camino un bug latente más en
+`test-helpers/integration-fixtures.js` `cleanupCompany` (mismo patrón
+ya encontrado y corregido 2 veces en Fase 6): `TaxRate.jurisdictionId`
+y `FiscalObligation.jurisdictionId` son `RESTRICT`, pero la limpieza
+borraba `TaxJurisdiction` sin haber borrado antes `TaxRate`/
+`FiscalObligation` — nunca se había disparado porque ningún test
+anterior creaba una `TaxRate` real y llamaba a `cleanupCompany`.
+Corregido agregando esas 3 líneas de limpieza (+ `FiscalRiskRule`, por
+prolijidad) en el orden correcto.
+
+**602 → 609 tests, sin regresiones** (97 suites, 609 passing).
+
+### Verificación real
+
+`npx prisma validate`: sin errores (sin migración esta fase).
+`npm run lint` (backend): 0 errores. `npm run build`/`npm run lint`
+(frontend): sin errores nuevos. Verificado con Playwright contra los
+dos servidores reales: Libros Fiscales muestra la nueva sección
+"Notas de crédito y débito del periodo" con el estado vacío correcto.
+Verificado con `curl` autenticado contra Postgres real: nota de
+crédito parcial de $50 emitida sobre una factura real de $410 →
+`GET /fiscal/books/sales` devolvió la nota en `creditNotes`,
+`netCreditNoteEffect: "-50.00"`, `netTotal: "560.00"` (610 de base
+menos 50 de la nota), exacto.
+
+### Pendientes documentados (no bloqueantes)
+
+1. `lastRunAt` centralizado en los crons (incluido el de Alertas
+   Fiscales) sigue sin resolverse — pendiente heredado, mejora
+   transversal explícitamente fuera de esta fase (sección 29).
+2. Ninguna integración externa real de facturación electrónica — sigue
+   siendo decisión consciente, documentada desde que se construyó.
+3. Pendientes heredados de Fases 1-6 no resueltos acá.
+
+### Qué debe recordar Fase 8
+
+**Heredado de Fases 1-6** (sin tocar, seguir usando): Unit of Work,
+`postEntry(data, tx)`, `core/audit.log(data, tx)`, `core/fx`
+(`resolveForeignAmountSnapshot`/`assertBaseCurrencySettlement`),
+`modules/finance` como única capa de lectura consolidada.
+
+**Construido/corregido en Fase 7** (reutilizar, no reconstruir):
+`fiscal-transactions.service.createFiscalTransaction` sigue siendo el
+ÚNICO punto que calcula impuesto/retención y postea el asiento fiscal
+— cualquier módulo futuro que necesite el efecto fiscal de una
+operación debe llamarlo, nunca recalcular impuesto por su cuenta.
+`fiscal-books.service.getSalesBook`/`getPurchasesBook` ahora son la
+única fuente que combina `FiscalTransaction` + notas de crédito/débito
+reales del periodo — cualquier reporte fiscal futuro (Fase 8) debe
+reutilizar esta función, nunca sumar `FiscalTransaction` por su cuenta
+ignorando las notas. `determineInvoiceStatus`/`determineBillStatus`
+(orden corregido) son la única fuente de verdad del estado de una
+factura/bill — cualquier código nuevo que necesite saber si un
+documento está saldado debe llamarlas, nunca comparar `paidAmount`
+contra `totalAmount` a mano.
+
+**Lo que NO debe reconstruirse**: un segundo sistema de facturas, de
+clientes/proveedores, de impuestos, de Ledger, de CxC/CxP, de
+inventario, ni una segunda integración de facturación electrónica —
+los ya existentes (`fiscal-transactions.service`, `Customer`/`Vendor`,
+`TaxRate`/`TaxJurisdiction`, `core/ledger`, AR/AP, Inventario,
+`electronic-invoicing.service` con su adaptador MOCK) siguen siendo
+los únicos.
+
+FASE 7 COMPLETA

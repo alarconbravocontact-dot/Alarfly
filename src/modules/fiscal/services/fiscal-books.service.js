@@ -33,6 +33,66 @@ async function getBook(companyId, type, from, to) {
     };
   });
 
+  return { totalBase, totalTax, totalWithholding, lines };
+}
+
+// Fase 7 (secciones 16/43): las notas de crédito/débito NUNCA vuelven
+// a pasar por el motor fiscal (decisión ya tomada — ver
+// ar-credit-notes.service.js), así que nunca generan ni ajustan una
+// FiscalTransaction. Sin esto, el libro fiscal quedaba ciego a
+// cualquier nota emitida en el periodo — un hueco real para una
+// declaración de IVA real. Se muestran en su propia sección, con su
+// monto tal cual (no se reparte en base/impuesto: una nota de crédito
+// es un ajuste simple sobre el total ya facturado, nunca tuvo ese
+// desglose — inventar uno sería fabricar un dato que no existe). El
+// libro nunca las mezcla con las líneas de FiscalTransaction, para no
+// sugerir una precisión que no hay.
+async function getCreditNotesForBook(companyId, type, from, to) {
+  if (type === 'SALE') {
+    const notes = await prisma.arCreditNote.findMany({
+      where: { companyId, date: { gte: from, lte: to } },
+      include: { customer: true, invoice: true },
+      orderBy: { date: 'asc' },
+    });
+    return notes.map((note) => ({
+      id: note.id,
+      date: note.date,
+      noteNumber: note.noteNumber,
+      type: note.type,
+      counterpartyName: note.customer.name,
+      relatedDocumentNumber: note.invoice.invoiceNumber,
+      reason: note.reason,
+      amount: note.amount.toFixed(2),
+    }));
+  }
+  const notes = await prisma.apCreditNote.findMany({
+    where: { companyId, date: { gte: from, lte: to } },
+    include: { vendor: true, bill: true },
+    orderBy: { date: 'asc' },
+  });
+  return notes.map((note) => ({
+    id: note.id,
+    date: note.date,
+    noteNumber: note.noteNumber,
+    type: note.type,
+    counterpartyName: note.vendor.name,
+    relatedDocumentNumber: note.bill.billNumber,
+    reason: note.reason,
+    amount: note.amount.toFixed(2),
+  }));
+}
+
+async function buildBookWithNotes(companyId, type, from, to) {
+  const { totalBase, totalTax, totalWithholding, lines } = await getBook(companyId, type, from, to);
+  const creditNotes = await getCreditNotesForBook(companyId, type, from, to);
+
+  // CREDIT reduce lo facturado/comprado (mismo signo que
+  // applyCreditNoteToInvoice/applyCreditNoteToBill); DEBIT lo aumenta.
+  const netCreditNoteEffect = creditNotes.reduce((sum, note) => {
+    const amount = new Decimal(note.amount);
+    return note.type === 'CREDIT' ? sum.minus(amount) : sum.plus(amount);
+  }, new Decimal(0));
+
   return {
     type,
     from,
@@ -41,15 +101,21 @@ async function getBook(companyId, type, from, to) {
     totalBase: totalBase.toFixed(2),
     totalTax: totalTax.toFixed(2),
     totalWithholding: totalWithholding.toFixed(2),
+    creditNotes,
+    netCreditNoteEffect: netCreditNoteEffect.toFixed(2),
+    // Total bruto facturado (base+impuesto) ajustado por las notas del
+    // periodo — la cifra que de verdad importa para una declaración
+    // real, nunca antes visible en el libro.
+    netTotal: totalBase.plus(totalTax).plus(netCreditNoteEffect).toFixed(2),
   };
 }
 
 async function getSalesBook(companyId, { from, to }) {
-  return getBook(companyId, 'SALE', from, to);
+  return buildBookWithNotes(companyId, 'SALE', from, to);
 }
 
 async function getPurchasesBook(companyId, { from, to }) {
-  return getBook(companyId, 'PURCHASE', from, to);
+  return buildBookWithNotes(companyId, 'PURCHASE', from, to);
 }
 
 async function getWithholdingsSummary(companyId, { from, to }) {

@@ -166,6 +166,52 @@ export default function FiscalBooksPage() {
                 </tfoot>
               </table>
             )}
+
+            <div className="panel-header" style={{ marginTop: 24 }}>
+              <h3 className="field-label">
+                Notas de crédito y débito del periodo
+                <HelpTooltip text="Una nota de crédito/débito nunca vuelve a pasar por el motor fiscal (es un ajuste directo sobre lo ya facturado), así que no aparece en la tabla de arriba — pero sí afecta lo que realmente se declara. Acá se muestra tal cual, con su monto completo, sin repartirlo en base/impuesto porque esa nota nunca tuvo ese desglose." />
+              </h3>
+            </div>
+            {book.creditNotes.length === 0 && <EmptyState icon="▤" message="No se emitieron notas de crédito ni de débito en este rango de fechas." />}
+            {book.creditNotes.length > 0 && (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>N.º nota</th>
+                    <th>Tipo</th>
+                    <th>Contraparte</th>
+                    <th>Documento relacionado</th>
+                    <th>Motivo</th>
+                    <th className="num">Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {book.creditNotes.map((note) => (
+                    <tr key={note.id}>
+                      <td>{formatDate(new Date(note.date))}</td>
+                      <td>{note.noteNumber}</td>
+                      <td>
+                        <StatusSeal status={note.type === 'CREDIT' ? 'active' : 'pending'} label={note.type === 'CREDIT' ? 'Crédito' : 'Débito'} />
+                      </td>
+                      <td>{note.counterpartyName}</td>
+                      <td>N.º {note.relatedDocumentNumber}</td>
+                      <td>{note.reason}</td>
+                      <td className="num">{formatCurrency(note.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <div className="panel-header" style={{ marginTop: 16 }}>
+              <h3 className="field-label">
+                Total neto del periodo
+                <HelpTooltip text="Base + Impuesto de las transacciones fiscales, ajustado por el efecto neto de las notas de crédito/débito de arriba — la cifra de referencia para una declaración real." />
+              </h3>
+            </div>
+            <p style={{ fontSize: 'var(--text-lg)', fontWeight: 600 }}>{formatCurrency(book.netTotal)}</p>
           </>
         )}
 

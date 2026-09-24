@@ -3,8 +3,15 @@
 // por el propio userId (ver el parámetro nuevo en audit.service.listForCompany).
 const auditService = require('../../audit/audit.service');
 
+// Fase 11: `audit.service.listForCompany` ganó un límite por defecto
+// (200, sección 27 — nunca devolver la bitácora completa de la empresa
+// sin tope) que sería demasiado bajo acá — el historial PERSONAL de un
+// solo usuario es un volumen mucho menor que el de toda la empresa, y
+// truncar en silencio una exportación de actividad (punto 11 de Mi
+// Cuenta) sería un regresión real, no solo una optimización. Se pide
+// el tope máximo permitido (1000) en vez de dejar el default genérico.
 async function listMyActivity(companyId, userId, { from, to } = {}) {
-  return auditService.listForCompany(companyId, { userId, from, to });
+  return auditService.listForCompany(companyId, { userId, from, to, limit: 1000 });
 }
 
 function csvEscape(value) {

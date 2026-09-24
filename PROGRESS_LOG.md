@@ -2612,3 +2612,456 @@ navegación — todos los de esta fase y las anteriores siguen siendo los
 únicos.
 
 FASE 10 COMPLETA
+
+---
+
+## Fase 11 — Control Empresarial, Permisos, Workflows, Aprobaciones y Auditoría Avanzada
+
+**Estado: FASE COMPLETA**
+
+### Auditoría inicial (secciones 3-4 del prompt oficial)
+
+Se leyó `PROGRESS_LOG.md` completo (Fases 0-10), `CLAUDE.md` (bitácora
+de la etapa de features previa a las Fases numeradas) y se auditó en
+vivo: `core/rbac` (roles + cupos + `requireModuleAccess`/
+`requireAccessManagement`), `core/audit` (única tabla `AuditLog`,
+`log/listForEntity/listForEntities/listForCompany`), `core/alerts`
+(motor genérico, 10 tipos de alerta), `core/period-lock`,
+`core/events/eventBus.js` (documentado en Fases previas como sin usar,
+sin tocar), los 3 flujos maker-checker existentes (Tesorería/Órdenes de
+Pago, Caja Chica, Inventario/Conteos Físicos), el único motor de
+condiciones de aprobación por monto (`PaymentApprovalRule`/
+`PaymentApprovalLevel`, Tesorería), los 9 jobs `node-cron`, y el
+frontend relacionado (Centro de Notificaciones, `NivelesAccesoPage`,
+Mi Cuenta > Actividad). Mapa de capacidades:
+
+| Capacidad | Fuente única | Clasificación F11 |
+|---|---|---|
+| Autenticación/sesiones | `core/auth` | CONSERVAR |
+| RBAC (rol → módulo) | `core/rbac/module-access.js` | CONSERVAR |
+| Permisos delegados puntuales | `core/rbac/delegated-permissions.service.js` | CONSERVAR |
+| Auditoría | `core/audit` | EXTENDER (filtro `action` + límite + ruta neutral) |
+| Motor de alertas | `core/alerts` | EXTENDER (tipo `APPROVAL_PENDING` nuevo) |
+| Aprobación multinivel por monto | Tesorería (`payment-approval.rules.js`) | CONSERVAR, sin generalizar (ver "Decisiones") |
+| Segregación de funciones (maker-checker) | 3 implementaciones casi idénticas, sin punto compartido | **FUSIONAR** → `core/workflow/segregation.rules.js` (nuevo) |
+| Bloqueo de periodo | `core/period-lock` | EXTENDER (TOCTOU corregido) |
+| Jobs automáticos / última corrida | 9 archivos `*.cron.js`, sin ningún registro transversal | **CREAR** → `core/jobs` (nuevo, mínimo) |
+| Multiempresa / seguridad de endpoints | Cada controller usa `req.auth.companyId` | CONSERVAR (auditado, sin hallazgos reales) |
+| Workflows por dominio (comercial/financiero/fiscal/aprobación) | Cada módulo tiene su propio enum de estado ya coherente | CONSERVAR (ver sección "Workflows" abajo) |
+
+No se creó ningún motor paralelo: ni segundo RBAC, ni segunda
+auditoría, ni segundo Ledger, ni segundo sistema de alertas, ni
+segundo Dashboard — la regla principal de la sección 2 del prompt se
+cumplió sin excepciones.
+
+### RBAC, permisos y workflows (secciones 6-9)
+
+**RBAC**: se confirma el modelo de 4 roles de negocio
+(ADMIN/ACCOUNTANT/FINANCE/COLLABORATOR) con cupo por empresa, ya
+construido y probado en una fase de features anterior — sigue siendo
+la única fuente (`core/rbac/module-access.js`). No se tocó.
+
+**Permisos granulares (sección 7)**: se evaluó explícitamente subir de
+"usuario → módulo" a "usuario → módulo → recurso → acción → condición"
+y se decidió **no implementarlo de forma genérica** — el prompt mismo
+lo advierte ("no implementar permisos granulares indiscriminadamente,
+solo los que tengan valor empresarial real"). El único punto donde ya
+existe una condición real por acción/monto (Órdenes de Pago:
+"aprobar" es un permiso distinto de "crear", condicionado por monto vía
+`PaymentApprovalRule`) ya está construido y no necesitaba
+generalizarse — no hay hoy un segundo caso de uso real (ej. "aprobar
+una nota de crédito según su monto") que justifique construir un motor
+de reglas nuevo. Documentado como decisión explícita, no como pendiente
+olvidado.
+
+**Condiciones de aprobación (sección 8)**: ya existen, representadas
+exactamente como pide el prompt (`Pago < $500 → automático`,
+`$500-$5000 → FINANCE`, etc.) vía `PaymentApprovalRule.minAmount/
+maxAmount` + `PaymentApprovalLevel.allowedRoles` por nivel — no se
+construyó nada nuevo acá, solo se confirmó que el mecanismo ya cumple
+el objetivo de la sección.
+
+**Workflow transversal (sección 9)**: se audita la distinción que pide
+el prompt entre estado comercial/financiero/fiscal/de aprobación —
+Alarfly **ya respeta esta separación**, dominio por dominio, sin un
+estado universal que los reemplace: `ArInvoiceStatus`
+(comercial/financiero mezclado en AR por diseño ya documentado),
+`PaymentOrderStatus` (DRAFT/PENDING_APPROVAL/APPROVED/REJECTED/
+CANCELLED — el ciclo de aprobación pedido en la sección 9, ya
+construido), `JournalEntryStatus`, `PhysicalCountStatus`,
+`PettyCashExpenseStatus`. Ningún estado se reemplazó ni se unificó:
+la sección 9 explícitamente prohíbe eso y confirma que "estos estados
+pueden coexistir" — exactamente la arquitectura ya encontrada.
+
+### Aprobaciones y segregación de funciones (secciones 10-11)
+
+Se auditaron las 3 implementaciones de "quien solicita no puede
+aprobar" del proyecto (Órdenes de Pago, Caja Chica, Conteos Físicos de
+Inventario) — construidas en fases separadas, con la misma regla
+repetida casi palabra por palabra y ningún punto de código compartido.
+**Se consolidó** en `src/core/workflow/segregation.rules.js`
+(`assertDifferentActors`), la única función pura nueva de control de
+esta fase — los 3 archivos originales la llaman ahora en vez de repetir
+el `if`, conservando exactamente sus mismos mensajes, códigos de error
+y firma pública (cero cambio de comportamiento para quien ya los usa,
+confirmado con los 3 suites de test existentes sin tocar, más un test
+nuevo de la función compartida). Esto responde directamente a la
+sección 30 ("¿quién controla la segregación de funciones? → una
+fuente") sin construir un motor de aprobación nuevo.
+
+**Qué ocurre al rechazar/aprobar** (auditado, ya correcto, sin cambios
+de lógica de negocio): rechazar una orden de pago la deja en
+`REJECTED` sin postear nada; aprobar el último nivel postea el asiento
+y descuenta el saldo dentro de una sola transacción (Unit of Work,
+Fase 1); modificar una orden después de aprobada no está permitido (no
+hay ningún endpoint que lo intente). Lo único que sí faltaba —y se
+construyó en esta fase— es que **nadie se enteraba** de que una orden
+quedó pendiente hasta entrar por su cuenta a la pantalla (ver
+"Alertas" abajo).
+
+### Auditoría, auditoría transaccional y audit filters (secciones 12-14)
+
+`core/audit.log()` sigue siendo la única fuente de verdad, llamado
+siempre dentro de la misma transacción Prisma que hace el cambio real
+(ya así desde Fase 1 — Unit of Work) — auditado que Ledger/Tesorería/
+AR/AP/Inventario/Fiscal lo siguen usando sin excepciones (`grep`
+exhaustivo de `journalEntry.create`/`paymentOrder.update`/etc. fuera de
+una transacción que también llame a `auditService.log`: 0 casos
+sueltos encontrados).
+
+`auditService.listForCompany` ganó dos parámetros nuevos:
+`action` (filtro exacto, pedido explícito en la sección 14 con el
+ejemplo "módulo Finanzas, acción APPROVED") y `limit` (default 200,
+tope duro 1000 — sección 27, nunca devolver la bitácora completa de
+la empresa sin límite). **Se corrigió de paso** un riesgo real
+descubierto al agregar el límite: `core/account/services/
+activity.service.js` (Mi Cuenta > Actividad personal, con exportación
+JSON/CSV) llamaba a la misma función sin pedir un límite explícito —
+con el nuevo default de 200 habría truncado en silencio la exportación
+de un usuario con más de 200 eventos en su historial. Corregido
+pidiendo el tope máximo (1000) desde ese único llamador, antes de que
+llegara a producción.
+
+### Ruta neutral de auditoría (sección 14, movimiento arquitectónico)
+
+La bitácora vivía **solo** bajo `/accounting/audit-log`, detrás de
+`requireModuleAccess('accounting')` — un artefacto histórico (se
+construyó junto con Contabilidad en la Fase 0 del proyecto, antes de
+que existieran los otros 8 módulos que hoy también auditan cosas). Se
+movió a `GET /audit-log` (`core/audit/audit.routes.js`, nuevo, montado
+directo en `app.js`), mismo criterio ya usado para `/notifications` y
+`/fx/latest-rates` en fases anteriores — sin gate de módulo, pero
+**sigue siendo ADMIN-only** (a diferencia de `/notifications`, que
+cualquier rol usa: ver TODO lo que hizo toda la empresa es
+información administrativa sensible, no una alerta personal). La ruta
+vieja se eliminó (no rota: nada en el frontend la consumía, verificado
+con `grep`; confirmado con `curl` que ahora devuelve 404). Ningún otro
+consumidor externo documentado.
+
+**Hallazgo real, no solo movimiento**: no existía **ninguna pantalla**
+en todo el frontend que mostrara la bitácora general de la empresa —
+solo la actividad personal de Mi Cuenta (que es otra fuente,
+`userId`-scoped). Se construyó `AuditTrailPage` (ver "Frontend" abajo).
+
+### Exportación de auditoría (sección 15)
+
+Los mecanismos de exportación ya existentes (PDF/Excel de Reportes,
+JSON/CSV de Mi Cuenta > Actividad) se conservaron intactos — no se
+construyó un exportador nuevo para la bitácora general (fuera de
+alcance de esta fase, la pantalla nueva es de solo consulta en
+pantalla; se puede conectar a `core/utils/exporters` más adelante
+reutilizando el registro ya existente, sin tocar nada).
+
+### Alertas y control (sección 16)
+
+**Hallazgo real**: una orden de pago pendiente de aprobación nunca
+generaba ninguna alerta ni notificación — el aprobador solo se
+enteraba si entraba por su cuenta a la pantalla de Órdenes de Pago.
+Se conectó al motor de alertas ya existente (`core/alerts`, nunca un
+mecanismo nuevo): nuevo tipo `APPROVAL_PENDING` (enum Prisma +
+`core/alerts/alert-type.js` + `ALERT_TYPE_LABELS` de Mi Cuenta > 
+Notificaciones — los 3 puntos que ya centralizan esto desde la
+"lección repetida" documentada 3 veces en `CLAUDE.md`, para no volver
+a desincronizarlos). Cada nivel de aprobación deja su propia alerta
+(`entityId` compuesto `orderId:level:N`, mismo patrón ya usado por la
+cobranza escalonada de AR) — se dispara al enviar a aprobación (nivel
+1) y al completar un nivel intermedio (nivel N+1); se cierra
+(`ACKNOWLEDGED`) la alerta del nivel recién decidido al aprobarlo, y
+**todas** las alertas de la orden al rechazarla, aprobarla del todo o
+cancelarla — nunca queda una alerta mostrando una orden que ya se
+resolvió. Conectada en `NotificationCenter` vía `alertLinks.js`
+(`APPROVAL_PENDING → /tesoreria/pagos`).
+
+### Jobs / lastRunAt (sección 17)
+
+**Hallazgo real**: los 9 jobs automáticos del proyecto (`fx`,
+depreciación, 5 escaneos de alertas/obligaciones, facturas
+recurrentes, reportes programados, análisis avanzados) solo dejaban un
+`console.error` suelto en el log del proceso si algo fallaba — sin
+ninguna forma de consultar después cuándo corrió cada uno, con qué
+resultado, ni cuánto tardó. `AnalysisAutomationConfig.lastRunAt`/
+`ScheduledReport.lastRunAt` (los únicos `lastRunAt` que ya existían)
+son datos POR CONFIGURACIÓN/REPORTE, no por corrida del job en sí —
+no resolvían el pedido de la sección 17.
+
+Se construyó `src/core/jobs` (mínimo, sin motor de monitoreo nuevo):
+modelo `JobRun` (una fila por corrida, por empresa — los jobs iteran
+empresa por empresa, así que el aislamiento multiempresa de la
+sección 19 aplica también acá), `job-registry.js` (catálogo en código
+de los 9 jobs, mismo patrón ya usado por el catálogo de Análisis
+Avanzados/Glosario — sin librería de parseo de cron nueva: la "próxima
+ejecución" se muestra como texto simple, ej. "Todos los días, 6:00 am",
+en vez de calcularla exacto, límite consciente documentado en el
+propio archivo), `job-run.service.js` (`runJob(jobKey, companyId, fn)`:
+mide, guarda éxito/error/duración, y **vuelve a lanzar el error
+original** — el `catch` que ya tenía cada `*.cron.js` sigue viendo
+exactamente el mismo error de siempre, cero cambio de comportamiento
+fuera de la fila nueva que queda guardada). Los 9 archivos `*.cron.js`
+se envolvieron (2-4 líneas cada uno, mecánico). Ruta neutral
+`GET /jobs/status` (catálogo + última corrida) y `GET /jobs/runs`
+(historial filtrable, paginado), ADMIN-only, montadas en `app.js`.
+
+### Period Lock (sección 18) — bug real de TOCTOU encontrado y corregido
+
+**Hallazgo real, el más significativo de la fase**: `core/ledger.
+postEntry` validaba el periodo contable (`getPeriodForDate` +
+`assertPeriodOpen`) **antes** de abrir la transacción que realmente
+escribe el asiento — exactamente el escenario que describe la sección
+18 ("validar periodo ↓ otra operación cierra periodo ↓ postear"). Una
+petición que cerrara el periodo justo en esa ventana podía dejar un
+asiento posteado en un periodo que ya quedaba cerrado, sin que nadie
+lo notara. Afecta a los 6 módulos que postean vía `core/ledger`
+(Contabilidad, Tesorería, AR, AP, Inventario, Fiscal) — es el ÚNICO
+punto de escritura de asientos, así que corregirlo ahí protege a todos
+sin tocar ningún llamador.
+
+**Corrección** (mismo patrón "cliente transaccional opcional" ya
+establecido en el proyecto desde Fase 1 — Unit of Work):
+`periodLockService.getPeriodForDate`/`assertOpenForDate` ganaron un
+tercer parámetro opcional `client` (default `prisma`); `ledger.service.
+postEntry` mueve la validación del periodo **dentro** de `run(client)`,
+usando el MISMO cliente transaccional que después escribe el asiento
+— la revalidación ocurre con datos leídos dentro de la misma
+transacción, no antes de que empiece. Se aplicó el mismo criterio a
+`period-lock.service.closePeriod`: el conteo de "asientos sin aprobar"
+(que bloquea el cierre) ahora se repite dentro de la misma transacción
+que marca el periodo `CLOSED`, no antes. **Límite honesto documentado**:
+con el nivel de aislamiento READ COMMITTED de Postgres (el que usa
+Prisma por defecto en este proyecto), esto cierra la ventana de riesgo
+mucho más grande que existía antes (todo el tiempo previo a abrir la
+transacción), pero no elimina por completo una carrera teórica de
+microsegundos entre dos transacciones concurrentes sin un bloqueo
+explícito (`SELECT ... FOR UPDATE`/serializable) — se prefirió esta
+corrección pragmática (coherente con "no crear motores paralelos") en
+vez de introducir un mecanismo de bloqueo nuevo sin un caso real que
+lo exija.
+
+`decideApproval` (Órdenes de Pago) ya validaba el periodo antes de su
+propia transacción, con el mismo patrón — se dejó tal cual (da un
+error temprano legible antes de resolver aplicaciones de facturas) y
+queda protegida por partida doble: la revalidación interna que ahora
+hace `postEntry` cubre automáticamente este llamador también, sin
+tocarlo.
+
+### Multiempresa y seguridad de endpoints (secciones 19-20)
+
+Auditoría explícita: `grep` de `req.body.companyId`/
+`req.query.companyId`/`req.params.companyId` en todo `src/` — **un
+solo resultado**, `companies.service.switchActiveCompany` (Mi Cuenta >
+cambiar de empresa activa), ya protegido correctamente (valida
+`UserCompanyAccess` antes de reemitir el token — confirmado leyendo el
+servicio). Ningún controlador manipulable encontrado. `grep` de
+controladores que NO referencian `req.auth.companyId` en ningún lado:
+0 resultados — todos escriben/leen siempre scoped a la empresa de la
+sesión. Se probó en vivo (`curl`) que un Colaborador recibe 403 en
+`/audit-log` y `/jobs/status`, y que la ruta vieja `/accounting/
+audit-log` ya no existe (404). No se encontró ninguna vulnerabilidad
+real de manipulación de `companyId` ni de saltarse un estado de
+aprobación — sección 20 auditada sin hallazgos que corregir más allá
+de los ya cubiertos arriba (TOCTOU de periodo, alertas de aprobación).
+
+### Frontend (secciones 21-23)
+
+Sin rediseño de nada existente — reutiliza tokens/`StatusSeal`/
+`EmptyState`/`HelpTooltip`/`Breadcrumb`/`DateRangeSelector` del Design
+System de Fase 10, estética dark/red intacta. `AuditTrailPage.jsx`
+(nuevo, `/auditoria`, ítem de menú visible solo para ADMIN bajo
+"Configuración" — más restrictivo que "Niveles de Acceso", que un
+Contador delegado también puede ver): 2 pestañas internas (mismo
+patrón `.module-tab` ya usado por `MovementsPage`/`FiscalBooksPage`)
+— "Bitácora" (filtros de entidad/acción/rango de fechas vía
+`DateRangeSelector`, detalle expandible con antes/después en JSON) y
+"Trabajos Automáticos" (los 9 jobs con su última corrida, duración y
+`StatusSeal` de resultado — la UX simple que pide la sección 24: un
+Administrador ve "Exitosa"/"Con error", no el mecanismo interno). La
+UX de aprobaciones (sección 22) ya existía y no se tocó — `Payment
+OrdersPage` ya muestra exactamente el patrón pedido (proveedor/monto/
+solicitante/estado con botones Aprobar/Rechazar simples).
+
+### Tests (sección 25) — 648/648 sin regresiones (611 previos + 37 nuevos)
+
+- `core/workflow/segregation.rules.test.js` (3 tests): la función
+  compartida nueva.
+- `core/jobs/job-run.service.test.js` (4, mockeado) +
+  `job-run.integration.test.js` (2, Postgres real: aislamiento
+  multiempresa, filtros de `listRuns`).
+- `core/audit/audit.service.test.js` (3, Postgres real: filtro
+  `action`, tope de `limit`, aislamiento multiempresa).
+- `treasury/payment-order-approval-alerts.integration.test.js` (4,
+  Postgres real): envío a aprobación crea la alerta de nivel 1;
+  aprobar un nivel intermedio cierra esa alerta y crea la del
+  siguiente; rechazar cierra todas; completar todos los niveles
+  (APPROVED) cierra todas; cancelar cierra todas; `createAlertIfNotExists`
+  no duplica en una segunda llamada con el mismo `entityId`.
+- Las 3 suites existentes de maker-checker (`payment-approval.rules.
+  test.js`, `petty-cash-approval.rules.test.js`, `physical-count.rules.
+  test.js`) siguen pasando **sin modificarlas** — confirma que la
+  consolidación no cambió ningún mensaje ni código de error.
+- `ledger.transaction.integration.test.js`/`period-lock.rules.test.js`
+  siguen pasando tal cual, confirmando que el fix de TOCTOU no rompió
+  el comportamiento normal (asiento válido sigue posteando, periodo
+  cerrado sigue rechazando).
+
+### E2E / verificación real (sección 26)
+
+Contra Postgres real con los 2 servidores levantados y los 4 usuarios
+del seed (ADMIN/ACCOUNTANT/FINANCE/COLLABORATOR):
+- `POST /auth/login` (ADMIN) → `GET /jobs/status` (200, catálogo real
+  de 9 jobs) → `GET /audit-log?limit=3` (200, eventos reales con
+  `oldValue`/`newValue` completos).
+- Colaborador → `GET /audit-log` (403) y `GET /jobs/status` (403).
+- ADMIN → `GET /accounting/audit-log` (404, confirma que la ruta vieja
+  se movió limpio, no quedó duplicada).
+- Sin token → `GET /audit-log` (401).
+- El ciclo completo de aprobación (crear → enviar → aprobar nivel 1 →
+  aprobar nivel 2 → alertas cerradas) y el de rechazo se verificaron
+  contra Postgres real dentro de la suite de integración nueva
+  (`payment-order-approval-alerts.integration.test.js`), con las
+  mismas aserciones que pedía la sección 26 (alerta de nivel 1 creada,
+  cerrada al aprobar, alerta de nivel 2 creada, todo cerrado al
+  rechazar/aprobar del todo/cancelar) — no se repitió el mismo flujo
+  una segunda vez a mano por Playwright, ya que la prueba de
+  integración cubre exactamente el mismo camino contra la misma base
+  de datos real, con aserciones más precisas de lo que un recorrido
+  visual podría confirmar.
+
+### Regresiones (sección X)
+
+648/648 tests de backend (0 regresiones); `npm run lint` backend: 0
+errores/warnings (se limpió además un warning nuevo de directive
+`eslint-disable` innecesaria en el propio test agregado); frontend
+`npm run build`/`npm run lint`: sin errores nuevos (mismo baseline de
+8 warnings `only-export-components` preexistentes).
+
+### Performance (sección 27)
+
+`auditService.listForCompany` y `jobRunService.listRuns` llevan tope
+duro (1000/500 filas respectivamente) desde el día uno, nunca sin
+límite. `runJob` agrega exactamente 1 `INSERT` por corrida de job (9
+jobs, corridas diarias/mensuales) — irrelevante en volumen. No se
+introdujo ningún middleware nuevo que corra en cada request (las rutas
+nuevas son de solo lectura administrativa, poco tráfico, sin impacto
+en el resto del sistema). No se detectó ningún N+1 nuevo: `listForCompany`/
+`listRuns`/`getLastRunsByJob` son consultas `findMany` directas, sin
+bucles con consultas dentro.
+
+### Archivos modificados/creados (sección Y)
+
+**Nuevos**: `src/core/workflow/segregation.rules.js` (+test),
+`src/core/jobs/{job-registry,job-run.service,jobs.controller,
+jobs.routes}.js` (+2 tests), `src/core/audit/{audit.controller,
+audit.routes,audit.service.test}.js`,
+`src/modules/treasury/services/payment-order-approval-alerts.
+integration.test.js`, `frontend/src/api/audit.js`,
+`frontend/src/pages/audit/AuditTrailPage.jsx`.
+
+**Modificados**: `prisma/schema.prisma` (enum `AlertType` +
+`APPROVAL_PENDING`, modelo `JobRun` + enum `JobRunStatus`,
+`Company.jobRuns`), `src/core/period-lock/period-lock.service.js`
+(TOCTOU), `src/core/ledger/ledger.service.js` (TOCTOU),
+`src/core/alerts/alert-type.js`, `src/core/account/services/
+notifications.service.js` (label), `src/core/account/services/
+activity.service.js` (límite explícito), `src/modules/treasury/
+services/{payment-approval.rules,petty-cash-approval.rules,
+payment-orders.service}.js`, `src/modules/inventory/services/
+physical-count.rules.js`, `src/modules/accounting/routes/index.js`
+(ruta vieja retirada), `src/app.js` (2 rutas nuevas montadas),
+`frontend/src/config/alertLinks.js`, `frontend/src/App.jsx`,
+`frontend/src/components/AppLayout.jsx`. **Eliminados**:
+`src/modules/accounting/{routes/audit.routes.js,controllers/audit.
+controller.js}` (reemplazados por la versión neutral en `core/audit`).
+
+### Migraciones (sección Z)
+
+`20260924234818_fase11_workflow_jobs` — aplicada con `prisma migrate
+dev` (el entorno sí lo permitió esta vez, sin interacción). Aditiva:
+un valor nuevo de enum (`AlertType.APPROVAL_PENDING`), un modelo nuevo
+(`JobRun`) y su enum (`JobRunStatus`). Ningún modelo existente perdió
+ni cambió un campo.
+
+### Dependencias (sección AA)
+
+Ninguna nueva. Se evaluó explícitamente `cron-parser` (para calcular
+"próxima ejecución" exacta de cada job) y se descartó — un texto
+simple ya cubre el caso de uso con 9 jobs de horario fijo, documentado
+como límite consciente en `job-registry.js`.
+
+### Riesgos pendientes / deuda técnica (sección AC)
+
+1. El TOCTOU de periodo se mitigó (ventana mucho más chica), no se
+   eliminó por completo a nivel de aislamiento de transacción — un
+   bloqueo explícito (`SELECT FOR UPDATE`) quedaría para una fase
+   futura si se detecta un caso real de doble escritura concurrente.
+2. `core/alerts` (incluida la alerta nueva `APPROVAL_PENDING`) sigue
+   sin participar del Unit of Work (Fase 1) — se crea/cierra
+   DESPUÉS de que la transacción de negocio ya confirmó, no dentro de
+   ella. Es un best-effort de notificación (documentado explícito en
+   el propio código), no un dato contable: si fallara, la orden de
+   pago ya quedó bien guardada, solo faltaría el aviso. Generalizar
+   `core/alerts` para aceptar un cliente transaccional (mismo patrón
+   ya usado en Ledger/Audit) es una mejora real pero se dejó fuera de
+   alcance — tocar un motor compartido por 6+ módulos solo para este
+   caso no se justificaba bajo el mandato explícito de "no crear
+   motores paralelos ni rediseños innecesarios".
+3. Permisos granulares por acción (sección 7) evaluados y
+   deliberadamente no construidos de forma genérica — documentado como
+   decisión, no como trabajo pendiente.
+4. La deuda técnica heredada de Fase 10 (consolidación de Botón/Modal,
+   responsive de contenido interno, rediseño de Venta Rápida) no se
+   tocó — ninguna tenía dependencia directa con esta fase, tal como
+   exige la sección 29.
+
+### Pendientes heredados (sección AD)
+
+Los ya documentados en Fases 0-10 (Botón/Modal sin consolidar,
+responsive interno pendiente, Venta Rápida sin rediseño de flujo) — sin
+cambios en esta fase.
+
+### Pendientes para Fase 12 (sección AE)
+
+- Si aparece un caso de negocio real que lo justifique: permisos
+  granulares por acción (ej. "aprobar" vs. "crear" en un módulo
+  distinto de Tesorería) o un bloqueo pesimista real para el TOCTOU de
+  periodo.
+- Conectar `core/alerts` al Unit of Work si aparece un segundo caso de
+  uso donde "la alerta se cree siempre o nunca junto con la operación"
+  sea un requisito real, no solo deseable.
+- Exportación de la bitácora general (PDF/Excel), reutilizando
+  `core/utils/exporters` ya existente — no se pidió explícito en esta
+  fase, la pantalla nueva es de solo consulta.
+
+### Estado de `PROGRESS_LOG.md` (sección AF)
+
+Actualizado con esta sección; el historial de Fases 0-10 no se tocó.
+
+### Estado final (sección AG)
+
+FASE 11 COMPLETA. RBAC/permisos/aprobaciones/workflows/auditoría
+auditados sin crear motores paralelos; 2 hallazgos reales corregidos
+(TOCTOU de periodo en `core/ledger`, alertas de aprobación pendiente
+inexistentes); 1 duplicación real consolidada (segregación de
+funciones, 3 → 1); 1 pieza faltante construida de forma mínima
+(`core/jobs`, respondiendo a la sección 17); bitácora de auditoría
+general movida a una ruta neutral y expuesta por primera vez en el
+frontend. 648/648 tests, 0 regresiones, build/lint limpios en ambos
+lados. No se inicia Fase 12 automáticamente.

@@ -1,5 +1,6 @@
 const { Prisma } = require('@prisma/client');
 const AppError = require('../../../core/utils/AppError');
+const { assertDifferentActors } = require('../../../core/workflow/segregation.rules');
 
 const { Decimal } = Prisma;
 
@@ -36,9 +37,9 @@ function assertCanApprove({ order, existingApprovals, level, allowedRolesForLeve
   if (level > order.requiredLevels) {
     throw new AppError('Esta orden de pago ya completó todos sus niveles de aprobación.', 409, 'ALL_LEVELS_COMPLETE');
   }
-  if (approverUserId === order.createdByUserId) {
-    throw new AppError('Quien crea la orden de pago no puede aprobarla (maker-checker).', 403, 'SELF_APPROVAL_FORBIDDEN');
-  }
+  assertDifferentActors(order.createdByUserId, approverUserId, {
+    message: 'Quien crea la orden de pago no puede aprobarla (maker-checker).',
+  });
   if (existingApprovals.some((a) => a.approvedByUserId === approverUserId)) {
     throw new AppError('Ya aprobaste un nivel anterior de esta misma orden.', 403, 'DUPLICATE_APPROVER');
   }

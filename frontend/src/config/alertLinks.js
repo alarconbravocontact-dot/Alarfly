@@ -15,6 +15,7 @@ export const ALERT_TYPE_LINKS = {
   AR_COLLECTION_ESCALATION: '/cuentas/facturas-venta',
   ADVANCED_ANALYSIS_ALERT: '/analisis-avanzados/repositorio',
   BANK_ACCOUNT_DISCONNECTED: '/tesoreria/cuentas',
+  APPROVAL_PENDING: '/tesoreria/pagos',
 };
 
 export function alertLink(type) {

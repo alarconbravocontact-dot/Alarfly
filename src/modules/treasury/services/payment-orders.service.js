@@ -10,6 +10,57 @@ const { applyPaymentToBills } = require('../../accounts-payable/services/ap-bill
 const { findMatchingRule, assertCanApprove, nextApprovalLevel, isFullyApproved } = require('./payment-approval.rules');
 const { withTransaction } = require('../../../core/database/unit-of-work');
 const fxService = require('../../../core/fx/fx.service');
+const alertsService = require('../../../core/alerts/alerts.service');
+
+// Fase 11 (sección 16 — "las alertas deben apuntar a acciones"): antes
+// de esta fase, una orden de pago pendiente de aprobación era invisible
+// hasta que el aprobador entraba por su cuenta a la pantalla de
+// Órdenes de Pago — no había ninguna alerta ni notificación real. Se
+// reutiliza el motor de alertas ya existente (core/alerts, el mismo
+// que usan Tesorería/Fiscal/Inventario/AR), nunca un mecanismo nuevo.
+// `entityId` compuesto (`orderId:level:N`) es el mismo patrón ya usado
+// por la cobranza escalonada de AR ("no dejar que un aviso tape al
+// siguiente") — así cada nivel deja su propia alerta.
+//
+// Se dispara DESPUÉS de que la transacción de negocio ya confirmó (no
+// adentro): `core/alerts` no participa todavía del Unit of Work
+// (Fase 1) — es un best-effort de notificación, no un dato contable;
+// si la creación de la alerta fallara, la orden de pago ya quedó bien
+// guardada, solo faltaría el aviso.
+async function notifyPendingApproval(companyId, order, level) {
+  await alertsService.createAlertIfNotExists({
+    companyId,
+    type: 'APPROVAL_PENDING',
+    severity: 'WARNING',
+    message: `Orden de pago a ${order.payeeName} por ${Number(order.amount).toFixed(2)} ${order.currency} pendiente de aprobación (nivel ${level} de ${order.requiredLevels}).`,
+    entityType: 'PaymentOrder',
+    entityId: `${order.id}:level:${level}`,
+  });
+}
+
+// Una orden que salió de PENDING_APPROVAL (aprobada del todo, rechazada
+// o cancelada) ya no necesita que nadie la revise — a diferencia de
+// otras alertas del proyecto (ej. "cuenta bancaria desconectada"), que
+// representan una condición que sigue siendo cierta hasta que alguien
+// la resuelve, esta es un evento puntual ya resuelto: dejarla activa
+// sería mostrar información que ya no es verdad.
+// `level`: opcional — si se indica, cierra solo la alerta de ESE nivel
+// (un nivel recién decidido ya no está pendiente, aunque a la orden le
+// falten niveles); si se omite, cierra TODAS las alertas de la orden
+// (rechazo, cancelación o última aprobación — ahí ya no queda ningún
+// nivel pendiente por definición).
+async function resolvePendingApprovalAlerts(companyId, orderId, level = null) {
+  await prisma.alert.updateMany({
+    where: {
+      companyId,
+      type: 'APPROVAL_PENDING',
+      entityType: 'PaymentOrder',
+      entityId: level === null ? { startsWith: `${orderId}:` } : `${orderId}:level:${level}`,
+      status: 'ACTIVE',
+    },
+    data: { status: 'ACKNOWLEDGED', acknowledgedAt: new Date() },
+  });
+}
 
 const { Decimal } = Prisma;
 
@@ -156,8 +207,8 @@ async function submitForApproval(companyId, id, userId) {
     );
   }
 
-  return prisma.$transaction(async (tx) => {
-    const updated = await tx.paymentOrder.update({
+  const updated = await prisma.$transaction(async (tx) => {
+    const result = await tx.paymentOrder.update({
       where: { id },
       data: { status: 'PENDING_APPROVAL', approvalRuleId: rule.id, requiredLevels: rule.levels?.length || 1 },
     });
@@ -169,12 +220,15 @@ async function submitForApproval(companyId, id, userId) {
         entityType: 'PaymentOrder',
         entityId: id,
         oldValue: { status: 'DRAFT' },
-        newValue: { status: 'PENDING_APPROVAL', requiredLevels: updated.requiredLevels },
+        newValue: { status: 'PENDING_APPROVAL', requiredLevels: result.requiredLevels },
       },
       tx
     );
-    return updated;
+    return result;
   });
+
+  await notifyPendingApproval(companyId, updated, 1);
+  return updated;
 }
 
 // El corazón del flujo multinivel: registra la decisión del nivel que
@@ -204,11 +258,11 @@ async function decideApproval(companyId, id, approverUserId, { decision, comment
   });
 
   if (decision === 'REJECTED') {
-    return prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx) => {
       await tx.paymentApproval.create({
         data: { paymentOrderId: id, level, decision, comment, approvedByUserId: approverUserId },
       });
-      const updated = await tx.paymentOrder.update({ where: { id }, data: { status: 'REJECTED' } });
+      const result = await tx.paymentOrder.update({ where: { id }, data: { status: 'REJECTED' } });
       await auditService.log(
         {
           companyId,
@@ -221,14 +275,16 @@ async function decideApproval(companyId, id, approverUserId, { decision, comment
         },
         tx
       );
-      return updated;
+      return result;
     });
+    await resolvePendingApprovalAlerts(companyId, id);
+    return updated;
   }
 
   const completesApproval = isFullyApproved(level, order.requiredLevels);
 
   if (!completesApproval) {
-    return prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx) => {
       await tx.paymentApproval.create({
         data: { paymentOrderId: id, level, decision, comment, approvedByUserId: approverUserId },
       });
@@ -246,6 +302,9 @@ async function decideApproval(companyId, id, approverUserId, { decision, comment
       );
       return tx.paymentOrder.findUnique({ where: { id } });
     });
+    await resolvePendingApprovalAlerts(companyId, id, level);
+    await notifyPendingApproval(companyId, updated, level + 1);
+    return updated;
   }
 
   // Último nivel: hay que postear el asiento contable. Respeta el
@@ -274,7 +333,7 @@ async function decideApproval(companyId, id, approverUserId, { decision, comment
   // Fase 1: el asiento, la aprobación final, el descuento del saldo de
   // tesorería y el ApPayment derivado (si aplica) quedan en una sola
   // transacción.
-  return withTransaction(async (tx) => {
+  const fullyApprovedOrder = await withTransaction(async (tx) => {
     const entry = await ledgerService.postEntry(
       {
         companyId,
@@ -351,6 +410,9 @@ async function decideApproval(companyId, id, approverUserId, { decision, comment
     );
     return updated;
   });
+
+  await resolvePendingApprovalAlerts(companyId, id);
+  return fullyApprovedOrder;
 }
 
 async function cancelPaymentOrder(companyId, id, userId) {
@@ -362,7 +424,7 @@ async function cancelPaymentOrder(companyId, id, userId) {
     throw new AppError('Solo se pueden cancelar órdenes en borrador o pendientes de aprobación.', 409, 'INVALID_STATUS');
   }
 
-  return prisma.$transaction(async (tx) => {
+  const cancelled = await prisma.$transaction(async (tx) => {
     const updated = await tx.paymentOrder.update({ where: { id }, data: { status: 'CANCELLED' } });
     await auditService.log(
       {
@@ -378,6 +440,9 @@ async function cancelPaymentOrder(companyId, id, userId) {
     );
     return updated;
   });
+
+  await resolvePendingApprovalAlerts(companyId, id);
+  return cancelled;
 }
 
 async function listPaymentOrders(companyId, { status, treasuryAccountId } = {}) {

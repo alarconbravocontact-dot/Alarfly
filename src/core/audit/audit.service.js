@@ -35,15 +35,23 @@ async function listForEntities(companyId, refs) {
 // userId: opcional — lo usa Mi Cuenta (core/account/services/activity.service.js)
 // para el historial de actividad PERSONAL de un usuario, sin duplicar
 // esta consulta en otro archivo.
-async function listForCompany(companyId, { entityType, from, to, userId } = {}) {
+//
+// Fase 11 (sección 14, "Audit filters"): ganó `action` (para investigar
+// una operación concreta, ej. "Empresa A, 01/09→30/09, módulo
+// Finanzas, acción APPROVED") y `limit` (sección 27, performance — la
+// bitácora de una empresa puede crecer sin límite; nunca se devuelve
+// sin tope, aunque no se pidan filtros).
+async function listForCompany(companyId, { entityType, action, from, to, userId, limit = 200 } = {}) {
   return prisma.auditLog.findMany({
     where: {
       companyId,
       entityType: entityType || undefined,
+      action: action || undefined,
       userId: userId || undefined,
       createdAt: from || to ? { gte: from, lte: to } : undefined,
     },
     orderBy: { createdAt: 'desc' },
+    take: Math.min(limit, 1000),
     include: { user: { select: { id: true, name: true, email: true } } },
   });
 }

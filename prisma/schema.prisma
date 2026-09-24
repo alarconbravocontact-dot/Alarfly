@@ -123,6 +123,7 @@ model Company {
   pettyCashExpenses PettyCashExpense[]
   alertRules        AlertRule[]
   alerts            Alert[]
+  jobRuns           JobRun[]
 
   fpaDimensions          FpaDimension[]
   budgets                Budget[]
@@ -1669,6 +1670,7 @@ enum AlertType {
   AR_COLLECTION_ESCALATION // agregado por AR — cobranza escalonada (factura vencida, 3 niveles)
   ADVANCED_ANALYSIS_ALERT // agregado por Análisis Avanzados — un análisis automático cruzó su condición de alerta configurada
   BANK_ACCOUNT_DISCONNECTED // agregado por Tesorería — una cuenta bancaria lleva más de 48h sin un extracto importado
+  APPROVAL_PENDING // agregado en Fase 11 — una orden de pago quedó pendiente de un nivel de aprobación
 }
 
 enum AlertSeverity {
@@ -4046,4 +4048,42 @@ model SupportQuestion {
   createdAt        DateTime @default(now())
 
   @@index([companyId, userId, moduleKey])
+}
+
+// =====================================================================
+// CORE / JOBS — src/core/jobs (Fase 11, sección 17)
+// El proyecto tiene 9 jobs automáticos (node-cron), cada uno con su
+// propio `console.error` suelto y, en el mejor caso, un `lastRunAt` en
+// SU PROPIO modelo de negocio (AnalysisAutomationConfig/ScheduledReport
+// — un dato por REPORTE/CONFIGURACIÓN, no por CORRIDA del job en sí).
+// No había ninguna forma transversal de responder "¿cuándo corrió por
+// última vez el escaneo de alertas de Tesorería, con qué resultado, y
+// cuánto tardó?" para los otros 7. `JobRun` es la única fuente nueva:
+// una fila por corrida de un job PARA UNA EMPRESA (los jobs iteran
+// empresa por empresa, así que el aislamiento multiempresa del punto
+// 19 aplica también acá — nunca se mezcla la última corrida de la
+// Empresa A con la de la Empresa B). El catálogo de qué jobs existen
+// (`jobKey`, la frecuencia en texto simple, una descripción) vive en
+// código (`core/jobs/job-registry.js`), mismo patrón ya usado por el
+// catálogo de los 16 análisis o el glosario — no una tabla nueva.
+enum JobRunStatus {
+  SUCCESS
+  ERROR
+}
+
+model JobRun {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  jobKey       String
+  status       JobRunStatus
+  startedAt    DateTime
+  finishedAt   DateTime
+  durationMs   Int
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, jobKey, startedAt])
 }

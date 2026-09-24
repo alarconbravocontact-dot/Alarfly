@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const prisma = require('../../../core/database/prisma');
 const { runDueAutomations } = require('./automation-runner.service');
+const { runJob } = require('../../../core/jobs/job-run.service');
 
 // Corre todos los días a las 7:15am — después de Inventario (6:45am),
 // Cobranza de AR y Reportes Programados (ambos 7:00am), mismo criterio
@@ -15,8 +16,7 @@ function schedule() {
       const admin = await prisma.user.findFirst({ where: { companyId: company.id, role: 'ADMIN' } });
       if (!admin) continue;
       try {
-
-        await runDueAutomations(company.id, admin.id);
+        await runJob('advanced-analytics.automation', company.id, () => runDueAutomations(company.id, admin.id));
       } catch (err) {
         console.error(`Error corriendo Análisis Avanzados automáticos de la empresa ${company.id}:`, err.message);
       }

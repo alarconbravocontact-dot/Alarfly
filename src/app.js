@@ -33,6 +33,8 @@ const notificationsRoutes = require('./core/alerts/alerts.routes');
 const fxRoutes = require('./core/fx/fx.routes');
 const pinnedItemsRoutes = require('./core/pinned-items/pinned-items.routes');
 const helpRoutes = require('./core/help/help.routes');
+const auditLogRoutes = require('./core/audit/audit.routes');
+const jobsRoutes = require('./core/jobs/jobs.routes');
 const errorHandler = require('./core/middlewares/errorHandler');
 
 const app = express();
@@ -84,6 +86,8 @@ app.use('/notifications', notificationsRoutes);
 app.use('/help', helpRoutes);
 app.use('/fx', fxRoutes);
 app.use('/pinned-items', pinnedItemsRoutes);
+app.use('/audit-log', auditLogRoutes);
+app.use('/jobs', jobsRoutes);
 
 app.use(errorHandler);
 

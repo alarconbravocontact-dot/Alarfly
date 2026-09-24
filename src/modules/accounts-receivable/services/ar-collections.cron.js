@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const prisma = require('../../../core/database/prisma');
 const arCollectionsService = require('./ar-collections.service');
+const { runJob } = require('../../../core/jobs/job-run.service');
 
 // Corre todos los días a las 7:00 am (después de Inventario 6:45am,
 // mismo criterio de no competir por el mismo momento): revisa facturas
@@ -14,7 +15,7 @@ function schedule() {
       const admin = await prisma.user.findFirst({ where: { companyId: company.id, role: 'ADMIN' } });
       if (!admin) continue;
       try {
-        await arCollectionsService.scanOverdueInvoices(company.id, admin.id);
+        await runJob('ar.collections-scan', company.id, () => arCollectionsService.scanOverdueInvoices(company.id, admin.id));
       } catch (err) {
         console.error(`Error corriendo la cobranza escalonada de la empresa ${company.id}:`, err.message);
       }

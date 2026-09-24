@@ -136,9 +136,15 @@ export default function AppLayout() {
     };
   }, [user?.role]);
 
-  const navAreas = hasAccessLevelsAccess
-    ? [...NAV_AREAS, { area: 'Configuración', items: [{ to: '/niveles-de-acceso', label: 'Niveles de Acceso', icon: '⚿' }] }]
-    : NAV_AREAS;
+  // Fase 11 (sección 23, "UX de auditoría"): "Auditoría" es
+  // estrictamente ADMIN — a diferencia de "Niveles de Acceso", que un
+  // Contador con el permiso delegado también puede ver, ver TODO lo
+  // que hizo toda la empresa (no solo gestionar usuarios) es más
+  // sensible, así que no hereda ese mismo permiso delegado.
+  const configItems = [];
+  if (hasAccessLevelsAccess) configItems.push({ to: '/niveles-de-acceso', label: 'Niveles de Acceso', icon: '⚿' });
+  if (user?.role === 'ADMIN') configItems.push({ to: '/auditoria', label: 'Auditoría', icon: '▤' });
+  const navAreas = configItems.length > 0 ? [...NAV_AREAS, { area: 'Configuración', items: configItems }] : NAV_AREAS;
 
   return (
     <div className="app-shell">

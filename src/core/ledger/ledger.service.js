@@ -89,10 +89,16 @@ async function postEntry(
 ) {
   validateBalancedLines(lines);
 
-  const period = await periodLockService.getPeriodForDate(companyId, date);
-  assertPeriodOpen(period);
-
   async function run(client) {
+    // Fase 11 (sección 18, TOCTOU): el periodo se valida CON EL CLIENTE
+    // TRANSACCIONAL, justo antes de escribir el asiento — no con una
+    // consulta suelta antes de abrir la transacción. Antes de este fix,
+    // otra petición podía cerrar el periodo en la ventana entre el
+    // chequeo y el `journalEntry.create`, dejando un asiento posteado en
+    // un periodo que quedaba cerrado sin que nadie lo notara.
+    const period = await periodLockService.getPeriodForDate(companyId, date, client);
+    assertPeriodOpen(period);
+
     const settings = await client.accountingSettings.findUnique({ where: { companyId } });
     const requiresApproval = settings?.requiresApprovalForManualEntries ?? false;
     const status = origin !== 'MANUAL' || autoApprove || !requiresApproval ? 'APPROVED' : 'DRAFT';

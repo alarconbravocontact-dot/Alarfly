@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const prisma = require('../../../core/database/prisma');
 const fixedAssetsService = require('./fixed-assets.service');
+const { runJob } = require('../../../core/jobs/job-run.service');
 
 // Corre el primer día de cada mes a las 3:00 am: deprecia todos los
 // activos activos de cada empresa. Los activos por "unidades de
@@ -14,7 +15,9 @@ function schedule() {
       const admin = await prisma.user.findFirst({ where: { companyId: company.id, role: 'ADMIN' } });
       if (!admin) continue;
       try {
-        await fixedAssetsService.runMonthlyDepreciation(company.id, new Date(), admin.id);
+        await runJob('accounting.monthly-depreciation', company.id, () =>
+          fixedAssetsService.runMonthlyDepreciation(company.id, new Date(), admin.id)
+        );
       } catch (err) {
         console.error(`Error depreciando activos de la empresa ${company.id}:`, err.message);
       }

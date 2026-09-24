@@ -68,6 +68,7 @@ import ExecutiveDashboardPage from './pages/reports/ExecutiveDashboardPage';
 import ExportPage from './pages/reports/ExportPage';
 import MetricsPage from './pages/metrics/MetricsPage';
 import NivelesAccesoPage from './modules/niveles-acceso/NivelesAccesoPage';
+import AuditTrailPage from './pages/audit/AuditTrailPage';
 import AdvancedAnalyticsLayout from './modules/analisis-avanzados/AdvancedAnalyticsLayout';
 import AnalysisCatalogPage from './modules/analisis-avanzados/CatalogPage';
 import AnalysisReportsArchivePage from './modules/analisis-avanzados/ReportsArchivePage';
@@ -186,6 +187,7 @@ function App() {
             <Route path="benchmarking" element={<BenchmarkingPage />} />
           </Route>
           <Route path="/niveles-de-acceso" element={<NivelesAccesoPage />} />
+          <Route path="/auditoria" element={<AuditTrailPage />} />
           <Route path="/mi-cuenta" element={<AccountLayout />}>
             <Route index element={<Navigate to="perfil" replace />} />
             <Route path="perfil" element={<ProfileSection />} />

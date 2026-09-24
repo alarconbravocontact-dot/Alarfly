@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const prisma = require('../database/prisma');
 const fxService = require('./fx.service');
+const { runJob } = require('../jobs/job-run.service');
 
 // Corre el primer día de cada mes a las 2:00 am: revalúa todas las
 // cuentas en moneda extranjera de cada empresa. Como es un proceso
@@ -13,7 +14,7 @@ function schedule() {
       const admin = await prisma.user.findFirst({ where: { companyId: company.id, role: 'ADMIN' } });
       if (!admin) continue;
       try {
-        await fxService.revalueCompany(company.id, new Date(), admin.id);
+        await runJob('fx.monthly-revaluation', company.id, () => fxService.revalueCompany(company.id, new Date(), admin.id));
       } catch (err) {
         console.error(`Error revaluando FX de la empresa ${company.id}:`, err.message);
       }

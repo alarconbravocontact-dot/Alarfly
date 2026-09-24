@@ -21,8 +21,13 @@ async function listPeriods(companyId) {
   return prisma.accountingPeriod.findMany({ where: { companyId }, orderBy: { startDate: 'asc' } });
 }
 
-async function getPeriodForDate(companyId, date) {
-  const period = await prisma.accountingPeriod.findFirst({
+// `client`: opcional, mismo patrón "tx opcional" ya usado en todo el
+// proyecto (core/ledger.postEntry, core/audit.log) — permite validar el
+// periodo con el MISMO cliente transaccional que va a escribir el
+// movimiento, en vez de con una consulta suelta antes de abrir la
+// transacción (ver TOCTOU corregido en core/ledger.postEntry, Fase 11).
+async function getPeriodForDate(companyId, date, client = prisma) {
+  const period = await client.accountingPeriod.findFirst({
     where: { companyId, startDate: { lte: date }, endDate: { gte: date } },
   });
   if (!period) {
@@ -35,8 +40,8 @@ async function getPeriodForDate(companyId, date) {
   return period;
 }
 
-async function assertOpenForDate(companyId, date) {
-  const period = await getPeriodForDate(companyId, date);
+async function assertOpenForDate(companyId, date, client = prisma) {
+  const period = await getPeriodForDate(companyId, date, client);
   assertPeriodOpen(period);
   return period;
 }
@@ -50,18 +55,24 @@ async function closePeriod(companyId, periodId, userId) {
     throw new AppError('Este periodo ya está cerrado.', 409, 'PERIOD_ALREADY_CLOSED');
   }
 
-  const pendingEntries = await prisma.journalEntry.count({
-    where: { companyId, periodId, status: { in: ['DRAFT', 'PENDING_APPROVAL'] } },
-  });
-  if (pendingEntries > 0) {
-    throw new AppError(
-      `Hay ${pendingEntries} asiento(s) sin aprobar en este periodo. Apruébalos o elimínalos antes de cerrar.`,
-      409,
-      'PERIOD_HAS_PENDING_ENTRIES'
-    );
-  }
-
+  // Fase 11 (sección 18, TOCTOU): la revalidación de "sin pendientes" se
+  // repite DENTRO de la misma transacción que cierra el periodo, con el
+  // cliente transaccional — un asiento que se cuele entre el chequeo de
+  // arriba (solo para devolver un error temprano y legible) y el cierre
+  // real ya no pasa desapercibido, porque se vuelve a contar justo antes
+  // de escribir `status: CLOSED`.
   return prisma.$transaction(async (tx) => {
+    const pendingEntries = await tx.journalEntry.count({
+      where: { companyId, periodId, status: { in: ['DRAFT', 'PENDING_APPROVAL'] } },
+    });
+    if (pendingEntries > 0) {
+      throw new AppError(
+        `Hay ${pendingEntries} asiento(s) sin aprobar en este periodo. Apruébalos o elimínalos antes de cerrar.`,
+        409,
+        'PERIOD_HAS_PENDING_ENTRIES'
+      );
+    }
+
     const updated = await tx.accountingPeriod.update({
       where: { id: periodId },
       data: { status: 'CLOSED', closedAt: new Date(), closedByUserId: userId },

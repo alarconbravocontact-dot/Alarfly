@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const prisma = require('../../../core/database/prisma');
 const inventoryAlertsService = require('./inventory-alerts.service');
+const { runJob } = require('../../../core/jobs/job-run.service');
 
 // Corre todos los días a las 6:45 am (después de Tesorería 6:00am y
 // Fiscal 6:30am, mismo criterio de no competir por el mismo momento):
@@ -15,7 +16,9 @@ function schedule() {
       const admin = await prisma.user.findFirst({ where: { companyId: company.id, role: 'ADMIN' } });
       if (!admin) continue;
       try {
-        await inventoryAlertsService.runInventoryAlertsScan(company.id, admin.id);
+        await runJob('inventory.alerts-scan', company.id, () =>
+          inventoryAlertsService.runInventoryAlertsScan(company.id, admin.id)
+        );
       } catch (err) {
         console.error(`Error corriendo el escaneo de alertas de inventario de la empresa ${company.id}:`, err.message);
       }

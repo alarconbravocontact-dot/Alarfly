@@ -433,3 +433,41 @@
     padding: var(--space-4);
   }
 }
+
+/* Rediseño UX/UI (Etapa 3) — bug real corregido: el clúster de la
+   derecha del topbar (moneda, modo incógnito, notificaciones, usuario,
+   cerrar sesión) desbordaba horizontalmente por debajo de 900px —
+   presente en TODA la app (Inicio, Contabilidad, Ventas...), no algo
+   nuevo de esta etapa. Nunca se detectó en las etapas anteriores
+   porque la comprobación fue solo visual (una captura de pantalla a
+   ancho fijo no revela que el contenido se corrió más allá del borde
+   derecho) — se encontró acá midiendo `scrollWidth` real, el mismo
+   nivel de rigor que ya exigió el bug del flyout en la Etapa 1. Con el
+   menú lateral ya angosto (200px) desde ~1024px, el contenido restante
+   no alcanza para la etiqueta de texto del modo "principiante"
+   (`beginnerIconLabels`) de cada ícono + el texto de "Cerrar sesión" +
+   el selector de moneda completo — se ocultan/acortan en cascada,
+   igual que ya se ocultaba el nombre/rol del usuario un poco antes.
+   Ningún control deja de funcionar: los íconos conservan su
+   `aria-label`/`title`, y el selector de moneda sigue siendo el mismo
+   `<select>` real, solo con su texto recortado si no cabe. */
+@media (max-width: 900px) {
+  .app-topbar-user .ui-icon-label {
+    display: none;
+  }
+
+  .app-topbar-logout-label {
+    display: none;
+  }
+
+  .currency-selector select {
+    max-width: 88px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nav-search {
+    width: 160px;
+  }
+}

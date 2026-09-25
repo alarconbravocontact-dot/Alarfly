@@ -10,6 +10,8 @@ import { useToast } from '../../context/ToastContext';
 import { formatCurrency, toIsoDate } from '../../utils/format';
 import HelpTooltip from '../../components/HelpTooltip';
 import EntityAutocomplete from '../../core/ui/EntityAutocomplete';
+import Disclosure from '../../core/ui/Disclosure';
+import './QuickSalePage.css';
 
 // Venta Rápida (Fase 3, punto 20): registrar una venta cotidiana con el
 // mínimo de interacciones posible, SIN sacrificar inventario/impuestos/
@@ -227,66 +229,83 @@ export default function QuickSalePage() {
           </button>
         </div>
 
-        <label className="field">
-          <span>
-            Jurisdicción fiscal <HelpTooltip text="Determina qué impuesto/retención aplica. Se preselecciona sola con la primera disponible." />
-          </span>
-          <select value={jurisdictionId} onChange={(e) => setJurisdictionId(e.target.value)} required>
-            {jurisdictions.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {/* Rediseño UX/UI (Etapa 3): revelación progresiva — Jurisdicción
+            fiscal y Cuenta de ingreso ya se preseleccionan solas (ver
+            `load()` arriba) y casi nunca hace falta tocarlas, así que
+            quedan colapsadas detrás de "Opciones avanzadas" en vez de
+            competir visualmente con Cliente/Productos/Cobro, que sí son
+            el flujo real de "Buscar/Elegir → Confirmar → Registrar".
+            Ninguna capacidad se pierde: siguen siendo los mismos 2
+            campos, con el mismo valor por defecto de antes. */}
+        <Disclosure label="Opciones avanzadas">
+          <label className="field">
+            <span>
+              Jurisdicción fiscal <HelpTooltip text="Determina qué impuesto/retención aplica. Se preselecciona sola con la primera disponible." />
+            </span>
+            <select value={jurisdictionId} onChange={(e) => setJurisdictionId(e.target.value)} required>
+              {jurisdictions.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="field">
-          <span>Cuenta de ingreso</span>
-          <select value={incomeAccountId} onChange={(e) => setIncomeAccountId(e.target.value)} required>
-            {incomeAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.code} · {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="field">
+            <span>Cuenta de ingreso</span>
+            <select value={incomeAccountId} onChange={(e) => setIncomeAccountId(e.target.value)} required>
+              {incomeAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.code} · {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </Disclosure>
 
-        <label className="field" style={{ gridColumn: '1 / -1', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <input type="checkbox" checked={collectNow} onChange={(e) => setCollectNow(e.target.checked)} />
-          <span>Cobrar de inmediato</span>
-        </label>
+        {/* Paso de confirmación: cobrar es la acción por defecto de una
+            Venta Rápida (checkbox ya viene marcado), con sus 3 campos
+            agrupados en su propio bloque en vez de sueltos en la
+            grilla general — visualmente es "el paso 2", no más campos
+            del mismo tipo que Cliente/Productos. */}
+        <div className="quick-sale-payment-step">
+          <label className="field quick-sale-payment-toggle">
+            <input type="checkbox" checked={collectNow} onChange={(e) => setCollectNow(e.target.checked)} />
+            <span>Cobrar de inmediato</span>
+          </label>
 
-        {collectNow && (
-          <>
-            <label className="field">
-              <span>Cuenta de tesorería</span>
-              <select value={treasuryAccountId} onChange={(e) => setTreasuryAccountId(e.target.value)} required={collectNow}>
-                {treasuryAccounts.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Método de pago</span>
-              <select value={paymentMethodId} onChange={(e) => setPaymentMethodId(e.target.value)}>
-                <option value="">Sin especificar</option>
-                {paymentMethods.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Monto cobrado (vacío = el total)</span>
-              <input type="number" min="0" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder={total.toFixed(2)} />
-            </label>
-          </>
-        )}
+          {collectNow && (
+            <div className="quick-sale-payment-fields">
+              <label className="field">
+                <span>Cuenta de tesorería</span>
+                <select value={treasuryAccountId} onChange={(e) => setTreasuryAccountId(e.target.value)} required={collectNow}>
+                  {treasuryAccounts.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Método de pago</span>
+                <select value={paymentMethodId} onChange={(e) => setPaymentMethodId(e.target.value)}>
+                  <option value="">Sin especificar</option>
+                  {paymentMethods.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Monto cobrado (vacío = el total)</span>
+                <input type="number" min="0" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder={total.toFixed(2)} />
+              </label>
+            </div>
+          )}
+        </div>
 
-        <p className="text-muted" style={{ gridColumn: '1 / -1' }}>
+        <p className="quick-sale-total" style={{ gridColumn: '1 / -1' }}>
           Total: <strong>{formatCurrency(total)}</strong>
         </p>
 

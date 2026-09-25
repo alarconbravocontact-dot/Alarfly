@@ -1,0 +1,38 @@
+/* Rediseño UX/UI (Etapa 3): el paso de cobro se agrupa en su propio
+   bloque con borde sutil — visualmente "el paso 2" de Buscar/Elegir →
+   Confirmar → Registrar, no más campos sueltos de la misma grilla que
+   Cliente/Productos. Mismos tokens que ya usa el resto de la app
+   (nunca un color/sombra nuevo). */
+.quick-sale-payment-step {
+  grid-column: 1 / -1;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background: var(--color-surface);
+}
+
+.quick-sale-payment-toggle {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+}
+
+.quick-sale-payment-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.quick-sale-total {
+  color: var(--color-text-secondary);
+  font-size: 15px;
+}
+
+.quick-sale-total strong {
+  font-family: var(--font-family-serif);
+  font-size: var(--text-h2);
+  color: var(--color-text-primary);
+}

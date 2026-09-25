@@ -391,9 +391,9 @@ export default function AppLayout() {
             <Link to="/mi-cuenta" className="app-topbar-avatar" style={{ textDecoration: 'none' }} title="Mi Cuenta">
               {user ? initials(user.name) : ''}
             </Link>
-            <button type="button" className="app-topbar-logout" onClick={logout}>
+            <button type="button" className="app-topbar-logout" onClick={logout} aria-label="Cerrar sesión">
               <Icon name="logout" size={16} />
-              Cerrar sesión
+              <span className="app-topbar-logout-label">Cerrar sesión</span>
             </button>
           </div>
         </header>

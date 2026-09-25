@@ -3789,3 +3789,238 @@ compartidos, reutilizados tal cual).
 **Etapa 2 (Inicio) completa y validada.** No se avanza a la Etapa 3
 (Operaciones) sin continuación explícita del usuario, tal como exige
 la metodología por etapas del documento maestro.
+
+## Rediseño UX/UI Maestro — Etapa 3 (Operaciones)
+
+A pedido explícito del usuario, siguiendo la misma metodología
+obligatoria por etapas de las Etapas 1-2 (auditar → mapear → priorizar
+→ implementar por bloques → validar funcional → validar visual real →
+comparar → corregir → documentar). Esta entrada cubre solo la Etapa 3
+(Operaciones: Ventas, Compras, Inventario) — las Etapas 4-8 siguen sin
+iniciarse.
+
+### Auditoría inicial (Paso 1) y mapa de pantallas (Paso 2)
+
+Se inventariaron todas las pantallas reales de Operaciones (`grep`/
+lectura de código + capturas reales con Playwright en navegador, no
+solo DOM):
+
+- **Ventas** (`/ventas/*`): `QuickSalePage` (Venta Rápida),
+  `SalesOrdersPage` (Pedidos), `SalesDeliveriesPage` (Entregas).
+- **Compras**: no existe un módulo "Compras" separado en el sidebar
+  (decisión ya documentada en la Etapa 1: no se fusionó/reorganizó la
+  navegación fuera de su propia etapa) — el flujo de compra vive hoy
+  repartido en `ApBillsPage` (Facturas de Compra, dentro de Cuentas
+  por Cobrar y Pagar) y `PurchaseOrdersPage` (Órdenes de Compra,
+  dentro de la pestaña "Órdenes de Compra" de Inventario). Se auditaron
+  ambas como las pantallas reales del flujo Compra→Orden→Recepción→
+  Factura→Pago.
+- **Inventario** (`/inventario/*`): `CatalogPage`, `WarehousesPage`,
+  `StockPage`, `MovementsPage`, `TransfersPage`, `PhysicalCountsPage`,
+  `PurchaseOrdersPage`, `LotsPage`.
+
+**Auditoría objetiva de componentes** (vía `grep`, no solo lectura
+manual): confirmado que `StatusSeal`/`EmptyState` ya se usan en 12 de
+las pantallas de Operaciones; que `.btn`/`.btn-primary`/`.btn-small`
+(clases de `module.css`) son **visualmente idénticas, token por
+token**, a `core/ui/Button` (`.ui-btn`) — comparadas línea por línea,
+mismo padding/radio/colores — así que NO es una inconsistencia visual
+real, solo dos implementaciones CSS paralelas con el mismo resultado
+en pantalla; no se tocó (rehacer esto en 12+ archivos habría sido un
+refactor arquitectónico sin beneficio visual, explícitamente prohibido
+por el documento maestro).
+
+### Hallazgo central de la auditoría
+
+Contrario a lo que suponía el prompt genérico de esta etapa ("pantallas
+que parecen formularios administrativos antiguos"), la auditoría real
+—con capturas de pantalla reales, no solo lectura de código— mostró
+que **la mayoría de Operaciones ya cumple el lenguaje visual pedido**:
+tablas oscuras limpias con `StatusSeal`, estados vacíos con
+`EmptyState`, relaciones entre documentos ya visibles (una entrega
+muestra el N.º de su pedido, una factura de compra permite facturar
+directo desde una orden ya recibida, el stock muestra Existencia/
+Reservado/Disponible tal como pide el documento maestro). Esto viene
+de que estas pantallas ya se construyeron con el Sistema de Diseño de
+la Fase 10, antes de que existiera este rediseño UX/UI.
+
+Se decidió explícitamente **no convertir cada hallazgo en un cambio**
+(regla del propio documento maestro, Paso 1: "no conviertas
+automáticamente todo hallazgo en un cambio") — el foco real de esta
+etapa quedó en la ÚNICA pantalla genuinamente señalada como prioridad
+1 y genuinamente por debajo del resto: **Venta Rápida**.
+
+### CONSERVAR / REDISEÑAR / CONSOLIDAR / CORREGIR / NO TOCAR
+
+- **CONSERVAR**: `SalesOrdersPage`, `SalesDeliveriesPage`,
+  `ApBillsPage`, `PurchaseOrdersPage`, `StockPage`, `MovementsPage`,
+  `TransfersPage` — ya usan `StatusSeal`/`EmptyState`/tablas oscuras
+  correctas, ya muestran Existencia/Reservado/Disponible, ya conectan
+  documentos relacionados (pedido↔entrega, orden↔factura). No se
+  encontró ningún problema real que ameritara un cambio visual.
+- **REDISEÑAR**: `QuickSalePage` (Venta Rápida) — todos los campos
+  tenían el mismo peso visual, sin distinguir "Buscar/Elegir" de
+  "Confirmar" de "Registrar", contradiciendo la sección más detallada
+  del propio documento maestro para esta etapa.
+- **CONSOLIDAR**: ninguno — no se encontró ningún componente duplicado
+  que fuera seguro consolidar sin un refactor mayor (ver `.btn` vs
+  `Button` arriba, decidido explícitamente NO tocar).
+- **CORREGIR**: un bug real de desborde horizontal en el topbar
+  (ver abajo) — transversal a toda la app, no específico de
+  Operaciones, pero descubierto y corregido acá por el mismo nivel de
+  rigor que exige esta etapa.
+- **NO TOCAR**: todo el backend (Ledger, Sales/Purchase/Inventory
+  engines, Fiscal, FX, Audit, RBAC, Finance Read Layer) — ningún
+  archivo de `src/` (backend) se modificó en esta etapa.
+
+### Cambios implementados (Paso 4, Bloque 1 — Venta Rápida)
+
+1. **Nuevo componente genérico `core/ui/Disclosure.jsx`** (+ `.css`):
+   sección de formulario colapsable, sin persistencia (a diferencia de
+   `ExecutiveSummaryCards`, que sí recuerda su estado por usuario vía
+   `core/panel-preferences` — acá no hace falta, es una sección de
+   formulario que casi nunca se toca, no un panel de datos que se
+   vuelve a visitar). Mismo glifo ▸/▾ que ya usa `ExecutiveSummaryCards`
+   para no introducir un segundo lenguaje visual de colapsar/expandir.
+   Se buscó primero si ya existía algo similar (`grep` de "avanzad"/
+   `<details>`/"Disclosure" en todo el frontend) — no existía.
+2. **`QuickSalePage` reestructurada con revelación progresiva**:
+   Jurisdicción fiscal y Cuenta de ingreso (que ya se preseleccionaban
+   solas, sin que el código lo ocultara visualmente) ahora viven
+   detrás de "Opciones avanzadas", colapsado por defecto — ninguna
+   capacidad se pierde, siguen siendo los mismos 2 campos con el mismo
+   valor por defecto de siempre. El paso de cobro ("Cobrar de
+   inmediato" + cuenta de tesorería + método + monto) se agrupó en su
+   propio bloque con borde sutil (`quick-sale-payment-step`), para que
+   se sienta como "el paso 2" (Confirmar) en vez de más campos sueltos
+   de la misma grilla que Cliente/Productos (Buscar/Elegir). El Total
+   se destacó con la tipografía serif que ya usa el resto de la app
+   para montos importantes. **Ningún endpoint, payload ni validación
+   cambió** — sigue siendo exactamente `POST /sales/quick-sale` con el
+   mismo `createInvoice`/`recordPayment` de siempre.
+
+### Bug real encontrado y corregido durante la validación (no en la
+auditoría inicial)
+
+Verificando responsive con el mismo rigor que descubrió el bug del
+flyout en la Etapa 1 (midiendo `document.documentElement.scrollWidth`
+real, no solo revisando capturas de pantalla a ancho fijo — una
+captura `fullPage` a un ancho fijo NO revela que el contenido se corrió
+más allá del borde derecho, por eso este bug nunca se detectó en las
+etapas anteriores), se encontró que **el clúster derecho del topbar**
+(selector de moneda, modo incógnito, notificaciones, usuario, cerrar
+sesión) **desbordaba horizontalmente por debajo de 900px** —
+confirmado que es transversal a TODA la app (Inicio, Contabilidad,
+Ventas — no algo introducido por esta etapa ni específico de
+Operaciones). Causa: con el sidebar ya angosto (200px) desde ~1024px
+(fix de la Etapa 1), el espacio restante no alcanza para la etiqueta
+de texto del modo "principiante" de cada ícono + el texto completo de
+"Cerrar sesión" + el selector de moneda sin recortar.
+
+Corregido con una nueva media query en `AppLayout.css`
+(`@media (max-width: 900px)`): se ocultan las etiquetas de texto del
+modo principiante (`.ui-icon-label`) dentro del clúster del topbar, se
+oculta el texto "Cerrar sesión" (el botón queda solo con el ícono +
+`aria-label` para accesibilidad — se envolvió el texto en un `<span>`
+nuevo, `app-topbar-logout-label`, para poder ocultarlo sin tocar el
+ícono), se acorta el selector de moneda (`max-width` + elipsis) y se
+angosta la búsqueda de navegación. Ningún control deja de funcionar —
+todos conservan su `aria-label`/`title`. Re-verificado con Playwright
+midiendo `scrollWidth` real en 1440/1280/1024/900/768 en Inicio Y en
+Venta Rápida: **0 desbordamiento en los 4 anchos explícitamente
+exigidos por el documento maestro** (1440/1280/1024/768).
+
+**Límite documentado, no corregido**: a 480px (móvil real, más angosto
+que los 4 anchos obligatorios) el desborde persiste (672px de
+contenido en 480px de viewport) — el sidebar no tiene todavía un
+patrón de menú fuera de pantalla ("off-canvas") para un ancho tan
+angosto, y construir eso es un cambio de arquitectura de navegación
+completo (Shell), no un ajuste de CSS puntual. El propio documento
+maestro reserva el endurecimiento responsive completo para la Etapa 8
+("responsive + auditoría transversal", la última etapa del rediseño) —
+se documenta acá como hallazgo real pero deliberadamente diferido a
+esa etapa, no ocultado.
+
+### Validación (Pasos 4-6)
+
+- **661/661 tests de backend, 0 regresiones** (ningún archivo de
+  backend se tocó).
+- `npm run build`/`npm run lint` del frontend limpios, mismo baseline
+  de 8 warnings preexistentes.
+- **Flujo funcional completo verificado de punta a punta con
+  Playwright contra el backend real**: creado un cliente + un
+  producto real, Venta Rápida con "Opciones avanzadas" colapsada por
+  defecto, expandida al clic (verificado con `document.elementFromPoint`
+  que el contenido se pinta de verdad, no solo existe en el DOM),
+  venta enviada sin cliente (rechazada correctamente por el backend
+  con un mensaje claro — confirma que ninguna validación de negocio se
+  rompió), venta enviada con cliente real → `201`, factura N.º 4
+  generada por el monto correcto.
+- **RBAC re-confirmado sin tocar ningún archivo de permisos**: Colaborador
+  llega al contenido real de Venta Rápida (sidebar + ruta accesibles,
+  igual que documentado desde que se construyó Fase 3).
+- **Responsive validado en los 4 anchos obligatorios** (1440/1280/
+  1024/768) + 900 (el punto de quiebre nuevo) con medición real de
+  `scrollWidth`, no solo capturas — 0 desbordamiento en todos, tanto
+  en Inicio como en Venta Rápida.
+- Flyout de navegación (Etapa 1) re-verificado tras tocar
+  `AppLayout.css` — sigue pintándose y siendo clickeable de verdad en
+  ambos estados del sidebar.
+
+### Ventas, Compras e Inventario (sin cambios de código)
+
+Auditadas a fondo con capturas reales — no se encontró ningún problema
+que ameritara un cambio: `SalesOrdersPage`/`SalesDeliveriesPage` ya
+muestran `StatusSeal` correcto y relación pedido↔entrega;
+`ApBillsPage` ya conecta "Facturar desde una orden de compra ya
+recibida"; `StockPage` ya muestra Existencia/Reservado/Disponible +
+valoración, exactamente lo que pide el documento maestro; los estados
+vacíos (`TransfersPage` sin transferencias) usan `EmptyState`
+correctamente. Se avisa explícitamente: esto significa que, salvo
+Venta Rápida, el resto de Operaciones **no se tocó** en esta etapa —
+no porque se haya saltado, sino porque la auditoría (con evidencia
+real, no solo la suposición del prompt) no encontró un problema real
+que justificara un cambio.
+
+### Archivos
+
+**Nuevos**: `frontend/src/core/ui/Disclosure.jsx`, `.css`;
+`frontend/src/pages/sales/QuickSalePage.css`.
+
+**Modificados**: `frontend/src/pages/sales/QuickSalePage.jsx`
+(revelación progresiva), `frontend/src/components/AppLayout.jsx`
+(`<span>` nuevo para poder ocultar el texto de "Cerrar sesión" en
+angosto), `frontend/src/components/AppLayout.css` (media query nueva
+de 900px, bug real de desborde).
+
+**Sin cambios**: todo el backend; `SalesOrdersPage`,
+`SalesDeliveriesPage`, `ApBillsPage`, `PurchaseOrdersPage`,
+`CatalogPage`, `WarehousesPage`, `StockPage`, `MovementsPage`,
+`TransfersPage`, `PhysicalCountsPage`, `LotsPage` — auditadas, sin
+cambios porque no se encontró un problema real.
+
+### Riesgos / deuda técnica documentada
+
+- El desborde horizontal a 480px (móvil real) queda documentado y
+  diferido a la Etapa 8, que es donde el propio documento maestro
+  ubica el endurecimiento responsive completo — no es un descuido, es
+  una decisión de alcance explícita.
+- No existe hoy un módulo "Compras" unificado en la navegación (el
+  flujo vive repartido entre Cuentas por Cobrar y Pagar e Inventario)
+  — ya documentado como decisión de la Etapa 1 (no reorganizar
+  navegación fuera de esa etapa); Etapa 3 trabajó dentro de esa
+  estructura sin crear una segunda navegación, tal como exige
+  explícitamente el prompt de esta etapa.
+- `.btn`/`Button` (dos implementaciones CSS visualmente idénticas)
+  queda como deuda documentada, no corregida — consolidarlas es un
+  refactor transversal de bajo valor visual y alto riesgo, reservado
+  para la limpieza transversal que el propio documento maestro
+  menciona al final del rediseño completo.
+
+### Estado
+
+**Etapa 3 (Operaciones) completa y validada**, con alcance de
+implementación real acotado a lo que la auditoría encontró
+genuinamente necesario: Venta Rápida rediseñada con revelación
+progresiva, y un bug transversal real de responsive corregido. No se
+avanza a la Etapa 4 (Finanzas) sin continuación explícita del usuario.

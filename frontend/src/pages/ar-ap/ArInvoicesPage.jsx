@@ -413,7 +413,7 @@ export default function ArInvoicesPage() {
     <div className="page">
       {drillDown && (
         <Breadcrumb
-          items={[{ label: 'Panel principal', to: '/' }, { label: 'Facturas de venta' }, { label: drillDown.monthLabel }]}
+          items={[{ label: 'Inicio', to: '/' }, { label: 'Facturas de venta' }, { label: drillDown.monthLabel }]}
         />
       )}
       {canManage && (

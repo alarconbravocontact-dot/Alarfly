@@ -205,7 +205,7 @@ export default function AuditTrailPage() {
 
   return (
     <div className="page">
-      <Breadcrumb items={[{ label: 'Panel principal', to: '/' }, { label: 'Auditoría' }]} />
+      <Breadcrumb items={[{ label: 'Inicio', to: '/' }, { label: 'Auditoría' }]} />
       <div className="panel">
         <div className="panel-header">
           <h2 className="field-label">

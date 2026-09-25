@@ -167,7 +167,7 @@ export default function MetricsPage() {
 
   return (
     <div className="page">
-      <Breadcrumb items={[{ label: 'Panel principal', to: '/' }, { label: 'Métricas del Negocio' }]} />
+      <Breadcrumb items={[{ label: 'Inicio', to: '/' }, { label: 'Métricas del Negocio' }]} />
       <div className="page-header">
         <h1 className="field-label">
           Métricas del Negocio

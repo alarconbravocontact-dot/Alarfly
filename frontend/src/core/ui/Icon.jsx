@@ -24,6 +24,8 @@ const PATHS = {
   close: 'M6 6l12 12M18 6 6 18',
   check: 'M5 13l4 4L19 7',
   logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
+  // Rediseño UX/UI (Etapa 1): búsqueda de navegación en el topbar.
+  search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM21 21l-4.35-4.35',
 };
 
 const BASE_SIZE = 20;

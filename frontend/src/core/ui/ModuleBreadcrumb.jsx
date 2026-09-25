@@ -11,7 +11,7 @@ export default function ModuleBreadcrumb({ moduleLabel, tabs }) {
   const location = useLocation();
   const currentTab = tabs.find((t) => location.pathname === t.to || location.pathname.startsWith(`${t.to}/`));
 
-  const items = [{ label: 'Panel principal', to: '/' }];
+  const items = [{ label: 'Inicio', to: '/' }];
   if (tabs.length > 1 && currentTab && currentTab.to !== tabs[0].to) {
     items.push({ label: moduleLabel, to: tabs[0].to });
     items.push({ label: currentTab.label });

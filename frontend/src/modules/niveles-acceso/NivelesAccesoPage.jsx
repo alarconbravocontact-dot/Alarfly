@@ -268,7 +268,7 @@ export default function NivelesAccesoPage() {
 
   return (
     <div className="page">
-      <Breadcrumb items={[{ label: 'Panel principal', to: '/' }, { label: 'Niveles de Acceso' }]} />
+      <Breadcrumb items={[{ label: 'Inicio', to: '/' }, { label: 'Niveles de Acceso' }]} />
       <div className="panel">
         <div className="panel-header">
           <h2 className="field-label">

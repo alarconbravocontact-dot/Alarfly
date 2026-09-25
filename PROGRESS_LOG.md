@@ -3441,3 +3441,175 @@ automatización). Se evaluó explícitamente un asistente de IA
 generativa y se decidió, con razones documentadas, no construirlo en
 esta pasada — quedó preparado conceptualmente para una fase futura.
 661/661 tests, 0 regresiones, build/lint limpios. No se inicia Fase 13.
+
+## Rediseño UX/UI Maestro — Etapa 1 (Shell Global)
+
+A pedido explícito del usuario, con un documento maestro subido
+(`ALARFLY_MASTER_UX_UI_REDESIGN.md`) y un prompt de implementación con
+metodología obligatoria por etapas (auditar → proponer → implementar →
+validar → capturar → comparar → corregir → documentar), sin saltar
+etapas y sin iniciar la siguiente sin validar la anterior. Esta entrada
+cubre solo la Etapa 1 (shell global: sidebar, navegación, topbar,
+búsqueda) — las Etapas 2-8 (Inicio, Operaciones, Finanzas, Control,
+Analítica, Configuración, responsive/auditoría transversal) quedan
+pendientes, no iniciadas.
+
+### Auditoría previa (Paso 1-2)
+
+Se leyó `frontend/DESIGN_SYSTEM.md` completo (paleta, tipografía,
+espaciado, componentes) y se inventarió la estructura real del
+frontend (rutas de `App.jsx`, `moduleTabs.js`, `AppLayout.jsx`) antes
+de tocar código. Hallazgo central: la información arquitectónica de
+navegación pedida por el documento maestro (Inicio / Operaciones /
+Finanzas / Control / Analítica / Configuración) **ya existía casi
+completa** desde la Fase 9 (`NAV_AREAS` en `AppLayout.jsx`, con las 5
+áreas ya nombradas) — el shell no necesitaba un rediseño de cero, sino
+2 correcciones puntuales y 1 pieza nueva (búsqueda de navegación, que
+el documento maestro pide explícitamente en el shell y no existía).
+
+Se evaluó explícitamente colapsar Contabilidad/Tesorería/Cuentas por
+Cobrar y Pagar dentro de un único ítem "Finanzas" (como sugiere la
+sección 4 del documento maestro) y se decidió NO hacerlo en esta
+etapa: harían falta Tarjetas de Crédito, Caja Chica, Conciliación
+Bancaria, Notas de Crédito/Débito a Proveedor — ninguna cubierta hoy
+por las pestañas de `FinanzasLayout` — así que colapsarlos ahora
+habría dejado funcionalidad real huérfana (violaría la regla explícita
+de "no remuevas funcionalidad sin investigar su propósito primero").
+Documentado como alcance recortado a propósito para una Etapa
+posterior (4 o 5), no como algo olvidado.
+
+### Cambios implementados (Paso 3)
+
+1. **Terminología "Panel principal" → "Inicio"**, para que coincida
+   con el nombre real del primer ítem del menú y con el vocabulario
+   del documento maestro — 8 archivos (`ModuleBreadcrumb.jsx` y 7
+   pantallas/tooltips que mencionaban "Panel principal" en texto
+   visible al usuario). Ningún comentario de código ni nombre de
+   archivo/ruta se tocó, solo strings visibles.
+
+2. **Bug real encontrado y corregido antes de llegar a producción**:
+   al mover "Auditoría" al grupo Control (ya lo pedía el documento
+   maestro, sección 4), la primera edición dejó un comentario que
+   afirmaba el movimiento pero el código seguía empujando `/auditoria`
+   a un grupo `Configuración` aparte — detectado releyendo el archivo
+   y confirmando con Playwright (`.allInnerTexts()` de cada grupo del
+   menú), no confiando en el comentario. Corregido reescribiendo la
+   construcción de `NAV_AREAS` con `.map()` para insertar el ítem en
+   el grupo `Control` real. Re-verificado: `Control` = [Fiscal,
+   Auditoría], `Configuración` = [Niveles de Acceso] — correcto.
+
+3. **Búsqueda de navegación en el topbar** (`NavSearch.jsx`/`.css`,
+   nuevo componente + `Icon` nuevo `search`): búsqueda difusa 100% del
+   lado del cliente sobre los módulos/submódulos ya listados en el
+   menú, reutilizando `utils/fuzzyMatch.js` (ya existente, usado por
+   `EntityAutocomplete`) — **cero llamadas nuevas al backend**, cero
+   API nueva, cumpliendo la regla explícita de la sección 20 ("no
+   crear APIs nuevas solamente para conseguir un efecto visual").
+   Atajo de teclado "/" para enfocar (ignorado si el foco ya está en
+   un campo de texto), navegación con flechas/Enter/Escape.
+
+4. **Nueva pestaña "Rentabilidad" dentro de Finanzas** (el documento
+   maestro la pide explícitamente en esa área, sección 4) — resuelto
+   como alias de ruta: `ProfitabilityPage` (ya existente, usada en
+   `/reportes/rentabilidad`) se montó también en `/finanzas/
+   rentabilidad`, mismo componente, sin duplicar código. Se descartó
+   la primera idea (enlazar directo a `/reportes/rentabilidad`) porque
+   habría sacado al usuario del árbol de rutas de `FinanzasLayout`,
+   rompiendo la continuidad visual de la barra de pestañas/breadcrumb
+   — el alias de ruta la preserva.
+
+5. **Bug real de accesibilidad/renderizado encontrado y corregido**
+   (el más importante de esta etapa): el mini-panel ("flyout") de un
+   módulo con submódulos — mostrado al pasar el mouse o enfocar por
+   teclado — **nunca se pintaba en pantalla**, ni con el sidebar
+   expandido ni colapsado. Causa raíz: `.app-sidebar` tiene
+   `overflow: hidden` y `.app-nav-main` tiene `overflow-x: hidden` —
+   el flyout, posicionado con `position: absolute; left: 100%` DENTRO
+   de esos contenedores, quedaba recortado por el `overflow` de sus
+   ancestros sin importar su `z-index`. El bug es anterior a esta
+   etapa (existía desde que se construyó el flyout en una sesión
+   previa) y nunca se había detectado porque la verificación de
+   entonces solo usó `isVisible()`/bounding box de Playwright — ninguno
+   de los dos detecta el recorte de un ancestro con `overflow: hidden`
+   (ambos siguen reportando un elemento como "visible" con una caja
+   real aunque ningún píxel se esté pintando ahí). Se detectó en esta
+   etapa usando `document.elementFromPoint()` en las coordenadas del
+   propio flyout, que si refleja lo que realmente se pinta.
+
+   Corregido convirtiendo el flyout a un **portal de React**
+   (`createPortal` a `document.body`, `position: fixed` con
+   coordenadas reales de `getBoundingClientRect()` del disparador,
+   estado de apertura manejado en JavaScript con
+   `onMouseEnter`/`onMouseLeave`/`onFocus`/`onBlur` y un retraso de
+   150ms al cerrar para permitir que el mouse viaje del disparador al
+   panel) en los 3 lugares que ya usaban este patrón: ítems anclados,
+   ítems de módulo con submódulos, y "Cerrar sesión". Sin tocar
+   ninguna lógica de negocio ni ruta — puramente el mecanismo de
+   render del menú.
+
+### Validación (Pasos 4-6)
+
+- **661/661 tests de backend, 0 regresiones** (ningún archivo de
+  backend se tocó en esta etapa; corrida como sanity check exigido
+  por el documento maestro).
+- `npm run build` y `npm run lint` del frontend limpios — mismo
+  baseline de 8 warnings preexistentes (`only-export-components` en
+  archivos de contexto), 0 warnings/errores nuevos.
+- Verificado con Playwright + `document.elementFromPoint()` (no solo
+  bounding box) que el flyout ahora se pinta y es clickeable de
+  verdad, en sidebar expandido Y colapsado — capturas reales
+  revisadas, contenido correcto (`Resumen, Dinero, Cobros, Pagos,
+  Cuentas por Cobrar, Cuentas por Pagar, Financiamiento, Liquidez,
+  Rentabilidad, Contabilidad Avanzada` para Finanzas).
+- Verificado el renombre "Inicio" (1 aparición, 0 restos de "Panel
+  principal" en el menú) y la búsqueda de navegación (consulta
+  "fiscal" devolvió las 7 pestañas de Fiscal + el módulo mismo,
+  agrupadas y rankeadas correctamente).
+- Verificada la agrupación completa de las 5 áreas contra la sección 4
+  del documento maestro: `OPERACIONES` [Ventas, Inventario],
+  `FINANZAS` [Finanzas, Contabilidad, Tesorería, Cuentas por Cobrar y
+  Pagar], `CONTROL` [Fiscal, Auditoría], `ANALÍTICA` [FP&A, Reportes,
+  Métricas del Negocio, Análisis Avanzados], `CONFIGURACIÓN` [Niveles
+  de Acceso] — coincide con la IA pedida, con el recorte ya
+  documentado arriba (Contabilidad/Tesorería/CxC-CxP siguen aparte por
+  ahora, no fusionados dentro de Finanzas).
+- Paleta/tipografía sin cambios (se reutilizaron 100% los tokens ya
+  existentes de `theme.css`/`DESIGN_SYSTEM.md` — ningún color, sombra,
+  radio o tamaño nuevo).
+
+### Archivos
+
+**Nuevos**: `frontend/src/components/NavSearch.jsx`,
+`frontend/src/components/NavSearch.css`.
+
+**Modificados**: `frontend/src/components/AppLayout.jsx` (renombre
+"Inicio", fix del grupo Auditoría→Control, portal del flyout, montaje
+de `NavSearch`), `frontend/src/components/AppLayout.css` (flyout
+`position: fixed` vía portal en vez de `absolute` recortado),
+`frontend/src/core/ui/Icon.jsx` (ícono `search`),
+`frontend/src/config/moduleTabs.js` (pestaña Rentabilidad en
+Finanzas), `frontend/src/App.jsx` (alias de ruta `/finanzas/
+rentabilidad`), y 8 archivos con el renombre "Panel principal" →
+"Inicio" en texto visible (`ModuleBreadcrumb.jsx`,
+`NivelesAccesoPage.jsx`, `MetricsPage.jsx`, `AuditTrailPage.jsx`,
+`ArInvoicesPage.jsx`, `TransactionsByTypePage.jsx`, `AccountLayout.jsx`,
+`ProfileSection.jsx`).
+
+### Riesgos / deuda técnica documentada
+
+- El bug de recorte del flyout (`overflow: hidden` en ancestros)
+  estaba presente desde antes de esta etapa sin haber sido detectado
+  — queda como lección documentada: verificar visibilidad real con
+  `document.elementFromPoint()`, nunca confiar solo en
+  `isVisible()`/bounding box cuando hay overlays posicionados dentro
+  de contenedores con overflow recortado.
+- Contabilidad/Tesorería/Cuentas por Cobrar y Pagar siguen como ítems
+  de sidebar separados de Finanzas (no fusionados) — recorte de
+  alcance a propósito, documentado arriba, a revisar en una etapa
+  posterior (4 o 5) cuando se audite Finanzas/Control a fondo.
+
+### Estado
+
+**Etapa 1 (Shell global) completa y validada.** No se avanza a la
+Etapa 2 (Inicio) sin continuación explícita, tal como exige la
+metodología por etapas del documento maestro ("no saltes etapas").

@@ -101,6 +101,12 @@ function App() {
             <Route path="cxp" element={<AgingPage initialMode="payables" />} />
             <Route path="financiamiento" element={<DebtsPage />} />
             <Route path="liquidez" element={<LiquidityForecastPage />} />
+            {/* Rediseño UX/UI (Etapa 1, sección 9): mismo componente que
+                /reportes/rentabilidad, montado también acá para que la
+                pestaña "Rentabilidad" de Finanzas se quede dentro de su
+                propio árbol de rutas (breadcrumb y barra de pestañas de
+                Finanzas intactos) en vez de saltar a Reportes. */}
+            <Route path="rentabilidad" element={<ProfitabilityPage />} />
             <Route path="contabilidad-avanzada" element={<ContabilidadAvanzadaPage />} />
           </Route>
           <Route path="/contabilidad" element={<AccountingLayout />}>

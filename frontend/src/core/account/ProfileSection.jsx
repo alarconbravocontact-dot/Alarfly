@@ -250,7 +250,7 @@ export default function ProfileSection() {
               />
               <span>
                 Tu negocio vende productos físicos
-                <HelpTooltip text="Si está marcado, la barra de configuración inicial del Panel principal te pedirá cargar tu primer producto. Si no, te pedirá registrar tu primer cliente." />
+                <HelpTooltip text="Si está marcado, la barra de configuración inicial del Inicio te pedirá cargar tu primer producto. Si no, te pedirá registrar tu primer cliente." />
               </span>
             </label>
             <div className="form-grid" style={{ marginTop: 12 }}>

@@ -36,7 +36,7 @@ export default function AccountLayout() {
             palabras técnicas — haz clic para una explicación simple. Si algo no funciona como esperas, revisa
             primero <strong>Seguridad</strong> (tu sesión, tu contraseña) o <strong>Mi rol y permisos</strong> (a
             qué partes del sistema puedes entrar). Para cualquier otra duda, contacta al Administrador de tu
-            empresa desde <strong>Junta</strong>, en el Panel principal.
+            empresa desde <strong>Junta</strong>, en el Inicio.
           </p>
         </div>
       )}

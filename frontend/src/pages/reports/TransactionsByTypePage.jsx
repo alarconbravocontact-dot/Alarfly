@@ -60,11 +60,11 @@ export default function TransactionsByTypePage() {
       <div className="page">
         <div className="panel">
           <p className="text-muted">
-            Esta pantalla muestra las transacciones detrás de un número del Panel principal — entra haciendo clic en una barra del
+            Esta pantalla muestra las transacciones detrás de un número del Inicio — entra haciendo clic en una barra del
             gráfico de ingresos y egresos.
           </p>
           <button type="button" className="btn btn-small" onClick={() => navigate('/')}>
-            Volver al Panel principal
+            Volver al Inicio
           </button>
         </div>
       </div>
@@ -75,7 +75,7 @@ export default function TransactionsByTypePage() {
     <div className="page">
       <Breadcrumb
         items={[
-          { label: 'Panel principal', to: '/' },
+          { label: 'Inicio', to: '/' },
           { label: TYPE_LABELS[type] || type },
           { label: monthLabel || 'Detalle' },
         ]}

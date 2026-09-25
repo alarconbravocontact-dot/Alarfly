@@ -96,6 +96,12 @@ export const SALES_TABS = [
 // directa a "¿cuánto dinero tengo?", antes de cualquier detalle. La
 // mayoría de las demás pestañas reutilizan una pantalla YA existente de
 // Tesorería/AR/AP/Reportes (ver App.jsx) — no son pantallas nuevas.
+// Rediseño UX/UI (Etapa 1, sección 9 del documento maestro): "Rentabilidad"
+// se agregó a la lista de submódulos de Finanzas — el documento maestro
+// la pide explícitamente ahí, y la pantalla YA existe (Reportes >
+// Rentabilidad, `ProfitabilityPage`) — no se creó ninguna pantalla
+// nueva, solo se agregó el enlace desde donde el documento maestro
+// dice que el usuario la espera encontrar.
 export const FINANCE_TABS = [
   { to: '/finanzas/resumen', label: 'Resumen' },
   { to: '/finanzas/dinero', label: 'Dinero' },
@@ -105,6 +111,7 @@ export const FINANCE_TABS = [
   { to: '/finanzas/cxp', label: 'Cuentas por Pagar' },
   { to: '/finanzas/financiamiento', label: 'Financiamiento' },
   { to: '/finanzas/liquidez', label: 'Liquidez' },
+  { to: '/finanzas/rentabilidad', label: 'Rentabilidad' },
   { to: '/finanzas/contabilidad-avanzada', label: 'Contabilidad Avanzada' },
 ];
 

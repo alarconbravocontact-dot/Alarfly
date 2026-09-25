@@ -248,22 +248,29 @@
   border-color: var(--color-brand-dim);
 }
 
-/* Mini-panel ("flyout") de un ítem del menú colapsado: aparece al
-   pasar el mouse o al recibir foco por teclado (accesible sin mouse),
-   solo se renderiza en el DOM cuando el menú está contraído. Para
-   los 8 módulos con pestañas propias reutiliza la MISMA lista `TABS`
-   que ya usa cada Layout (y ModuleBreadcrumb) — nunca una segunda
-   declaración de submenú que se pudiera desincronizar. */
+/* Mini-panel ("flyout") de un módulo: aparece al pasar el mouse o al
+   recibir foco por teclado (accesible sin mouse), con o sin el menú
+   contraído — sección 4 del documento maestro del rediseño. Para los
+   módulos con pestañas propias reutiliza la MISMA lista `TABS` que ya
+   usa cada Layout (y ModuleBreadcrumb) — nunca una segunda declaración
+   de submenú que se pudiera desincronizar.
+
+   Rediseño UX/UI (Etapa 1) — bug real corregido: antes esto era un
+   `position: absolute; left: 100%` DENTRO de `.app-nav-item-wrap`,
+   mostrado con `:hover`/`:focus-within` en CSS puro — pero
+   `.app-sidebar`/`.app-nav-main` recortan overflow (`overflow: hidden`/
+   `overflow-y: auto`), así que el flyout NUNCA llegaba a pintarse,
+   ni colapsado ni expandido (confirmado con `document.elementFromPoint`,
+   no solo con `isVisible()`/bounding box, que no detectan el recorte
+   de un ancestro). Ahora se renderiza vía un portal a `document.body`
+   (`AppLayout.jsx`), posicionado con coordenadas reales del disparador
+   — por eso es `position: fixed` con `top`/`left` en línea, no relativo
+   a `.app-nav-item-wrap`. */
 .app-nav-item-wrap {
   position: relative;
 }
 
 .app-nav-flyout {
-  display: none;
-  position: absolute;
-  left: 100%;
-  top: 0;
-  margin-left: 8px;
   min-width: 200px;
   max-width: 260px;
   background: var(--color-surface-raised);
@@ -274,9 +281,8 @@
   z-index: var(--z-index-flyout);
 }
 
-.app-nav-item-wrap:hover .app-nav-flyout,
-.app-nav-item-wrap:focus-within .app-nav-flyout {
-  display: block;
+.app-nav-flyout-portal {
+  position: fixed;
 }
 
 .app-nav-flyout-title {

@@ -4024,3 +4024,71 @@ implementación real acotado a lo que la auditoría encontró
 genuinamente necesario: Venta Rápida rediseñada con revelación
 progresiva, y un bug transversal real de responsive corregido. No se
 avanza a la Etapa 4 (Finanzas) sin continuación explícita del usuario.
+
+## Rediseño UX/UI Maestro — Etapa 4 (Finanzas)
+
+A pedido explícito del usuario ("continua"), siguiendo la misma
+metodología de las Etapas 1-3. Esta entrada cubre solo la Etapa 4
+(Finanzas: Resumen, Dinero, Cobros, Pagos, Cuentas por Cobrar/Pagar,
+Financiamiento, Liquidez, Rentabilidad, Contabilidad Avanzada) — las
+Etapas 5-8 siguen sin iniciarse.
+
+### Auditoría (Paso 1)
+
+Se confirmó primero, leyendo `App.jsx`, que Finanzas es mayormente una
+capa de alias sobre pantallas ya existentes de Tesorería/AR-AP/
+Reportes (`CashPositionPage`, `ArPaymentsPage`, `ApPaymentsPage`,
+`AgingPage`, `DebtsPage`, `LiquidityForecastPage`, `ProfitabilityPage`)
+— decisión ya documentada en Fase 5. Solo `ResumenPage` y
+`ContabilidadAvanzadaPage` son código propio de Finanzas. Se
+capturaron las 10 pestañas reales en navegador antes de tocar código.
+
+**Hallazgo real**: `ResumenPage` (el "home" de Finanzas) mostraba 8
+`StatCard` en una sola grilla plana, mezclando posición actual (caja,
+disponible, por cobrar, por pagar, financiamiento, comprometido) con
+previsión de las próximas 8 semanas (un cálculo distinto, sobre
+vencimientos reales) bajo el mismo peso visual — exactamente el mismo
+problema REAL-vs-FORECAST ya corregido en Inicio durante la Etapa 2
+("Evolución del negocio"). El resto de las pestañas auditadas (Dinero,
+Liquidez, Contabilidad Avanzada) ya mostraban jerarquía y agrupación
+correctas — sin cambios.
+
+### Cambio implementado (Paso 4)
+
+`ResumenPage` reestructurada en 2 grupos con encabezado propio (mismo
+lenguaje visual — mayúsculas, `letter-spacing`, color `muted` — que ya
+usan las secciones de Inicio, pero a escala de subgrupo dentro de un
+solo panel): "Posición actual" (6 tarjetas) y "Previsión — próximas 8
+semanas" (2 tarjetas, con un `HelpTooltip` nuevo aclarando "nunca una
+simulación"). Ningún dato, fuente ni cálculo cambió — siguen siendo
+los mismos 8 números de `financeApi.getSummary()` de siempre.
+
+### Validación
+
+- **661/661 tests de backend, 0 regresiones** (ningún archivo de
+  backend se tocó).
+- `npm run build`/`npm run lint` del frontend limpios, mismo baseline.
+- Verificado con Playwright: 6 tarjetas en "Posición actual", 2 en
+  "Previsión", sin desborde horizontal.
+- RBAC re-confirmado sin tocar ningún archivo de permisos: Colaborador
+  ve las 8 tarjetas (el módulo `finance` está abierto a los 4 roles en
+  `core/rbac/module-access.js`, sin cambios).
+- Responsive confirmado a 768px sin desbordamiento (heredando el fix
+  transversal del topbar de la Etapa 3).
+
+### Archivos
+
+**Nuevo**: `frontend/src/pages/finance/ResumenPage.css`.
+**Modificado**: `frontend/src/pages/finance/ResumenPage.jsx`
+(agrupación en 2 secciones, sin tocar la lógica de carga/estado).
+**Sin cambios**: todo el backend; `CashPositionPage`/`ArPaymentsPage`/
+`ApPaymentsPage`/`AgingPage`/`DebtsPage`/`LiquidityForecastPage`/
+`ProfitabilityPage`/`ContabilidadAvanzadaPage` — auditadas, sin
+cambios porque no se encontró un problema real.
+
+### Estado
+
+**Etapa 4 (Finanzas) completa y validada**, con el mismo criterio de
+alcance de las etapas anteriores: solo se tocó lo que la auditoría
+encontró genuinamente necesario. No se avanza a la Etapa 5 (Control)
+sin continuación explícita del usuario.

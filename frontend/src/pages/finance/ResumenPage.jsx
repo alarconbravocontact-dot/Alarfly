@@ -5,6 +5,7 @@ import { ApiError } from '../../api/client';
 import { formatCurrency, formatDate } from '../../utils/format';
 import StatCard from '../../components/StatCard';
 import HelpTooltip from '../../components/HelpTooltip';
+import './ResumenPage.css';
 
 // Fase 5 (Finanzas), sección 7: responde de un vistazo las preguntas
 // que antes exigían visitar Tesorería + Reportes + Deuda por separado.
@@ -48,67 +49,84 @@ export default function ResumenPage() {
 
         {error && <p className="alert-box alert-box-error">{error}</p>}
 
-        <section className="dashboard-stats">
-          <StatCard
-            label="¿Cuánto dinero tengo?"
-            value={summary ? formatCurrency(summary.cashOnHand, currency) : '—'}
-            hint="Posición de caja consolidada, todas las cuentas de Tesorería."
-            isLoading={isLoading}
-            error={error}
-          />
-          <StatCard
-            label="¿Cuánto tengo disponible?"
-            value={summary ? formatCurrency(summary.availableLiquidity, currency) : '—'}
-            hint="Caja + líneas de crédito sin usar."
-            isLoading={isLoading}
-            error={error}
-          />
-          <StatCard
-            label="¿Cuánto me deben?"
-            value={summary ? formatCurrency(summary.totalReceivable, currency) : '—'}
-            hint={<Link to="/finanzas/cxc">Ver Cuentas por Cobrar →</Link>}
-            isLoading={isLoading}
-            error={error}
-          />
-          <StatCard
-            label="¿Cuánto debo?"
-            value={summary ? formatCurrency(summary.totalPayable, currency) : '—'}
-            tone={summary && Number(summary.totalPayable) > Number(summary.cashOnHand) ? 'negative' : 'neutral'}
-            hint={<Link to="/finanzas/cxp">Ver Cuentas por Pagar →</Link>}
-            isLoading={isLoading}
-            error={error}
-          />
-          <StatCard
-            label="¿Cuánto debo de financiamiento?"
-            value={summary ? formatCurrency(summary.totalDebt, currency) : '—'}
-            hint={<Link to="/finanzas/financiamiento">Ver Financiamiento →</Link>}
-            isLoading={isLoading}
-            error={error}
-          />
-          <StatCard
-            label="¿Cuánto tengo comprometido?"
-            value={summary ? formatCurrency(summary.committedPayments, currency) : '—'}
-            hint="Órdenes de pago ya creadas, todavía sin aprobar ni ejecutar."
-            isLoading={isLoading}
-            error={error}
-          />
-          <StatCard
-            label="¿Cuánto espero cobrar pronto?"
-            value={summary ? formatCurrency(summary.expectedNearTermInflows, currency) : '—'}
-            hint="Próximas 8 semanas, según vencimientos reales."
-            tone="positive"
-            isLoading={isLoading}
-            error={error}
-          />
-          <StatCard
-            label="¿Cuánto espero pagar pronto?"
-            value={summary ? formatCurrency(summary.expectedNearTermOutflows, currency) : '—'}
-            hint={<Link to="/finanzas/liquidez">Ver Previsión de Liquidez →</Link>}
-            tone="negative"
-            isLoading={isLoading}
-            error={error}
-          />
-        </section>
+        {/* Rediseño UX/UI (Etapa 4): separadas en 2 grupos — posición
+            actual (saldos de hoy) y previsión de las próximas 8
+            semanas (un cálculo distinto, sobre vencimientos reales,
+            nunca una simulación) — para no mezclar REAL con FORECAST
+            bajo el mismo peso visual. Mismos 8 números de siempre, sin
+            ningún cálculo nuevo. */}
+        <div className="finance-summary-group">
+          <p className="finance-summary-group-title">Posición actual</p>
+          <section className="dashboard-stats">
+            <StatCard
+              label="¿Cuánto dinero tengo?"
+              value={summary ? formatCurrency(summary.cashOnHand, currency) : '—'}
+              hint="Posición de caja consolidada, todas las cuentas de Tesorería."
+              isLoading={isLoading}
+              error={error}
+            />
+            <StatCard
+              label="¿Cuánto tengo disponible?"
+              value={summary ? formatCurrency(summary.availableLiquidity, currency) : '—'}
+              hint="Caja + líneas de crédito sin usar."
+              isLoading={isLoading}
+              error={error}
+            />
+            <StatCard
+              label="¿Cuánto me deben?"
+              value={summary ? formatCurrency(summary.totalReceivable, currency) : '—'}
+              hint={<Link to="/finanzas/cxc">Ver Cuentas por Cobrar →</Link>}
+              isLoading={isLoading}
+              error={error}
+            />
+            <StatCard
+              label="¿Cuánto debo?"
+              value={summary ? formatCurrency(summary.totalPayable, currency) : '—'}
+              tone={summary && Number(summary.totalPayable) > Number(summary.cashOnHand) ? 'negative' : 'neutral'}
+              hint={<Link to="/finanzas/cxp">Ver Cuentas por Pagar →</Link>}
+              isLoading={isLoading}
+              error={error}
+            />
+            <StatCard
+              label="¿Cuánto debo de financiamiento?"
+              value={summary ? formatCurrency(summary.totalDebt, currency) : '—'}
+              hint={<Link to="/finanzas/financiamiento">Ver Financiamiento →</Link>}
+              isLoading={isLoading}
+              error={error}
+            />
+            <StatCard
+              label="¿Cuánto tengo comprometido?"
+              value={summary ? formatCurrency(summary.committedPayments, currency) : '—'}
+              hint="Órdenes de pago ya creadas, todavía sin aprobar ni ejecutar."
+              isLoading={isLoading}
+              error={error}
+            />
+          </section>
+        </div>
+
+        <div className="finance-summary-group">
+          <p className="finance-summary-group-title">
+            Previsión — próximas 8 semanas <HelpTooltip text="Calculado sobre facturas y cuotas con fecha de vencimiento real, nunca una simulación." />
+          </p>
+          <section className="dashboard-stats">
+            <StatCard
+              label="¿Cuánto espero cobrar pronto?"
+              value={summary ? formatCurrency(summary.expectedNearTermInflows, currency) : '—'}
+              hint="Próximas 8 semanas, según vencimientos reales."
+              tone="positive"
+              isLoading={isLoading}
+              error={error}
+            />
+            <StatCard
+              label="¿Cuánto espero pagar pronto?"
+              value={summary ? formatCurrency(summary.expectedNearTermOutflows, currency) : '—'}
+              hint={<Link to="/finanzas/liquidez">Ver Previsión de Liquidez →</Link>}
+              tone="negative"
+              isLoading={isLoading}
+              error={error}
+            />
+          </section>
+        </div>
 
         {summary?.firstNegativeWeek && (
           <p className="alert-box alert-box-error" style={{ marginTop: 16 }}>

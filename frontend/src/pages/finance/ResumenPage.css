@@ -1,0 +1,21 @@
+/* Rediseño UX/UI (Etapa 4): el resumen financiero mezclaba 8 tarjetas
+   de estado con el mismo peso visual — posición actual (caja,
+   disponible, por cobrar, por pagar, financiamiento, comprometido) y
+   previsión de las próximas 8 semanas (que sí es un cálculo distinto,
+   "según vencimientos reales") quedaban indistinguibles entre sí,
+   mismo patrón ya corregido en Inicio (Etapa 2, sección "Evolución del
+   negocio"). Un subtítulo liviano (mismo lenguaje visual — mayúsculas,
+   tracking, color muted — que ya usa `.dashboard-section-title`, pero
+   más chico porque es un subgrupo DENTRO de un panel, no una sección
+   nueva de la página) alcanza para separarlas sin tocar ningún dato. */
+.finance-summary-group + .finance-summary-group {
+  margin-top: var(--space-5);
+}
+
+.finance-summary-group-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-2xs, 0.75rem);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}

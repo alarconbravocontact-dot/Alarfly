@@ -31,10 +31,16 @@
   margin-bottom: var(--space-4);
 }
 
-.dashboard-modules-grid {
+/* Rediseño UX/UI — Etapa 2: Evolución del negocio agrupa los gráficos
+   de tendencia lado a lado en pantallas anchas (mismo criterio
+   auto-fit ya usado por .dashboard-stats/.dashboard-quick-actions) —
+   con un solo hijo visible (ej. un rol que solo ve uno de los 2
+   gráficos), el grid de una columna se comporta igual que antes. */
+.dashboard-evolution-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
   gap: var(--space-4);
+  margin-bottom: var(--space-4);
 }
 
 /* Fase 9 — Centro Operativo: cabecera de sección con acción a la
@@ -132,7 +138,7 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.25));
+  box-shadow: var(--shadow-elevated);
   display: flex;
   flex-direction: column;
   padding: var(--space-1);

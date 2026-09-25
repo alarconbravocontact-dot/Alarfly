@@ -3613,3 +3613,179 @@ rentabilidad`), y 8 archivos con el renombre "Panel principal" →
 **Etapa 1 (Shell global) completa y validada.** No se avanza a la
 Etapa 2 (Inicio) sin continuación explícita, tal como exige la
 metodología por etapas del documento maestro ("no saltes etapas").
+
+## Rediseño UX/UI Maestro — Etapa 2 (Inicio)
+
+A pedido explícito del usuario, siguiendo la misma metodología
+obligatoria por etapas de la Etapa 1 (auditar → proponer → implementar
+→ validar funcional → validar visual real → comparar → corregir →
+documentar). Esta entrada cubre solo la Etapa 2 (Inicio como Centro
+Operativo Inteligente) — las Etapas 3-8 (Operaciones, Finanzas,
+Control, Analítica, Configuración, responsive/auditoría transversal)
+siguen sin iniciarse.
+
+### Auditoría previa (Paso 1)
+
+Se leyó el código real de `DashboardPage.jsx`/`.css`,
+`dashboard.service.js` (Read Layer de widgets), `insights.service.js`/
+`insights.rules.js` (Fase 12), `StatCard`/`ModuleCard`/`EmptyState`, y
+se tomaron capturas reales del estado actual en 4 anchos (1440/1280/
+1024/768) antes de tocar código.
+
+Hallazgo central: la arquitectura funcional que pide esta etapa
+(ESTADO → ATENCIÓN → EXPLICACIÓN → ACCIÓN → EVOLUCIÓN, datos desde
+fuentes ya existentes, insights con evidencia+acción, personalización
+vía `DashboardWidgetPreference`, RBAC server-side por widget) **ya
+existía casi completa**, construida en las Fases 9 y 12 — Inicio no
+necesitaba un rediseño funcional de cero, sino una revisión de
+composición visual y una poda de contenido redundante. Se confirmó
+además que `dashboard.service.js` nunca calcula un KPI/saldo por sí
+mismo (cada widget llama a un servicio ya existente de Contabilidad/
+Tesorería/FP&A/Finanzas/`core/alerts`) y que cada widget declara
+`roles` filtrado en el servidor — nada de esto se tocó.
+
+Problemas identificados en la auditoría:
+1. Cada bloque de Inicio (Requiere tu atención, Acciones rápidas, 2
+   gráficos de tendencia, Previsión de liquidez, Junta) era un
+   `<section className="panel">` idéntico, apilado verticalmente sin
+   ninguna agrupación conceptual — 6+ cajas con el mismo borde/sombra/
+   padding, exactamente lo que el documento maestro pide evitar ("no
+   conviertas cada cosa en una tarjeta aislada", "debe sentirse como
+   un sistema integrado, no una colección de cards").
+2. Al final de Inicio había una grilla de 9 `ModuleCard` ("Módulos")
+   — **100% redundante** con la navegación del sidebar ya construida
+   en la Etapa 1 (los mismos 9 módulos, con submódulos vía flyout,
+   siempre visibles sin scroll). Alargaba la página sin aportar nada
+   que el sidebar no resolviera ya mejor.
+3. `DashboardPage.css` tenía `box-shadow: var(--shadow-md, ...)` — 
+   `--shadow-md` no existe como token (el nombre real es
+   `--shadow-elevated`); el valor literal de respaldo enmascaraba el
+   error sin que se notara visualmente, pero es una violación real del
+   sistema de diseño (un color/sombra fuera de los tokens).
+4. No había ningún encabezado explícito para la capa ESTADO (los
+   `StatCard` aparecían sueltos debajo del saludo), a diferencia de
+   Atención/Acciones, que sí llevaban su propio título — inconsistente
+   con el resto de la jerarquía.
+5. Responsive: no se encontró ningún bug (el fix de la Etapa 1 al
+   sidebar ya resolvía el desborde horizontal por debajo de 1024px);
+   el único problema era el alto total de la página (~2940px a
+   1440×900), producto de los puntos 1 y 2 de arriba.
+
+### Cambios implementados (Paso 3)
+
+1. **Se agrupan los 3 widgets de evolución** (Ingresos y egresos,
+   Comportamiento de ventas, Previsión de Liquidez) bajo un único
+   encabezado "Evolución del negocio" — los 2 gráficos de tendencia
+   ahora van lado a lado en pantallas anchas (`grid-template-columns:
+   repeat(auto-fit, minmax(380px, 1fr))`, el mismo patrón responsive ya
+   usado por `.dashboard-stats`/`.dashboard-quick-actions`, sin
+   introducir una técnica nueva) y colapsan a una columna en pantallas
+   angostas o cuando un rol solo ve uno de los dos (verificado con
+   Contador/Colaborador). La Previsión de Liquidez se queda a ancho
+   completo debajo (es una tira horizontal de 8 semanas, no calza en 2
+   columnas). **Ningún dato ni prop cambió** — siguen siendo
+   exactamente `IncomeExpenseChart`/`SalesTrendChart`/
+   `LiquidityForecastWidget` con las mismas fuentes de siempre.
+2. **Se elimina la grilla "Módulos" (9 `ModuleCard`) de Inicio** — la
+   navegación real ya vive en el sidebar desde la Etapa 1. El
+   componente `ModuleCard.jsx`/`.css` se deja en el código (no se
+   usaba en ningún otro lugar, confirmado con `grep`) por si se
+   necesita en otra pantalla más adelante — documentado como deuda
+   menor, no crítica.
+3. **Se agrega el encabezado "Estado general"** sobre la grilla de
+   `StatCard`, mismo tratamiento visual (mayúsculas, `muted`, tracking)
+   que ya usan "Requiere tu atención"/"Acciones rápidas"/"Evolución del
+   negocio" — hace explícita la jerarquía ESTADO→ATENCIÓN→ACCIÓN→
+   EVOLUCIÓN en vez de un orden solo implícito.
+4. **Corregido el token de sombra inexistente** (`--shadow-md` →
+   `--shadow-elevated`, el real).
+5. Limpieza del CSS muerto de `.dashboard-modules-grid` (ya sin uso
+   tras el punto 2).
+
+### Bug real encontrado y corregido durante la validación (no en la
+auditoría inicial)
+
+Al agregar el encabezado "Estado general" (punto 3), un rol sin
+**ningún** widget de esa categoría visible (Colaborador, que no tiene
+acceso a ninguno de `finance_summary`/`ebitda`/`burn_rate_runway`)
+quedaba con el título "ESTADO GENERAL" flotando sin nada debajo —
+`EstadoWidgets` ya devolvía `null` en ese caso, pero el nuevo
+encabezado se renderizaba igual. Detectado verificando visualmente con
+Playwright los 4 roles reales (no solo Administrador). Corregido con
+`hasEstadoWidgets` (mismos 3 `widgetKey` que ya lee `EstadoWidgets`) +
+`showEstadoSection`: el encabezado ahora solo aparece si hay algo real
+que mostrar debajo (cargando, error, o al menos un widget visible).
+Re-verificado con Playwright para Colaborador: la página pasa
+directamente del saludo a "Requiere tu atención", sin ningún hueco.
+
+### Validación (Pasos 4-6)
+
+- **661/661 tests de backend, 0 regresiones** (ningún archivo de
+  backend se tocó en esta etapa).
+- `npm run build`/`npm run lint` del frontend limpios, mismo baseline
+  de 8 warnings preexistentes.
+- **Validación visual real con Playwright** (no solo DOM/`isVisible()`,
+  aprendizaje explícito de la Etapa 1) en 4 anchos (1440/1280/1024/
+  768): la página bajó de ~2940px a ~2235px de alto a 1440px de ancho;
+  los 2 gráficos de evolución se ven lado a lado en 1440/1280/1024 y
+  colapsan correctamente a una columna en 768, sin desborde horizontal
+  ni texto cortado en ningún ancho.
+- **RBAC verificado en vivo con los 4 roles reales** (no solo
+  Administrador): Colaborador (0 tarjetas de Estado, sección Estado
+  general ausente, 7 acciones rápidas, solo el gráfico de ventas en
+  Evolución), Contador (3 tarjetas, sin Acciones rápidas —
+  comportamiento ya existente, sin cambios—, solo el gráfico de
+  ingresos/egresos), Financiero (6 tarjetas) — cada uno coincide
+  exactamente con `roles` de `dashboard.service.js` y
+  `QUICK_ACTIONS`/`SALES_ROLES`/`ACCOUNTING_ROLES` del frontend, sin
+  tocar ninguno de los dos.
+- **Personalización verificada en vivo**: ocultar el widget EBITDA
+  desde "Personalizar Inicio" lo quita de inmediato de la grilla;
+  "Restaurar configuración predeterminada" lo trae de vuelta — el
+  mecanismo de `DashboardWidgetPreference` sigue intacto.
+- **Multi-empresa**: no se tocó ningún filtro de `companyId` (todos los
+  widgets del Read Layer siguen recibiendo `companyId` del servidor,
+  sin cambios en esta etapa) — verificado por revisión de código, no
+  por una prueba en vivo con una segunda empresa (el entorno de
+  pruebas solo tiene una empresa demo real; crear una segunda solo
+  para esta verificación se consideró un riesgo/alcance innecesario
+  para un cambio que no tocó ninguna consulta de datos).
+- Menú de "Nueva Venta" (Acciones rápidas) re-verificado con
+  `document.elementFromPoint()` tras el cambio de layout — sigue
+  pintándose y siendo clickeable de verdad, sin el bug de recorte de
+  overflow ya corregido en la Etapa 1.
+
+### Archivos
+
+**Modificados**: `frontend/src/pages/DashboardPage.jsx` (agrupación de
+Evolución, encabezado Estado general condicional, eliminación de la
+grilla Módulos), `frontend/src/pages/DashboardPage.css`
+(`.dashboard-evolution-grid` nuevo, `--shadow-md`→`--shadow-elevated`,
+limpieza de `.dashboard-modules-grid` muerto).
+
+**Sin cambios** (ningún archivo tocado): todo el backend, `AppLayout.*`
+(Etapa 1, ya validada), `insights.service.js`/`insights.rules.js`
+(Fase 12), `dashboard.service.js` (Read Layer), `StatCard`/
+`ModuleCard`/`EmptyState`/`JuntaWidget`/`SetupProgressBar` (componentes
+compartidos, reutilizados tal cual).
+
+### Riesgos / deuda técnica documentada
+
+- `ModuleCard.jsx`/`.css` quedan sin ningún consumidor en el código —
+  no se borraron por si se reutilizan en otra pantalla; si para el
+  final del rediseño siguen sin uso, se pueden eliminar.
+- La verificación de aislamiento multi-empresa de esta etapa fue por
+  revisión de código (ningún filtro de `companyId` se tocó), no por
+  una prueba en vivo con 2 empresas reales — documentado explícitamente
+  como tal, no como "probado".
+- Junta y SetupProgressBar se mantienen con su composición visual
+  actual (fuera del alcance explícito de la jerarquía ESTADO→
+  ATENCIÓN→ACCIÓN→EVOLUCIÓN que pide esta etapa) — no se identificó
+  ningún problema real en ellos durante la auditoría que ameritara
+  tocarlos.
+
+### Estado
+
+**Etapa 2 (Inicio) completa y validada.** No se avanza a la Etapa 3
+(Operaciones) sin continuación explícita del usuario, tal como exige
+la metodología por etapas del documento maestro.

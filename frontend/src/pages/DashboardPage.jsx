@@ -8,7 +8,6 @@ import { alertLink } from '../config/alertLinks';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../context/ConfirmContext';
 import StatCard from '../components/StatCard';
-import ModuleCard from '../components/ModuleCard';
 import IncomeExpenseChart from '../components/IncomeExpenseChart';
 import SalesTrendChart from '../components/SalesTrendChart';
 import JuntaWidget from '../components/JuntaWidget';
@@ -460,6 +459,12 @@ export default function DashboardPage() {
   }, []);
 
   const widgets = dashboard?.widgets || [];
+  // Un rol sin ningún widget de "Estado general" visible (ej.
+  // Colaborador, que no ve finanzas) no debe mostrar el encabezado de
+  // la sección igual — quedaría flotando sin nada debajo. Mismos
+  // widgetKeys que ya lee `EstadoWidgets` más abajo.
+  const hasEstadoWidgets = widgets.some((w) => ['finance_summary', 'ebitda', 'burn_rate_runway'].includes(w.widgetKey));
+  const showEstadoSection = isDashboardLoading || dashboardError || hasEstadoWidgets;
   const activeAlertsWidget = widgets.find((w) => w.widgetKey === 'active_alerts');
   const liquidityWidget = widgets.find((w) => w.widgetKey === 'liquidity_forecast');
   const liquidityInsightWidget = widgets.find((w) => w.widgetKey === 'liquidity_insight');
@@ -533,7 +538,13 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* Capa 1: Estado de la empresa */}
+      {/* Capa 1: Estado de la empresa — mismo encabezado uppercase/muted
+          que ya usan Atención/Acciones/Evolución, para que la jerarquía
+          ESTADO→ATENCIÓN→ACCIÓN→EVOLUCIÓN del rediseño maestro sea
+          visualmente explícita, no solo un orden implícito. Un rol sin
+          ningún widget de Estado visible (ej. Colaborador) no muestra
+          el encabezado — evita una sección con título y nada debajo. */}
+      {showEstadoSection && <h2 className="dashboard-section-title">Estado general</h2>}
       {!isDashboardLoading && dashboardError && (
         <p className="alert-box alert-box-error">No se pudo cargar el estado de la empresa.</p>
       )}
@@ -555,68 +566,69 @@ export default function DashboardPage() {
       {/* Capa 3: Acciones rápidas */}
       <QuickActionsSection role={user?.role} />
 
-      {/* Capa 4: Cómo está evolucionando tu negocio */}
-      {canSeeFinancials && (
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Ingresos y egresos de los últimos 6 meses</h2>
+      {/* Capa 4: Evolución del negocio — agrupa los 3 widgets existentes
+          (ingresos/egresos, ventas, previsión de liquidez) bajo un
+          mismo encabezado y, en pantallas anchas, los 2 gráficos de
+          tendencia van lado a lado en vez de apilados uno debajo del
+          otro — para que se sientan una sola sección con varias
+          vistas, no 3 paneles inconexos (documento maestro, Etapa 2:
+          "no conviertas cada gráfico en una tarjeta aislada"). Ningún
+          dato ni fuente cambia: sigue siendo exactamente
+          IncomeExpenseChart/SalesTrendChart/LiquidityForecastWidget
+          con las mismas props. */}
+      {(canSeeFinancials || canSeeSales) && (
+        <section>
+          <h2 className="dashboard-section-title">Evolución del negocio</h2>
+          <div className="dashboard-evolution-grid">
+            {canSeeFinancials && (
+              <div className="panel">
+                <div className="panel-header">
+                  <h2>Ingresos y egresos de los últimos 6 meses</h2>
+                </div>
+                {isChartLoading && <p className="text-muted">Cargando…</p>}
+                {!isChartLoading && chartError && (
+                  <p className="alert-box alert-box-error">No se pudo cargar el gráfico de ingresos y egresos.</p>
+                )}
+                {!isChartLoading && !chartError && chartData && (
+                  <IncomeExpenseChart
+                    data={chartData}
+                    currency={currency}
+                    onSegmentClick={(type, point) => navigate('/reportes/transacciones', { state: { type, from: point.from, to: point.to, monthLabel: point.label } })}
+                  />
+                )}
+              </div>
+            )}
+
+            {canSeeSales && (
+              <div className="panel">
+                <div className="panel-header">
+                  <h2>
+                    Comportamiento de <GlossaryTerm termKey="sales-this-month">ventas</GlossaryTerm> de los últimos 6 meses
+                  </h2>
+                </div>
+                {isSalesTrendLoading && <p className="text-muted">Cargando…</p>}
+                {!isSalesTrendLoading && salesTrendError && (
+                  <p className="alert-box alert-box-error">No se pudo cargar el gráfico de comportamiento de ventas.</p>
+                )}
+                {!isSalesTrendLoading && !salesTrendError && salesTrend && (
+                  <SalesTrendChart
+                    data={salesTrend}
+                    currency={currency}
+                    onPointClick={(point) => {
+                      const { from, to } = monthKeyRange(point.month);
+                      navigate('/cuentas/facturas-venta', { state: { drillDown: { from, to, monthLabel: monthLongLabel(point.month) } } });
+                    }}
+                  />
+                )}
+              </div>
+            )}
           </div>
-          {isChartLoading && <p className="text-muted">Cargando…</p>}
-          {!isChartLoading && chartError && (
-            <p className="alert-box alert-box-error">No se pudo cargar el gráfico de ingresos y egresos.</p>
-          )}
-          {!isChartLoading && !chartError && chartData && (
-            <IncomeExpenseChart
-              data={chartData}
-              currency={currency}
-              onSegmentClick={(type, point) => navigate('/reportes/transacciones', { state: { type, from: point.from, to: point.to, monthLabel: point.label } })}
-            />
-          )}
+
+          {canSeeFinancials && <LiquidityForecastWidget widget={liquidityWidget} />}
         </section>
       )}
-
-      {canSeeSales && (
-        <section className="panel">
-          <div className="panel-header">
-            <h2>
-              Comportamiento de <GlossaryTerm termKey="sales-this-month">ventas</GlossaryTerm> de los últimos 6 meses
-            </h2>
-          </div>
-          {isSalesTrendLoading && <p className="text-muted">Cargando…</p>}
-          {!isSalesTrendLoading && salesTrendError && (
-            <p className="alert-box alert-box-error">No se pudo cargar el gráfico de comportamiento de ventas.</p>
-          )}
-          {!isSalesTrendLoading && !salesTrendError && salesTrend && (
-            <SalesTrendChart
-              data={salesTrend}
-              currency={currency}
-              onPointClick={(point) => {
-                const { from, to } = monthKeyRange(point.month);
-                navigate('/cuentas/facturas-venta', { state: { drillDown: { from, to, monthLabel: monthLongLabel(point.month) } } });
-              }}
-            />
-          )}
-        </section>
-      )}
-
-      {canSeeFinancials && <LiquidityForecastWidget widget={liquidityWidget} />}
 
       <JuntaWidget />
-
-      <section className="dashboard-modules">
-        <h2 className="dashboard-section-title">Módulos</h2>
-        <div className="dashboard-modules-grid">
-          <ModuleCard to="/contabilidad" icon="⊞" title="Contabilidad" description="Plan de cuentas, asientos y estados financieros" />
-          <ModuleCard to="/tesoreria" icon="⊟" title="Tesorería" description="Bancos, conciliación, pagos y deuda" />
-          <ModuleCard to="/cuentas" icon="⊠" title="Cuentas por Cobrar y Pagar" description="Clientes, proveedores, facturas y cobros" />
-          <ModuleCard to="/ventas" icon="⊹" title="Ventas" description="Venta Rápida, pedidos y entregas" />
-          <ModuleCard to="/inventario" icon="⊞" title="Inventario" description="Productos, stock, movimientos y compras" />
-          <ModuleCard to="/fiscal" icon="⊛" title="Fiscal" description="Impuestos, retenciones y facturación electrónica" />
-          <ModuleCard to="/fpa" icon="⊡" title="FP&A" description="Presupuestos, desviaciones y simulaciones" />
-          <ModuleCard to="/reportes" icon="▤" title="Reportes" description="Estados financieros, flujo de caja y rentabilidad" />
-          <ModuleCard to="/metricas" icon="◷" title="Métricas del Negocio" description="Registra tus propios indicadores y ve su evolución" />
-        </div>
-      </section>
     </div>
   );
 }

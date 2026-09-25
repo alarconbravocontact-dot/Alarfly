@@ -21,6 +21,7 @@ const reportsService = require('../../accounting/services/reports.service');
 const alertsService = require('../../../core/alerts/alerts.service');
 const financeSummaryService = require('../../finance/services/finance-summary.service');
 const liquidityForecastService = require('../../treasury/services/liquidity-forecast.service');
+const insightsService = require('./insights.service');
 
 // `roles: null` = visible para cualquier rol autenticado (ej. alertas,
 // que ya son visibles para todos en la campana de notificaciones desde
@@ -100,6 +101,29 @@ const WIDGET_DEFINITIONS = [
     type: 'forecast',
     roles: ['ADMIN', 'ACCOUNTANT', 'FINANCE'],
     compute: async (companyId) => liquidityForecastService.getLiquidityForecast(companyId, { weeks: 8 }),
+  },
+  // Fase 12 (Centro Operativo Inteligente, secciones 5/8/19): dos
+  // "insights" — detección + evidencia + recomendación, no solo un
+  // número — que envuelven `reports/services/insights.service.js`
+  // (que a su vez reutiliza finance-summary/aging, sin recalcular
+  // nada). Se devuelve `null` cuando no hay nada que reportar (ej. sin
+  // riesgo de liquidez) — el widget category `atencion` ya sabe
+  // ocultar una tarjeta sin datos, mismo criterio que `active_alerts`.
+  {
+    key: 'liquidity_insight',
+    label: 'Insight de Liquidez',
+    category: 'atencion',
+    type: 'insight',
+    roles: ['ADMIN', 'ACCOUNTANT', 'FINANCE'],
+    compute: async (companyId) => insightsService.getLiquidityInsight(companyId),
+  },
+  {
+    key: 'collections_insight',
+    label: 'Insight de Cobranza',
+    category: 'atencion',
+    type: 'insight',
+    roles: ['ADMIN', 'ACCOUNTANT', 'FINANCE'],
+    compute: async (companyId) => insightsService.getCollectionsInsight(companyId),
   },
   // "Requiere tu atención": envuelve el motor de alertas central ya
   // existente (core/alerts), nunca un segundo motor — mismo criterio ya

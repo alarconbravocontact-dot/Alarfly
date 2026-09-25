@@ -16,6 +16,7 @@ export const ALERT_TYPE_LINKS = {
   ADVANCED_ANALYSIS_ALERT: '/analisis-avanzados/repositorio',
   BANK_ACCOUNT_DISCONNECTED: '/tesoreria/cuentas',
   APPROVAL_PENDING: '/tesoreria/pagos',
+  LIQUIDITY_RISK_FORECAST: '/finanzas/liquidez',
 };
 
 export function alertLink(type) {

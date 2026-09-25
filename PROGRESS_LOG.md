@@ -3065,3 +3065,379 @@ funciones, 3 → 1); 1 pieza faltante construida de forma mínima
 general movida a una ruta neutral y expuesta por primera vez en el
 frontend. 648/648 tests, 0 regresiones, build/lint limpios en ambos
 lados. No se inicia Fase 12 automáticamente.
+
+---
+
+## Fase 12 — Inteligencia, Automatización y Decisión
+
+**Estado: FASE COMPLETA**
+
+### Principio aplicado (sección 2)
+
+`REGLA SIMPLE → AUTOMATIZACIÓN → MODELO/FORECAST → IA`. Todo lo
+construido en esta fase se quedó en el primer escalón (reglas
+determinísticas puras sobre datos ya calculados) — no se llegó a
+necesitar automatización nueva más allá de agrupar un escaneo en un
+job ya existente, ni un modelo estadístico nuevo, ni IA generativa. No
+es una limitación: es el resultado de evaluar honestamente que los
+problemas reales encontrados (sección E de abajo) se resuelven del
+todo con reglas simples sobre servicios que ya existen.
+
+### Auditoría inicial (secciones 3-4)
+
+Se leyó `PROGRESS_LOG.md` completo (Fases 0-11), se auditaron
+`core/alerts`, `core/events`, `core/jobs` (Fase 11), `modules/finance`,
+`modules/fpa`, `modules/reports` (incluido `dashboard.service.js`,
+`aging.service.js`), `modules/advanced-analytics`, `modules/business-metrics`.
+
+**Hallazgo central de la auditoría**: Alarfly **ya tiene** una capa de
+inteligencia real y madura, construida en fases de features previas a
+la numeración de Fases — el módulo **Análisis Avanzados**. Cada uno de
+sus 16 tipos de análisis (Horizontal, Vertical, Razones Financieras,
+Presupuesto vs. Real, DuPont, Riesgo y Apalancamiento, Predictivo,
+etc.) está OBLIGADO por diseño a archivar 6 partes: resultado numérico,
+tipo de gráfico, **causa**, **interpretación simple**, metodología y
+**sugerencias cuantificadas** — el motor rechaza en tiempo de ejecución
+cualquier resultado con una parte vacía. Esto es, literalmente,
+DETECCIÓN + EXPLICACIÓN + RECOMENDACIÓN (secciones 7.A-D del prompt
+oficial) ya construido, ya auditado, ya probado, ya con su propio job
+automático (`advanced-analytics.automation`, envuelto en `core/jobs`
+desde Fase 11) que dispara `ADVANCED_ANALYSIS_ALERT` cuando un
+resultado cruza una condición configurada. **F12 no debía duplicar
+esto** — y no lo hizo.
+
+Lo que la auditoría sí encontró como vacío real: ninguna pantalla
+mostraba una "tarjeta" contextual con evidencia + recomendación en el
+momento y lugar donde más importa (el Inicio) — el widget "Requiere tu
+atención" solo repetía el mensaje de una `Alert` de una línea, sin el
+"por qué" ni los números que lo sustentan (exactamente el ejemplo de
+la sección 8: "no mostrar simplemente otro KPI").
+
+### Mapa de capacidades inteligentes existentes (sección C/D)
+
+| Capacidad | Fuente | Qué produce | Reutilizado en F12 |
+|---|---|---|---|
+| Análisis Avanzados (16 tipos) | `modules/advanced-analytics` | Detección + causa + interpretación + sugerencias, archivado y auditable | Sí — documentado como ya-completo, no tocado |
+| Finance Summary | `modules/finance/services/finance-summary.service.js` | Caja, CxC vencido, CxP, deuda, forecast (primera semana negativa) | **Sí** — fuente directa del Insight de Liquidez |
+| Antigüedad de Saldos | `reports/services/aging.service.js` | Saldo por cliente/proveedor, balde de días de atraso | **Sí** — fuente directa del Insight de Cobranza |
+| Previsión de Liquidez | `treasury/services/liquidity-forecast.service.js` | 8 semanas, primera semana negativa | Reutilizado vía Finance Summary (no se llamó dos veces) |
+| KPIs (EBITDA/Burn/Runway) | `fpa/services/kpis.service.js` | 3 métricas | Auditado, no se necesitó para esta fase |
+| Presupuesto vs. Real | `fpa/services/budget-variance.service.js` | Desviación + justificación | Ya cubierto por Análisis Avanzados, no duplicado |
+| Motor de alertas | `core/alerts` | 12 tipos de alerta (10 previos + `APPROVAL_PENDING` de F11 + `LIQUIDITY_RISK_FORECAST` nuevo) | **Extendido** con 1 tipo nuevo, mismo motor |
+| `core/events/eventBus.js` | — | Sin usar (documentado 3 veces ya en fases previas) | Sin cambios — no se inventó un evento nuevo (sección 11) |
+| `core/jobs` (Fase 11) | — | 9 jobs con seguimiento de corridas | Reutilizado: el escaneo nuevo se agrupó en el job diario de Tesorería ya existente, no se creó un cron nuevo |
+
+### Detección, Insights y Explicaciones (secciones E-G)
+
+Se construyó `modules/reports/services/insights.{rules,service}.js`
+(nuevo, mínimo): dos insights, elegidos por ser exactamente los dos
+ejemplos más desarrollados del propio prompt oficial (secciones 8, 10,
+24, 25) y por tener una fuente de datos 100% trazable sin inventar
+ningún cálculo nuevo:
+
+1. **Insight de Liquidez**: reutiliza `financeSummaryService.
+   getFinanceSummary` (caja disponible, CxC vencido, primera semana
+   negativa — los 3 campos, sin volver a sumarlos). Si no hay ninguna
+   semana proyectada en negativo, devuelve `null` — nunca inventa una
+   alerta sin evidencia (sección 15). Severidad CRITICAL si la semana
+   negativa cae en 14 días o menos, WARNING si cae más adelante en el
+   horizonte — reutiliza los 3 niveles de `AlertSeverity` que ya
+   existen (sección 9: "no crear otra taxonomía"), nunca una escala de
+   5 niveles nueva. El texto usa lenguaje no causal cuando la relación
+   no está demostrada ("esto coincide con", nunca "esto es causado
+   por" — sección 15, letra explícita del prompt).
+
+2. **Insight de Cobranza**: reutiliza `aging.service.
+   getReceivablesAging` (misma fuente que Reportes > Antigüedad de
+   Saldos). Ordena los clientes con saldo vencido por monto, muestra
+   el top 3 con su balde de días real — **no fabrica** un "promedio
+   histórico de días de pago" (aunque el ejemplo de la sección 24 lo
+   sugiere) porque ese dato no existe como cálculo real y consistente
+   en el sistema; se documentó explícitamente esta omisión en vez de
+   inventar un número (sección 15, principio explícito de la fase).
+
+Cada insight responde, como campos propios del objeto que devuelve,
+las 4 preguntas de la sección 19 (QUÉ DETECTÓ → `title`/`description`;
+CON QUÉ DATOS → `evidence[]`; POR QUÉ IMPORTA → `severity`; QUÉ
+RECOMIENDA → `action`) y declara su propia fuente (`source`) para
+trazabilidad.
+
+### Forecast (sección H)
+
+Auditado: la Previsión de Liquidez (F1-F8, 8 semanas reales) sigue
+siendo el único forecast de caja del proyecto — no se creó un segundo.
+Se confirma que el sistema ya distingue REAL (Ledger)/BUDGET
+(`Budget`/`BudgetLine`)/FORECAST (Previsión de Liquidez, KPIs
+proyectados)/SIMULATION (What-If, FP&A) como categorías separadas y
+etiquetadas en sus propias pantallas — ninguna se mezcló ni se tocó.
+
+### Recomendaciones (sección I)
+
+Cada insight trae `action: {label, to}` — un enlace directo a la
+pantalla real donde se resuelve (`/cuentas/cobros`,
+`/cuentas/clientes`), nunca un botón que ejecute algo — Nivel 1/2 de
+automatización (sección 13: "solo informar"/"proponer"), nunca Nivel
+4-5.
+
+### Automatizaciones (sección J) — Nivel 1 aplicado, Niveles 4-5 explícitamente evitados
+
+Se agregó un único punto de automatización real: `insightsService.
+scanLiquidityRisk(companyId)` — la MISMA detección del insight de
+liquidez, pero además sube una alerta real al motor central si no hay
+una ya activa (Nivel 1, "solo informar" — sección 13). Se agrupó
+dentro del job diario **ya existente** de Tesorería
+(`treasury.alerts-scan`, `alerts.cron.js`), en vez de crear un cron
+nuevo (sección 12, mandato explícito). No se automatizó ninguna acción
+financiera (pago, transferencia, asiento, cambio fiscal) de forma
+autónoma — prohibido explícito de las secciones 13/45, respetado sin
+excepciones.
+
+**Decisión de arquitectura documentada**: `insightsService.
+scanLiquidityRisk` vive en `modules/reports` (junto al resto de
+`insights.service.js`), pero se invoca desde `modules/treasury/
+services/alerts.cron.js` en vez de desde `treasury/services/
+alerts.service.js`. Motivo: `modules/reports` ya depende de
+`modules/treasury` (vía `finance-summary.service`/`liquidity-forecast.
+service`); si `treasury` importara de vuelta a `reports` se crearía una
+dependencia circular entre esos dos módulos de servicio. El archivo de
+composición del cron (que ya no es un servicio de un módulo, es el
+punto donde se arma el trabajo del día) es el lugar correcto para
+juntar ambos sin crear el ciclo.
+
+### Alertas inteligentes (sección K)
+
+Nuevo tipo `LIQUIDITY_RISK_FORECAST` en el enum `AlertType` compartido
+(igual patrón que los 11 tipos anteriores — actualizado en los 4
+puntos que ya lo centralizan: `schema.prisma`, `core/alerts/alert-type.js`,
+`ALERT_TYPE_LABELS` de Mi Cuenta > Notificaciones, `alertLinks.js` del
+frontend — la "lección repetida" ya documentada 3 veces en el proyecto
+sobre mantener estos 4 puntos sincronizados). `entityType: 'Company'`
+(no una cuenta puntual, porque el riesgo es de toda la empresa) —
+precedente nuevo pero consistente con el modelo `Alert` ya existente.
+Deduplicación automática vía `createAlertIfNotExists` (el mismo motor
+de siempre, sin excepción).
+
+### Jobs (sección L)
+
+`core/jobs` (Fase 11) reutilizado tal cual — el nuevo escaneo de
+liquidez se agrupó en el job `treasury.alerts-scan` en vez de crear un
+`liquidity-risk.cron.js` aparte (sección 12). El resultado del job
+ahora incluye `liquidityRisk` junto a los 5 escaneos que ya traía.
+
+### Eventos (sección M)
+
+`core/events/eventBus.js` auditado de nuevo: sigue sin usarse en todo
+el proyecto (documentado la 4ª vez). No se inventó ningún evento nuevo
+para conectar esta fase — la arquitectura de "llamada directa" que ya
+usa el resto del proyecto (sección 11 lo permite: "operacionales/
+financieros/analíticos" pueden resolverse sin el bus si no hay un caso
+real que lo necesite) fue suficiente.
+
+### Dashboard (sección N)
+
+`dashboard.service.js` (Fase 9) ganó 2 widgets nuevos
+(`liquidity_insight`, `collections_insight`), mismo registro y mismo
+mecanismo de RBAC por rol server-side (`roles: ['ADMIN','ACCOUNTANT',
+'FINANCE']`, verificado en vivo con `curl`: un Colaborador nunca
+recibe estos 2 widgets en la respuesta). `AttentionSection` (Inicio)
+ahora renderiza estos insights como tarjetas más ricas (evidencia +
+acción) por encima de la lista simple de alertas — sin crear un
+componente nuevo tipo "InsightCardPremium" (sección 43, prohibido
+explícito): es la misma `.dashboard-attention-card`/`Button` de
+siempre, con más contenido adentro. `ExecutiveDashboardPage.jsx`
+(Reportes > Tablero Ejecutivo) ganó el mismo par de casos de
+renderizado, mismo patrón ya usado para los widgets de F9/F11.
+
+### Asistente de IA generativa (secciones O-P) — evaluado, NO construido
+
+Se evaluó explícitamente conforme al árbol de decisión de la sección 2
+y el checklist de la sección 50. Conclusión: **no se justifica
+construir un asistente conversacional con LLM en esta pasada**, por
+las siguientes razones documentadas:
+
+1. El proyecto no tiene hoy ninguna integración con un proveedor de
+   LLM — agregar una implicaría una decisión de costo/proveedor/
+   privacidad de datos que el prompt mismo (sección 31) exige
+   documentar "qué datos salen, cuándo, por qué, bajo qué
+   configuración" ANTES de integrar, y es una decisión que le
+   corresponde al dueño del producto, no una que deba tomarse dentro
+   de una fase de auditoría/consolidación.
+2. Las preguntas de ejemplo de la sección 14 ("¿cuánto tengo por
+   cobrar?", "¿cuáles son mis clientes más atrasados?") **ya tienen
+   una respuesta exacta y verificable** en el sistema actual (Finance
+   Summary, Antigüedad de Saldos, los 2 insights nuevos) — el valor
+   marginal de envolverlas en lenguaje natural es de conveniencia de
+   interfaz, no de capacidad nueva, y no justifica el costo/riesgo de
+   integrar un LLM todavía.
+3. Construir el "orquestador" (sección 15-17: LLM nunca es la fuente
+   de verdad, siempre pasa por herramientas autorizadas que respeten
+   RBAC) es, en sí mismo, una pieza de infraestructura considerable —
+   construirla sin un LLM real conectado detrás sería trabajo
+   especulativo, contrario al principio de la fase ("no crear una IA
+   simplemente porque la fase se llama Inteligencia").
+
+**Trabajo preparatorio, documentado y no implementado** (sección 16,
+"herramientas del asistente" — catálogo conceptual para una fase
+futura, sin wiring real): `getFinanceSummary` (`finance-summary.
+service.getFinanceSummary`), `getCashPosition` (`treasury-accounts.
+service.getConsolidatedCashPosition`), `getReceivablesAging`/
+`getPayablesAging` (`reports/aging.service`), `getLiquidityForecast`
+(`liquidity-forecast.service`), `getBudgetVariance` (`fpa/
+budget-variance.service`), `getAlerts` (`core/alerts.listAlertsForUser`),
+`getLiquidityInsight`/`getCollectionsInsight` (los 2 nuevos de esta
+fase). Cada una ya existe, ya es READ-only, ya respeta `companyId` de
+la sesión — el día que se decida construir el asistente, la capa de
+herramientas es literalmente "envolver estas funciones con nombre y
+descripción", sin tener que auditar de nuevo qué es seguro exponer.
+
+### Seguridad, RBAC, Multiempresa (secciones Q-S)
+
+Los 2 widgets nuevos heredan el filtrado server-side de
+`dashboard.service.js` (Fase 9) sin ningún código nuevo de permisos —
+confirmado con `curl` que un Colaborador nunca recibe `liquidity_insight`/
+`collections_insight` en la respuesta. `insightsService.
+getCollectionsInsight`/`getLiquidityInsight` reciben siempre
+`companyId` de `req.auth.companyId` (mismo patrón que el resto del
+proyecto) — probado con una prueba de integración dedicada (aislamiento
+multiempresa: la factura vencida de una empresa nunca aparece en el
+insight de otra). `scanLiquidityRisk` también aislado por empresa
+(probado).
+
+### Privacidad (sección T)
+
+No aplica en esta fase — no se integró ningún proveedor externo, no
+sale ningún dato de la infraestructura propia del proyecto.
+
+### Costos (sección U)
+
+Cero costo de API nuevo (no hay LLM). El único costo agregado es 1
+consulta más por escaneo diario (`scanLiquidityRisk`, agrupado en el
+job ya existente) y el cálculo de 2 widgets más en cada carga del
+Dashboard — ambos reutilizan consultas que YA se hacían para otros
+widgets (`finance_summary` ya calculaba lo mismo que necesita
+`liquidity_insight`); el costo marginal real es mínimo.
+
+### Performance (sección V)
+
+Los 2 insights se calculan de forma síncrona dentro de
+`GET /reports/dashboard` (mismo patrón que el resto de widgets, sin
+caché ni precómputo) — aceptable porque reutilizan datos que ya se
+calculaban para otros widgets de la misma respuesta, no agregan una
+consulta pesada nueva. No se ejecuta nada parecido a un LLM en cada
+carga del Dashboard (sección 42, prohibido explícito) porque no existe
+ningún LLM en esta fase.
+
+### Tests (sección W)
+
+13 tests nuevos (661/661 total, 0 regresiones): 7 de `insights.rules.
+test.js` (liquidez null sin evidencia, severidad CRITICAL/WARNING,
+cobranza null sin vencidos, orden y límite top-N, severidad del peor
+caso, total sobre TODOS los vencidos no solo el top-N mostrado), 4 de
+`insights.service.integration.test.js` (Postgres real: null en el caso
+feliz, factura vencida real detectada con evidencia trazable,
+aislamiento multiempresa), 2 de `liquidity-risk-scan.integration.test.js`
+(Postgres real: sin alerta si no hay riesgo, alerta real creada +
+segunda corrida no duplica).
+
+### E2E (sección X)
+
+Contra Postgres real con los 2 servidores levantados: login ADMIN →
+`GET /reports/dashboard` → confirma que `liquidity_insight`/
+`collections_insight` están presentes en la respuesta (null en el
+estado actual del seed, correctamente — no hay riesgo de liquidez ni
+facturas vencidas en ese momento, el sistema no inventa nada); login
+Colaborador → confirma que NINGUNO de los 2 widgets aparece en su
+respuesta (RBAC server-side real, no solo frontend). El camino
+positivo (insight con datos reales, alerta creada) se verificó con
+pruebas de integración contra Postgres real en vez de repetirlo a mano
+por Playwright — mismo criterio ya usado en Fase 11, exactamente el
+mismo camino de código con aserciones más precisas.
+
+### Regresiones (sección Y)
+
+661/661 tests backend, 0 regresiones (648 previos + 13 nuevos).
+`npm run lint` backend: 0 errores/warnings. Frontend `npm run build`/
+`npm run lint`: sin errores nuevos (mismo baseline de 8 warnings
+`only-export-components`).
+
+### Archivos modificados/creados
+
+**Nuevos**: `src/modules/reports/services/insights.{rules,service}.js`
+(+3 archivos de test), `src/modules/reports/services/
+liquidity-risk-scan.integration.test.js`.
+
+**Modificados**: `prisma/schema.prisma` (`AlertType.
+LIQUIDITY_RISK_FORECAST`), `src/core/alerts/alert-type.js`,
+`src/core/account/services/notifications.service.js`,
+`src/modules/reports/services/dashboard.service.js` (2 widgets
+nuevos), `src/modules/treasury/services/alerts.cron.js` (agrupa el
+nuevo escaneo), `frontend/src/config/alertLinks.js`,
+`frontend/src/pages/DashboardPage.jsx` (+.css, `InsightCard`),
+`frontend/src/pages/reports/ExecutiveDashboardPage.jsx`.
+
+### Migraciones
+
+`20260925001648_fase12_intelligence_liquidity_alert` — aditiva, un
+solo valor de enum nuevo (`AlertType.LIQUIDITY_RISK_FORECAST`). Ningún
+modelo existente cambió.
+
+### Dependencias
+
+Ninguna nueva (ni librería de forecasting/ML ni SDK de ningún
+proveedor de IA).
+
+### Riesgos (sección AC)
+
+1. `entityId: companyId` en la alerta de liquidez es un precedente
+   nuevo (alerta a nivel de toda la empresa, no de una entidad
+   puntual) — si en el futuro se necesita más de un tipo de alerta
+   "de empresa completa", conviene revisar si `entityType: 'Company'`
+   sigue siendo la convención correcta o si merece su propio patrón.
+2. El Insight de Cobranza no incluye "promedio histórico de días de
+   pago" (mencionado en el ejemplo de la sección 24) a propósito — si
+   se pide ese dato explícitamente, hay que decidir CON el usuario qué
+   cálculo real lo respalda antes de mostrarlo (nunca inventarlo).
+3. La severidad de una alerta `LIQUIDITY_RISK_FORECAST` ya creada no
+   se actualiza si la situación empeora de WARNING a CRITICAL mientras
+   sigue activa — mismo comportamiento ya existente en el resto de
+   tipos de alerta del proyecto (ninguno se "actualiza en el sitio"),
+   no es una regresión nueva de esta fase.
+
+### Deuda técnica (sección AD)
+
+Ninguna nueva introducida por esta fase. La deuda heredada de F10/F11
+(Botón/Modal sin consolidar, responsive interno, TOCTOU residual de
+periodo) sigue sin tocar — sin dependencia directa con F12.
+
+### Pendientes para Fase 13 (sección AF)
+
+- Asistente de IA generativa: evaluado y deliberadamente diferido (ver
+  sección O-P arriba) — el catálogo de herramientas ya está
+  documentado y listo si se decide construirlo, con aprobación
+  explícita del usuario sobre proveedor/costo/privacidad primero.
+- Insights adicionales (margen, inventario, concentración de
+  clientes/proveedores) — evaluados en la auditoría, no construidos en
+  esta pasada por alcance; el patrón (`insights.rules.js` +
+  `insights.service.js`, funciones puras + wrapper de I/O) ya queda
+  listo para extenderse sin rediseñar nada.
+- Resúmenes automáticos diarios/semanales/mensuales (sección 28):
+  evaluados, no construidos — se apoyarían en `ScheduledReport` (ya
+  existente) sin necesitar un motor nuevo, pero no había un caso de
+  uso confirmado por el usuario en esta fase.
+
+### Estado de PROGRESS_LOG.md
+
+Actualizado con esta sección; historial de Fases 0-11 intacto.
+
+### Estado final
+
+FASE 12 COMPLETA. Se auditó la inteligencia existente (hallazgo
+central: Análisis Avanzados ya cubre gran parte de la taxonomía
+pedida, no se duplicó). Se construyeron 2 insights deterministas
+reales (Liquidez, Cobranza), reutilizando 100% de fuentes ya
+existentes, con evidencia trazable y sin inventar ningún dato. Se
+agregó 1 alerta nueva conectada al job ya existente (Nivel 1 de
+automatización). Se evaluó explícitamente un asistente de IA
+generativa y se decidió, con razones documentadas, no construirlo en
+esta pasada — quedó preparado conceptualmente para una fase futura.
+661/661 tests, 0 regresiones, build/lint limpios. No se inicia Fase 13.

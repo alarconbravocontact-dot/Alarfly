@@ -16,6 +16,7 @@ const ALERT_TYPE_LABELS = {
   ADVANCED_ANALYSIS_ALERT: 'Alerta de análisis avanzado',
   BANK_ACCOUNT_DISCONNECTED: 'Cuenta bancaria desconectada',
   APPROVAL_PENDING: 'Aprobación pendiente',
+  LIQUIDITY_RISK_FORECAST: 'Riesgo de liquidez proyectado',
 };
 
 // Todo tipo de alerta que el usuario nunca configuró aparece con los

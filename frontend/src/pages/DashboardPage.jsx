@@ -181,8 +181,45 @@ function EstadoWidgets({ widgets, currency }) {
 // motor central de alertas — `core/alerts`, jamás uno nuevo) y navega
 // directo a la pantalla donde se resuelve, con el mismo mapa que ya usa
 // la campana de notificaciones.
-function AttentionSection({ alerts, isLoading }) {
+// Fase 12 (Centro Operativo Inteligente, sección 8): una tarjeta de
+// alerta simple solo dice "qué pasó" — un insight además dice "con qué
+// datos" y "qué se recomienda", con evidencia concreta debajo del
+// título (sección 19, "toda recomendación debe poder explicar"). No es
+// un componente nuevo tipo "InsightCardPremium" (sección 43 lo prohíbe
+// explícito) — es el mismo `Button`/mismo punto de severidad que ya
+// usa una alerta normal, solo con más contenido adentro de la misma
+// tarjeta `.dashboard-attention-card`.
+function InsightCard({ insight }) {
   const navigate = useNavigate();
+  return (
+    <div className="dashboard-attention-card dashboard-insight-card">
+      <span className={`dashboard-attention-dot ${SEVERITY_DOT[insight.severity] || 'is-info'}`} aria-hidden="true" />
+      <div className="dashboard-insight-body">
+        <span className="dashboard-attention-message">
+          <strong>{insight.title}.</strong> {insight.description}
+        </span>
+        {insight.evidence.length > 0 && (
+          <ul className="dashboard-insight-evidence">
+            {insight.evidence.map((item, i) => (
+              <li key={item.label || item.name || i}>
+                {item.label || item.name}: {formatCurrency(item.value ?? item.balance, item.currency)}
+                {item.daysOverdue != null ? ` · ${item.daysOverdue} día(s) vencida` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <Button size="sm" onClick={() => navigate(insight.action.to)}>
+        {insight.action.label}
+      </Button>
+    </div>
+  );
+}
+
+function AttentionSection({ alerts, insights, isLoading }) {
+  const navigate = useNavigate();
+  const visibleInsights = (insights || []).filter(Boolean);
+  const isEmpty = alerts.length === 0 && visibleInsights.length === 0;
 
   return (
     <section className="panel">
@@ -190,9 +227,12 @@ function AttentionSection({ alerts, isLoading }) {
         <h2 className="dashboard-section-title">Requiere tu atención</h2>
       </div>
       {isLoading && <p className="text-muted">Cargando…</p>}
-      {!isLoading && alerts.length === 0 && <EmptyState icon="✓" message="No hay nada urgente que atender por ahora." />}
-      {!isLoading && alerts.length > 0 && (
+      {!isLoading && isEmpty && <EmptyState icon="✓" message="No hay nada urgente que atender por ahora." />}
+      {!isLoading && !isEmpty && (
         <div className="dashboard-attention-list">
+          {visibleInsights.map((insight) => (
+            <InsightCard key={insight.type} insight={insight} />
+          ))}
           {alerts.map((alert) => (
             <div key={alert.id} className="dashboard-attention-card">
               <span className={`dashboard-attention-dot ${SEVERITY_DOT[alert.severity] || 'is-info'}`} aria-hidden="true" />
@@ -422,6 +462,9 @@ export default function DashboardPage() {
   const widgets = dashboard?.widgets || [];
   const activeAlertsWidget = widgets.find((w) => w.widgetKey === 'active_alerts');
   const liquidityWidget = widgets.find((w) => w.widgetKey === 'liquidity_forecast');
+  const liquidityInsightWidget = widgets.find((w) => w.widgetKey === 'liquidity_insight');
+  const collectionsInsightWidget = widgets.find((w) => w.widgetKey === 'collections_insight');
+  const insights = [liquidityInsightWidget?.data, collectionsInsightWidget?.data];
   const currency = widgets.find((w) => w.widgetKey === 'finance_summary')?.data.baseCurrency || 'USD';
 
   function openEditPanel() {
@@ -503,7 +546,11 @@ export default function DashboardPage() {
       {!isDashboardLoading && !dashboardError && <EstadoWidgets widgets={widgets} currency={currency} />}
 
       {/* Capa 2: Requiere tu atención */}
-      <AttentionSection alerts={activeAlertsWidget ? activeAlertsWidget.data.alerts : alerts} isLoading={isAlertsLoading && isDashboardLoading} />
+      <AttentionSection
+        alerts={activeAlertsWidget ? activeAlertsWidget.data.alerts : alerts}
+        insights={insights}
+        isLoading={isAlertsLoading && isDashboardLoading}
+      />
 
       {/* Capa 3: Acciones rápidas */}
       <QuickActionsSection role={user?.role} />

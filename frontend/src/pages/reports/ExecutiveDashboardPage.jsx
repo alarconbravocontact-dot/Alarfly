@@ -110,6 +110,23 @@ function WidgetContent({ widgetKey, data }) {
       </table>
     );
   }
+  if (widgetKey === 'liquidity_insight' || widgetKey === 'collections_insight') {
+    if (!data) return <EmptyState icon="✓" message="Nada que reportar por ahora." />;
+    return (
+      <>
+        <p className="text-muted" style={{ marginBottom: 8 }}>
+          {data.description}
+        </p>
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
+          {data.evidence.map((item, i) => (
+            <li key={item.label || item.name || i}>
+              {item.label || item.name}: {formatCurrency(item.value ?? item.balance, item.currency)}
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+  }
   if (widgetKey === 'active_alerts') {
     return (
       <>

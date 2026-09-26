@@ -4374,3 +4374,202 @@ Ejecutivo duplicando Inicio sin capacidad propia), corregido de forma
 proporcionada y verificado de punta a punta. No se avanza a la Etapa 7
 (Configuración) sin continuación explícita del usuario — instrucción
 reforzada explícitamente en el prompt maestro de Etapas 6/7/8.
+
+## Rediseño UX/UI Maestro — Etapa 7 (Configuración)
+
+A pedido explícito del usuario ("Avanza"), siguiendo la misma
+metodología de las Etapas 1-6 y el prompt combinado de Etapas 6/7/8.
+Esta entrada cubre solo la Etapa 7 (Configuración: Empresa, Usuarios,
+Permisos, Productos, Clientes, Proveedores, Contabilidad, Fiscal, más
+monedas/dimensiones/UOM/categorías/variantes/sucursales/preferencias/
+accesos/importación) — la Etapa 8 sigue sin iniciarse, a la espera de
+confirmación explícita.
+
+### Auditoría (Paso 1) y mapa de pantallas
+
+Se auditaron con capturas reales en navegador las pantallas candidatas
+a la arquitectura de Configuración: Mi Cuenta > Perfil (datos
+personales + Perfil de la Empresa), Mi Cuenta > Mi rol y permisos, Mi
+Cuenta > Preferencias (incluida "Empresa activa"), Niveles de Acceso
+(Usuarios + cupos + permisos delegados), Inventario > Catálogo
+(Productos/categorías/UOM/variantes), Cuentas por Cobrar y Pagar >
+Clientes y > Proveedores (incluido el Asistente de Importación),
+Contabilidad > Tasas de Cambio (monedas), y Fiscal > Impuestos y Tasas
+(jurisdicciones/tasas). Se revisó además, por código, si existe una
+pantalla de "sucursales" (`core/dimensions`, tipo BRANCH, usado
+opcionalmente por `TreasuryAccount`/`Warehouse`) y de "configuración
+contable avanzada" (`AccountingSettings`/`fxGainLossAccountId`).
+
+### Hallazgos y decisiones (CONSERVAR / CORREGIR / fuera de alcance)
+
+**CONSERVAR, sin cambios** — la mayoría de las 8 piezas de la
+arquitectura de Configuración ya resuelven correctamente, en el mismo
+lugar donde el usuario las usa en su día a día, sin fragmentar su
+fuente única:
+
+- **Productos** vive en Inventario > Catálogo, con "Categorías y
+  unidades de medida" ya detrás de revelación progresiva ("Mostrar").
+  Moverlo a una sección de Configuración aparte fragmentaría el
+  catálogo de su contexto operativo (crear un producto está pegado a
+  gestionar su stock) — violaría "No crear catálogos duplicados" y "No
+  cambiar arquitectura por estética".
+- **Clientes** y **Proveedores** viven en Cuentas por Cobrar y Pagar,
+  con el Asistente de Importación ya conectado ("Importar clientes")
+  siguiendo exactamente el patrón QUÉ SE IMPORTA → QUÉ SE VALIDÓ → QUÉ
+  FALLÓ → QUÉ SE PROCESÓ que pide esta etapa (4 pasos: subir archivo,
+  mapear columnas con validación en vivo, previsualizar, resultado con
+  detalle de errores por fila).
+- **Contabilidad** (monedas/tasas de cambio) y **Fiscal**
+  (jurisdicciones/tasas de impuesto y retención) ya tienen su propia
+  pestaña de configuración dentro de su módulo operativo — mismo
+  criterio: "Mantener la arquitectura fiscal existente. No duplicar."
+- **Permisos**: la propia especificación de esta etapa pide
+  explícitamente "Mantener el modelo RBAC existente. NO crear un nuevo
+  permission engine... No convertir Configuración en una matriz
+  interminable de permisos si la arquitectura actual no lo requiere."
+  Ya existe en 2 piezas ligeras y correctas: "Mi rol y permisos" en Mi
+  Cuenta (de solo lectura, por usuario) y la asignación de rol/cupos
+  dentro de Niveles de Acceso (por Administrador) — ninguna matriz
+  nueva necesaria.
+- **Usuarios**: Niveles de Acceso ya muestra con claridad "quién tiene
+  acceso, qué rol tiene, qué estado tiene" (tabla + cupos por rol). No
+  se agregó columna de "empresa" porque hoy todo usuario de una
+  empresa solo pertenece a esa empresa (limitación ya documentada) —
+  una columna así repetiría el mismo valor en cada fila, sin aportar
+  nada.
+- **Empresa**: el contenido de "Perfil de la Empresa" (dentro de Mi
+  Cuenta > Perfil) ya cumple la especificación al pie de la letra —
+  identidad, contexto de negocio y valores por defecto agrupados por
+  bloques, con `HelpTooltip` en cada campo con jerga, campos
+  deshabilitados (no ocultos) para quien no es Administrador. Se
+  decidió **no** agregarle además un acceso directo en el grupo lateral
+  "Configuración": Mi Cuenta ya tiene su propio punto de entrada
+  universal (avatar/nombre en la barra superior, visible en el 100% de
+  las pantallas, siempre) — más descubrible que un ítem dentro de un
+  grupo de sidebar que puede quedar colapsado. Duplicar el enlace solo
+  para calzar 1 a 1 con el diagrama de arquitectura habría sido
+  exactamente el "cambiar por estética" que esta etapa prohíbe
+  explícitamente.
+- **"Sucursales"**: se confirmó por código que el modelo
+  `core/dimensions` (tipo BRANCH) y los campos opcionales
+  `TreasuryAccount.branchDimensionId`/`Warehouse.branchDimensionId` ya
+  existen en el backend, pero **nunca tuvieron ninguna pantalla ni
+  ningún consumidor real en el frontend** (ni un formulario que
+  siquiera referencie el campo) — confirmado con `grep`, cero
+  resultados en los formularios de Cuentas Bancarias/Almacenes.
+  Construir una pantalla de administración de sucursales sería agregar
+  una capacidad nueva, no corregir o rediseñar una existente — fuera
+  de alcance de un rediseño de UX ("No modificar código simplemente
+  para demostrar progreso"). Documentado como hallazgo honesto, no
+  ocultado.
+- **Configuración contable avanzada** (`AccountingSettings.
+  fxGainLossAccountId`): mismo caso — el endpoint backend existe desde
+  hace muchas sesiones, pero nunca tuvo pantalla. Mismo criterio: no se
+  construye una pantalla nueva en un rediseño de UX.
+
+**CORREGIR — 1 bug real encontrado y corregido**, en el propio
+`AccountingSettings`/no — en la fila "Empresa activa":
+
+1. **Bug real: "Empresa activa" mostraba paréntesis vacíos**. Mi
+   Cuenta > Preferencias renderizaba literalmente "Solo tienes acceso a
+   una empresa ()." — el nombre de la empresa nunca aparecía.
+   Investigado hasta la causa raíz: `listMyCompanies` lee
+   `UserCompanyAccess`, una tabla que **solo se llenó una vez, a mano,
+   en la migración `account_module`** que la creó — confirmado con
+   `grep` en todo `src/` que ningún camino real de creación de
+   usuarios (`prisma/seed.js`, aceptar una invitación) escribe esa
+   tabla. Confirmado además contra la base de datos real de este
+   entorno: **15 usuarios, 0 filas en `UserCompanyAccess`** — el
+   entorno se resembró después de aquella migración, y por eso el bug
+   era 100% reproducible acá, no un caso límite teórico.
+
+### Cambios implementados
+
+**`src/core/account/services/companies.service.js`**: `listMyCompanies`
+ahora, si no hay ninguna fila en `UserCompanyAccess` para ese usuario,
+deriva la fila que falta desde `User.companyId` (columna obligatoria —
+todo usuario siempre pertenece a una empresa) en el momento de leer,
+en vez de devolver una lista vacía. Mismo criterio de "hacer la
+lectura robusta en vez de depender de recordar escribir en cada camino
+de creación" ya usado para idioma/formato de fecha/huso horario
+(`?? valor de la empresa`) — corrige el bug para los 15 usuarios
+existentes de este entorno y para cualquier usuario futuro, sin
+necesitar backfill ni tocar `prisma/seed.js` ni el flujo de
+invitación. `switchActiveCompany` se corrigió de forma simétrica: sin
+una fila explícita, ahora permite igual "cambiar" a la propia empresa
+por defecto del usuario (nunca se disparaba desde la interfaz hoy,
+porque el selector se oculta con una sola empresa, pero el servicio en
+sí quedaba roto para ese caso — corregido por completitud, mismo
+criterio de robustez).
+
+### Validación
+
+- **665/665 tests de backend en serie (`--runInBand`)** — 661
+  anteriores + 4 nuevos de `companies.service.test.js` (2 de
+  `listMyCompanies`: deriva desde `User.companyId` sin filas, devuelve
+  `[]` si el usuario ya no existe; 1 de `switchActiveCompany`: permite
+  "cambiar" a la propia empresa por defecto sin fila explícita). Los 2
+  tests ya existentes de `switchActiveCompany` siguen pasando sin
+  tocarlos.
+- `npm run build`/`npm run lint` del frontend limpios, mismo baseline
+  de 8 warnings preexistentes — esta etapa no tocó ningún archivo de
+  frontend (el bug y su corrección son 100% de backend).
+- **Verificado con `curl` autenticado contra Postgres real, antes y
+  después del fix**: `GET /account/companies` devolvía `[]` para
+  `admin@demo.alarfly.com` antes del fix, y
+  `[{"companyId":"...","isDefault":true,"company":{"id":"...","name":"Empresa
+  Demo"}}]` después — confirmado también para `contador@demo.alarfly.com`
+  (mismo resultado, mismo `companyId` real de su empresa — aislamiento
+  multi-empresa correcto, cada usuario deriva su propia empresa, nunca
+  la de otro).
+- **Verificado con Playwright contra los dos servidores reales**: Mi
+  Cuenta > Preferencias mostró "Solo tienes acceso a una empresa
+  (Empresa Demo). El Administrador puede darte acceso a otra si hace
+  falta." — confirmado el texto completo, sin paréntesis vacíos.
+- Responsive confirmado sin desbordamiento horizontal en las 4
+  resoluciones estándar (1440/1280/1024/768px) en Mi Cuenta >
+  Preferencias.
+- RBAC no se tocó: el fix es una lectura de solo lectura sobre la
+  propia empresa del usuario autenticado, sin relación con ningún
+  `requireModuleAccess`/`requireRole` existente.
+
+### Archivos
+
+**Modificados**: `src/core/account/services/companies.service.js`
+(fix), `src/core/account/services/companies.service.test.js` (4 tests
+nuevos).
+**Sin cambios**: todas las pantallas auditadas de Productos, Clientes,
+Proveedores, Contabilidad, Fiscal, Permisos, Usuarios, Empresa (el
+contenido, no el bug) — auditadas, sin cambios porque ya cumplían el
+objetivo de esta etapa.
+
+### Riesgos / deuda técnica documentada
+
+- Confirmado, no una novedad de esta etapa: no existe pantalla de
+  "sucursales" (`core/dimensions` tipo BRANCH) ni de configuración
+  contable avanzada (`fxGainLossAccountId`) — ambos campos opcionales
+  del backend, sin ningún consumidor en el frontend hoy. Fuera de
+  alcance de un rediseño de UX (construir una pantalla nueva no es
+  "corregir" ni "rediseñar" algo existente). Si se pide como
+  funcionalidad nueva más adelante, es una pieza aparte, no parte de
+  este rediseño.
+- El bug de `UserCompanyAccess` vacía también sugiere que
+  `prisma/seed.js` y el flujo de aceptar invitación nunca escriben esa
+  tabla — el fix de esta etapa lo vuelve inofensivo (la lectura ya no
+  depende de que existan filas), pero si en el futuro se construye el
+  flujo real de "dar acceso a una segunda empresa" (documentado como
+  pendiente desde Mi Cuenta), sí hará falta escribir explícitamente en
+  `UserCompanyAccess` en algún punto — el fix de hoy no lo hace por
+  usted, solo evita que su ausencia rompa la lectura de la empresa
+  propia.
+
+### Estado
+
+**Etapa 7 (Configuración) completa y validada**, con el mismo criterio
+de alcance de las etapas anteriores: auditoría exhaustiva de las 8
+piezas de la arquitectura pedida, la mayoría ya correctas en su lugar
+actual (documentado explícitamente por qué CONSERVAR, no solo
+asumido), y un solo bug real encontrado y corregido de raíz (no solo
+parcheado en la interfaz) con su prueba de regresión. No se avanza a
+la Etapa 8 (Auditoría UX/UI Final y Consolidación) sin continuación
+explícita del usuario.

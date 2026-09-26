@@ -458,6 +458,14 @@ async function getPaymentOrder(companyId, id) {
     include: {
       approvals: { include: { approvedByUser: { select: { id: true, name: true, role: true } } }, orderBy: { level: 'asc' } },
       approvalRule: { include: { levels: true } },
+      // Rediseño UX/UI (Etapa 5, bloque Aprobaciones) — bug real
+      // corregido: la relación `createdByUser` ya existía en el
+      // schema (`PaymentOrderCreatedBy`), pero esta consulta nunca la
+      // incluía, así que el detalle de una orden no podía mostrar
+      // "quién solicita" — la mitad del maker-checker que el
+      // documento maestro exige ver junto a "quién aprobó" (que sí se
+      // incluía). Cambio aditivo de solo lectura, sin tocar el schema.
+      createdByUser: { select: { id: true, name: true, role: true } },
     },
   });
   if (!order) {

@@ -4092,3 +4092,155 @@ cambios porque no se encontró un problema real.
 alcance de las etapas anteriores: solo se tocó lo que la auditoría
 encontró genuinamente necesario. No se avanza a la Etapa 5 (Control)
 sin continuación explícita del usuario.
+
+## Rediseño UX/UI Maestro — Etapa 5 (Control)
+
+A pedido explícito del usuario, siguiendo la misma metodología de las
+Etapas 1-4. Esta entrada cubre solo la Etapa 5 (Control: Aprobaciones,
+Alertas, Conciliaciones, Auditoría, Fiscal, Gobierno) — las Etapas 6-8
+siguen sin iniciarse.
+
+### Auditoría (Paso 1) y mapa de pantallas (Paso 2)
+
+Se confirmó primero, per la decisión ya documentada en la Etapa 1, que
+Control no tiene navegación propia separada: sus piezas viven dentro
+de Tesorería (Órdenes de Pago, Alertas, Conciliación Bancaria) y bajo
+`CONTROL` en el sidebar (Fiscal, Auditoría) — no se creó ninguna
+navegación nueva. Se auditaron con capturas reales en navegador:
+`PaymentOrdersPage` (Aprobaciones), `AlertsPage` (Alertas),
+`ReconciliationPage` (Conciliaciones), `AuditTrailPage` (Auditoría),
+las 7 pestañas de `FiscalLayout` (Fiscal, 4 de 7 revisadas a fondo:
+Transacciones, Reglas de Riesgo, Calendario, Libros — incluida la
+sub-pestaña Conciliación fiscal), y `NivelesAccesoPage` + `JuntaWidget`
+(Gobierno).
+
+### Hallazgo central de la auditoría
+
+La mayoría de Control ya cumplía el objetivo del documento maestro:
+tablas oscuras limpias, `StatusSeal`, `EmptyState`, filtros compactos,
+`ViewSwitcher` (Lista/Kanban/Calendario) ya construido para Órdenes de
+Pago, Junta ya integrada en Inicio (nunca aislada, como exige
+explícitamente esta etapa). Se encontraron **2 problemas reales**,
+ambos en los bloques que el propio documento maestro prioriza más
+(Aprobaciones y Auditoría):
+
+1. **Auditoría — bug real de legibilidad**: `AuditTrailPage`
+   (Bitácora) mostraba `action`/`entityType` tal como los guarda
+   `core/audit` internamente — texto técnico crudo tipo
+   `ar_invoice.created` y `ArInvoice · cmuhcs39z0025yeogeos5wqzw` — lo
+   opuesto de lo que exige el documento maestro para esta etapa ("QUÉ/
+   QUIÉN/CUÁNDO/SOBRE QUÉ/QUÉ ACCIÓN" debe entenderse de un vistazo) y
+   de la regla explícita de CLAUDE.md contra jerga técnica para un
+   usuario sin conocimientos de programación. El mismo problema exacto
+   existía en `ActivitySection` (Mi Cuenta > Actividad personal, que
+   lee la misma tabla `AuditLog` con un filtro de `userId`).
+2. **Aprobaciones — bug real de información faltante**: el detalle
+   expandido de una orden de pago mostraba "Aprobaciones registradas"
+   con Nivel/Decisión/Comentario, pero **nunca mostraba QUIÉN**
+   solicitó la orden ni quién decidió cada nivel — justo la mitad más
+   importante de un flujo maker-checker según el documento maestro
+   ("APROBACIÓN → quién solicita... aprobar/rechazar"). Investigado:
+   el dato de "quién aprobó" ya lo devolvía el backend
+   (`approvedByUser`) pero la tabla nunca lo pintaba; el dato de
+   "quién solicitó" ni siquiera se pedía en la consulta, aunque la
+   relación (`createdByUser`, `PaymentOrderCreatedBy`) ya existía en
+   el schema desde que se construyó el modelo.
+
+### Cambios implementados (Paso 4)
+
+**Bloque 1 — Aprobaciones**: se agregó `createdByUser: { select: {
+id, name, role } }` al `include` de `payment-orders.service.
+getPaymentOrder` (cambio aditivo de una consulta de solo lectura, sin
+tocar el schema ni ninguna regla de negocio — la relación ya existía).
+En el frontend, `OrderApprovalDetail` ahora muestra "Solicitado por:
+{nombre}" y una columna nueva "Decidido por" en la tabla de
+aprobaciones (leyendo `a.approvedByUser?.name`, un campo que el
+backend YA devolvía antes de este cambio, solo nunca se pintaba).
+
+**Bloque 3 — Auditoría**: nuevo `frontend/src/utils/auditLabels.js`
+— capa de TRADUCCIÓN de solo lectura sobre `AuditLog` (nunca un
+segundo sistema de auditoría): un mapa de 65 `entityType` (los mismos
+modelos Prisma reales, enumerados con `grep` sobre todo el backend) a
+sustantivos en español ya usados en el resto de la app, y un mapa de
+~50 sufijos de `action` a verbos en español. Cualquier valor que
+todavía no esté en el mapa nunca se ve roto — una función
+`humanizeToken()` genérica separa palabras en snake_case/PascalCase
+como respaldo, mismo criterio de "mejor una traducción genérica que un
+texto crudo" ya usado para prevenir el patrón de "enum ampliado,
+catálogo desactualizado" documentado varias veces en este archivo.
+Conectado en `AuditTrailPage` (columnas Acción/Entidad, con el CUID
+completo todavía disponible vía `title` para soporte) y en
+`ActivitySection` de Mi Cuenta (mismas columnas, mismo dato).
+
+### Validación
+
+- **661/661 tests de backend cuando se corren en serie
+  (`--runInBand`)**. En paralelo (`npm test` normal), un test de
+  integración distinto falló en cada corrida (primero
+  `sales-orders-deliveries`, después `purchases-ap`, ninguno
+  relacionado con el módulo que se tocó en esta etapa) — investigado y
+  confirmado como una condición de carrera preexistente entre workers
+  de Jest contra el mismo Postgres real (no una regresión de esta
+  etapa): ambos pasan solos, y los 661 pasan limpios en serie. Se
+  documenta explícitamente en vez de ocultarlo.
+- `npm run build`/`npm run lint` del frontend limpios, mismo baseline.
+- **Flujo de Aprobaciones verificado de punta a punta contra el
+  backend real** (vía API directa): orden creada, `createdByUser`
+  confirmado en la respuesta con el nombre real ("Admin Demo"); regla
+  de aprobación creada y probada (confirmando además, sin tocar nada,
+  que el endpoint de decisión sigue siendo exclusivo de `ADMIN` a
+  nivel de ruta — arquitectura ya existente, no modificada); "Solicitado
+  por: Admin Demo" confirmado renderizado en la UI real. Datos de
+  prueba (2 órdenes, 1 regla) cancelados/desactivados al terminar, sin
+  dejar rastro.
+- **Traducción de Auditoría verificada en vivo**: "ar_invoice.created"
+  se lee "Factura de venta — creado(a)", "inventory_movement.
+  exit_created" se lee "Movimiento de inventario — con salida
+  registrada", confirmado con capturas reales.
+- **RBAC re-confirmado sin tocar ningún archivo de permisos**:
+  Administrador ve el enlace "Auditoría" en el sidebar y los datos
+  reales; Colaborador y Financiero no ven el enlace, y si navegan
+  directo a `/auditoria` el backend los rechaza con "No tienes permiso
+  para hacer esta acción" (la tabla nunca llega a pintarse) — la
+  autoridad sigue siendo 100% del servidor, nunca solo ocultado en el
+  cliente.
+- **Multi-empresa**: el cambio en `getPaymentOrder` es aditivo dentro
+  del mismo `include`, sin tocar el `where: { id, companyId }` ya
+  existente — el aislamiento por empresa no se tocó ni se debilitó.
+- Responsive confirmado sin desbordamiento a 768px en Auditoría y
+  Órdenes de Pago.
+
+### Archivos
+
+**Nuevo**: `frontend/src/utils/auditLabels.js`.
+**Modificados**: `src/modules/treasury/services/payment-orders.
+service.js` (1 línea aditiva en un `include`),
+`frontend/src/pages/treasury/PaymentOrdersPage.jsx` ("Solicitado por"
++ columna "Decidido por"), `frontend/src/pages/audit/AuditTrailPage.
+jsx` (traducción de Acción/Entidad), `frontend/src/core/account/
+ActivitySection.jsx` (misma traducción).
+**Sin cambios**: `AlertsPage`, `ReconciliationPage`, las 7 pestañas de
+`FiscalLayout`, `NivelesAccesoPage`, `JuntaWidget` — auditadas, sin
+cambios porque no se encontró un problema real.
+
+### Riesgos / deuda técnica documentada
+
+- El detalle "Ver detalle" (JSON Antes/Después) de la Bitácora de
+  Auditoría sigue mostrando nombres de campo técnicos crudos — es una
+  vista secundaria/avanzada (jerarquía progresiva: la tabla principal,
+  ahora traducida, es la información primaria), y traducir cada campo
+  de los 65 modelos sería un trabajo de un orden de magnitud mayor,
+  fuera de proporción para este hallazgo puntual — documentado, no
+  ocultado.
+- La flakiness de tests de integración en paralelo contra Postgres
+  real (ver Validación) queda documentada como deuda preexistente del
+  entorno de pruebas, no de esta etapa.
+
+### Estado
+
+**Etapa 5 (Control) completa y validada**, con el mismo criterio de
+alcance de las etapas anteriores: solo se tocó lo que la auditoría
+encontró genuinamente necesario (Aprobaciones y Auditoría), con un
+cambio de backend mínimo, aditivo y sin riesgo (un `include` a una
+consulta de solo lectura ya existente). No se avanza a la Etapa 6
+(Analítica) sin continuación explícita del usuario.

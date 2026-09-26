@@ -6,6 +6,7 @@ import StatusSeal from '../../core/ui/StatusSeal';
 import EmptyState from '../../core/ui/EmptyState';
 import HelpTooltip from '../../components/HelpTooltip';
 import Breadcrumb from '../../core/ui/Breadcrumb';
+import { formatAuditAction, formatAuditEntityType, shortEntityId } from '../../utils/auditLabels';
 
 // Fase 11 (secciones 14/17/23 — "Audit filters", "Jobs/lastRunAt", "UX
 // de auditoría"): antes de esta fase no existía NINGUNA pantalla que
@@ -93,9 +94,9 @@ function LogTrail() {
                   <tr>
                     <td>{formatDateTime(log.createdAt)}</td>
                     <td>{log.user?.name || 'Sistema (automático)'}</td>
-                    <td>{log.action}</td>
-                    <td>
-                      {log.entityType} · {log.entityId}
+                    <td>{formatAuditAction(log.entityType, log.action)}</td>
+                    <td title={`${log.entityType} · ${log.entityId}`}>
+                      {formatAuditEntityType(log.entityType)} · {shortEntityId(log.entityId)}
                     </td>
                     <td>
                       <button

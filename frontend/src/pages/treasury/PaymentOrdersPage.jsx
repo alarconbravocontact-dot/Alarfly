@@ -49,7 +49,17 @@ function OrderApprovalDetail({ order, expandedOrder, canApprove, runOrderAction 
   if (!expandedOrder) return null;
   return (
     <div>
+      {/* Rediseño UX/UI (Etapa 5, bloque Aprobaciones) — bug real
+          corregido: faltaba "quién solicita", la mitad del
+          maker-checker que el documento maestro exige mostrar junto a
+          "quién aprobó" (que la tabla de abajo sí mostraba, solo que
+          sin el nombre — ver también el fix de "Decisión" debajo). El
+          dato ya lo devolvía el backend en otros lugares (relación
+          `createdByUser` del schema); solo faltaba pedirlo en esta
+          consulta puntual — ver payment-orders.service.getPaymentOrder. */}
       <p className="text-muted" style={{ marginBottom: 8 }}>
+        Solicitado por: <strong>{expandedOrder.createdByUser?.name || '—'}</strong>
+        {' · '}
         Niveles requeridos: {expandedOrder.requiredLevels} · Aprobaciones registradas: {expandedOrder.approvals?.length ?? 0}
       </p>
       {expandedOrder.approvals?.length > 0 && (
@@ -57,6 +67,7 @@ function OrderApprovalDetail({ order, expandedOrder, canApprove, runOrderAction 
           <thead>
             <tr>
               <th>Nivel</th>
+              <th>Decidido por</th>
               <th>Decisión</th>
               <th>Comentario</th>
             </tr>
@@ -65,6 +76,7 @@ function OrderApprovalDetail({ order, expandedOrder, canApprove, runOrderAction 
             {expandedOrder.approvals.map((a) => (
               <tr key={a.id}>
                 <td>{a.level}</td>
+                <td>{a.approvedByUser?.name || '—'}</td>
                 <td>{a.decision === 'APPROVED' ? 'Aprobado' : 'Rechazado'}</td>
                 <td>{a.comment || '—'}</td>
               </tr>

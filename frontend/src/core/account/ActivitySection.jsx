@@ -4,6 +4,7 @@ import { accountApi } from '../../api/account';
 import { ApiError } from '../../api/client';
 import { formatDate } from '../../utils/format';
 import EmptyState from '../../core/ui/EmptyState';
+import { formatAuditVerb, formatAuditEntityType } from '../../utils/auditLabels';
 
 export default function ActivitySection() {
   const [range, setRange] = useState({ from: '', to: '' });
@@ -72,8 +73,8 @@ export default function ActivitySection() {
             {activityQuery.data.map((log) => (
               <tr key={log.id}>
                 <td>{formatDate(new Date(log.createdAt))}</td>
-                <td>{log.action}</td>
-                <td>{log.entityType}</td>
+                <td style={{ textTransform: 'capitalize' }}>{formatAuditVerb(log.action)}</td>
+                <td>{formatAuditEntityType(log.entityType)}</td>
               </tr>
             ))}
           </tbody>

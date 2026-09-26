@@ -4573,3 +4573,212 @@ asumido), y un solo bug real encontrado y corregido de raíz (no solo
 parcheado en la interfaz) con su prueba de regresión. No se avanza a
 la Etapa 8 (Auditoría UX/UI Final y Consolidación) sin continuación
 explícita del usuario.
+
+## Rediseño UX/UI Maestro — Etapa 8 (Auditoría UX/UI Final y Consolidación)
+
+A pedido explícito del usuario ("Continua"). Última etapa del rediseño
+UX/UI maestro — auditoría transversal completa de las 7 áreas
+conceptuales (Shell, Inicio, Operaciones, Finanzas, Control, Analítica,
+Configuración), sin asumir que una etapa marcada COMPLETE está libre de
+inconsistencias posteriores. Regla explícita de esta etapa: NO
+introducir capacidades de negocio nuevas — solo encontrar y corregir lo
+que de verdad quedó inconsistente.
+
+### Auditoría transversal realizada
+
+**Regresión visual/funcional de las 7 áreas**: capturas frescas de
+Inicio, Operaciones (Catálogo de Inventario), Venta Rápida, Finanzas
+(Resumen), Control (Fiscal), Analítica (Estados Financieros) y
+Configuración (Niveles de Acceso) — las 7 capturas representativas
+pedidas explícitamente. Confirmado que los hallazgos ya corregidos en
+Etapas 2-7 siguen intactos: Inicio mantiene la jerarquía ESTADO→
+ATENCIÓN→EXPLICACIÓN→ACCIÓN→EVOLUCIÓN (Etapa 2); Venta Rápida sigue
+mostrando solo campos esenciales con "Opciones avanzadas" detrás de
+revelación progresiva, sin haber vuelto a ser un formulario
+administrativo (verificación explícita pedida por esta etapa); Finanzas
+mantiene "Posición actual" separada visualmente de "Previsión — próximas
+8 semanas" (Etapa 4); Tablero Ejecutivo y "Empresa activa" (Etapas 6-7)
+siguen corregidos. 0 errores de consola nuevos (los únicos observados
+son el bloqueo ya conocido y documentado de Google Fonts —
+`ERR_CERT_AUTHORITY_INVALID` — del entorno de pruebas, sin relación con
+la aplicación).
+
+**RBAC — verificación real del servidor, no solo ocultamiento visual**
+(instrucción explícita de esta etapa: "No confiar únicamente en
+ocultamiento visual. Verificar protección real del servidor"). Se
+encontró primero una señal que parecía preocupante: el sidebar
+(`NAV_AREAS` en `AppLayout.jsx`) muestra prácticamente los mismos ítems
+de navegación a los 4 roles — Contador, Financiero y Colaborador ven
+enlaces a módulos que `core/rbac/module-access.js` no les permite (ej.
+Colaborador ve "Fiscal", que solo `ADMIN`/`ACCOUNTANT` pueden usar). Se
+investigó a fondo en vez de asumir que era un bug:
+
+1. **Confirmado con `curl` autenticado, 7 endpoints × 3 roles no-admin**:
+   el servidor rechaza correctamente con `403` cada combinación
+   módulo/rol que `module-access.js` no autoriza (ej. Colaborador → 403
+   en `/fiscal/tax/rates`, `/fpa/dimensions`, `/accounting/accounts`,
+   `/business-metrics`, `/advanced-analytics/reports`; Financiero → 403
+   en `/fiscal/tax/rates`, `/treasury/accounts`; Contador → 403 en
+   `/fpa/dimensions`, `/treasury/accounts`, `/business-metrics`) — la
+   protección real está donde debe estar, en el servidor, exactamente
+   como exige esta etapa.
+2. Una sola combinación no calzaba a primera vista:
+   `GET /reports/dashboard/widgets` devolvía `200` para Colaborador y
+   Contador, pese a que `reports` está limitado a `ADMIN`/`FINANCE`.
+   Investigado hasta el código: es una excepción **documentada y
+   deliberada** desde Fase 9 (`reports/routes/dashboard.routes.js`) —
+   el Dashboard es el Inicio de TODA la app, así que sus rutas viven
+   fuera del gate de módulo a propósito (mismo criterio ya usado por
+   `/notifications`/`/glossary`/`/fx/latest-rates`), y es
+   `dashboard.service.js` quien filtra **cada widget individualmente**
+   por rol antes de calcularlo. Verificado con `curl` comparando la
+   respuesta real: Colaborador recibe únicamente el widget "Requiere tu
+   Atención" (1 de 10), Administrador recibe los 10 completos
+   (Resumen Financiero, Posición de Caja, EBITDA, Burn Rate/Runway,
+   Estado de Resultados, Balance General, Previsión de Liquidez,
+   Insight de Liquidez, Insight de Cobranza, Requiere tu Atención) —
+   confirma que el filtrado por widget funciona de verdad, no es un
+   agujero de seguridad.
+3. Se verificó además, con Playwright, qué ve realmente un Colaborador
+   al navegar a una pantalla sin acceso (Fiscal, FP&A, Reportes,
+   Análisis Avanzados): la interfaz completa se renderiza con
+   normalidad (pestañas, cabecera, migas de pan) y el panel de
+   contenido muestra un mensaje claro y contenido, "No tienes acceso a
+   este módulo con tu rol actual.", dentro de un `alert-box` — nunca un
+   error crudo, una pantalla en blanco ni un cuelgue. **Conclusión: el
+   patrón "sidebar visible para todos + servidor protege cada dato" es
+   una decisión de arquitectura deliberada, documentada desde antes de
+   este rediseño, y funciona correctamente de punta a punta — no se
+   modificó nada.**
+
+**Multi-company**: este entorno tiene una sola empresa real ("Empresa
+Demo") — no existe todavía, en ningún punto del proyecto, un flujo que
+le dé a un usuario acceso a una segunda empresa (limitación ya
+documentada en Mi Cuenta y confirmada de nuevo al corregir el bug de
+Etapa 7). No se fabricó una segunda empresa artificial para esta
+auditoría porque eso habría sido introducir datos de prueba
+permanentes fuera de alcance de un rediseño de UX. Se validó en su
+lugar, por código, que el aislamiento por `companyId` sigue intacto en
+el único cambio de backend de todo este rediseño (el fix de Etapa 7,
+que deriva la empresa desde `User.companyId`, nunca desde un valor
+fijo o de otro usuario — confirmado con dos usuarios reales de la
+misma empresa recibiendo cada uno su propio `companyId` correcto).
+
+**Consolidación / duplicación de componentes**: revisando el registro
+de las 7 etapas anteriores, cada pieza nueva reutilizó explícitamente
+un componente ya existente en vez de crear uno paralelo —
+`DateRangeSelector` (Etapa 6, Tablero Ejecutivo), `StatusSeal`/
+`EmptyState`/`HelpTooltip` (sin tocar, ya consistentes desde antes de
+este rediseño), el mismo `ConfirmContext`/`module.css` en toda pantalla
+tocada. No se encontró ningún componente duplicado introducido por
+este rediseño — las únicas piezas nuevas de código de las 8 etapas son
+`Disclosure` (Etapa 3, genérico y reutilizable, sin equivalente previo)
+y el fix de `companies.service.js` (Etapa 7, backend puro, sin UI).
+
+**Formularios y tablas**: auditados transversalmente vía las capturas
+—Venta Rápida (esencial → avanzado), Perfil de la Empresa (agrupado
+por bloques, campos deshabilitados en vez de ocultos), Facturas/
+Clientes/Proveedores (mismo `DataTable` compartido, mismos filtros,
+mismo patrón "Ver detalle") — mismo lenguaje visual en todos, sin
+tablas ni formularios fuera de este lenguaje encontrados.
+
+**Responsive final**: barrido completo de las 7 pantallas
+representativas × las 4 resoluciones mínimas pedidas (1440/1280/1024/
+768) = 28 combinaciones, **0 con desbordamiento horizontal**. El caso
+límite de 480px/5.5" ya se documentó como fuera de alcance desde la
+Etapa 3 (decisión del propio documento maestro, no de esta sesión) y
+se mantiene así.
+
+**Performance**: no se observó ningún problema evidente durante toda
+la auditoría (cargas de página consistentes entre 500-800ms en las ~40
+navegaciones realizadas en este cierre) — no se hizo optimización
+prematura, tal como pide explícitamente esta etapa.
+
+### Problemas encontrados y corregidos en esta etapa
+
+**Ninguno.** La auditoría transversal de Etapa 8 no encontró ningún
+defecto visual, funcional, de RBAC ni de consistencia que no estuviera
+ya corregido en una etapa anterior. La única investigación a fondo (el
+patrón de navegación RBAC) concluyó que el comportamiento observado es
+correcto y deliberado, no un bug — documentado en detalle arriba en vez
+de "corregirlo" innecesariamente. Tal como establece explícitamente el
+propio prompt de esta etapa: *"una auditoría que concluye 'no hace
+falta cambiar nada' es un resultado válido."*
+
+### Validación final
+
+- **665/665 tests de backend en serie** (sin cambios desde Etapa 7 — esta
+  etapa no tocó ningún archivo de backend).
+- `npm run build`/`npm run lint` del frontend limpios, mismo baseline de
+  8 warnings preexistentes — esta etapa no tocó ningún archivo de
+  frontend.
+- E2E/Playwright: verificación de las 7 áreas + navegación bloqueada por
+  RBAC (4 rutas × Colaborador) + comparación de respuesta real del
+  servidor (7 endpoints × 3 roles) — sin resultados inesperados.
+- RBAC: verificado con los 4 roles reales, tanto por navegación
+  (sidebar) como por llamada directa al servidor — protección real
+  confirmada en el servidor, no solo ocultamiento visual.
+- Multi-company: aislamiento por `companyId` confirmado por código y
+  con 2 usuarios reales de la misma empresa; sin una segunda empresa
+  real disponible en este entorno para una prueba cruzada completa —
+  limitación documentada, no fabricada artificialmente.
+- Responsive: 28/28 combinaciones (7 pantallas × 4 resoluciones) sin
+  desbordamiento horizontal.
+
+### Archivos
+
+**Sin cambios de código en esta etapa** — es una auditoría de cierre;
+el único archivo modificado es este mismo `PROGRESS_LOG.md`.
+
+### Deuda técnica y riesgos que quedan documentados (no de esta etapa)
+
+- No existe pantalla de "sucursales" (`core/dimensions` tipo BRANCH) ni
+  de configuración contable avanzada (`fxGainLossAccountId`) —
+  documentado ya en Etapa 7, campos opcionales del backend sin
+  consumidor en el frontend, fuera de alcance de un rediseño de UX.
+- El breakpoint de 480px/5.5" sigue fuera de alcance, documentado desde
+  Etapa 3 por decisión del propio documento maestro.
+- El envío real de correo (alertas, reportes programados) sigue sin
+  implementar — límite consciente documentado desde mucho antes de
+  este rediseño, no tocado por él.
+- El flujo real de "dar acceso a un usuario a una segunda empresa"
+  sigue sin existir — documentado desde Mi Cuenta, reconfirmado en
+  Etapa 7 al corregir el bug de `UserCompanyAccess`.
+- El push a GitHub sigue bloqueado por falta de autorización de la
+  GitHub App de Claude para esta organización (documentado en cada
+  etapa desde la 1) — los 8 commits de este rediseño (Etapas 1-8)
+  quedan guardados localmente en `claude/fintech-platform-nodejs-pdgvjf`,
+  pendientes de que un administrador de la organización instale la
+  GitHub App o reconecte GitHub.
+
+### Estado final del rediseño UX/UI — Criterios de finalización
+
+- [x] Shell coherente (Etapa 1, re-verificado)
+- [x] Inicio coherente (Etapa 2, re-verificado)
+- [x] Operaciones coherente (Etapa 3, re-verificado)
+- [x] Venta Rápida sigue siendo rápida (re-verificado explícitamente)
+- [x] Finanzas coherente (Etapa 4, re-verificado)
+- [x] Control coherente (Etapa 5, re-verificado)
+- [x] Analítica coherente (Etapa 6, re-verificado)
+- [x] Configuración coherente (Etapa 7, re-verificado)
+- [x] Navegación única (sin navegación paralela encontrada)
+- [x] Flyout funcional (fix de Etapa 1 sigue intacto)
+- [x] Responsive (28/28 combinaciones sin desbordamiento)
+- [x] Sin overflow crítico
+- [x] Sin componentes visualmente duplicados innecesarios
+- [x] Sin fuentes de verdad duplicadas (Etapa 6 corrigió la única real)
+- [x] RBAC funcionando (verificado en servidor, no solo visual)
+- [x] Multi-company funcionando (aislamiento confirmado por código)
+- [x] Auditoría funcionando (Etapa 5)
+- [x] Fiscal funcionando (Etapa 5/7)
+- [x] Tests pasando (665/665)
+- [x] Build pasando
+- [x] Lint pasando
+- [x] E2E pasando
+- [x] Capturas finales realizadas
+- [x] PROGRESS_LOG.md actualizado
+
+**El rediseño UX/UI maestro de Alarfly (Etapas 1-8) queda completo.**
+Por regla absoluta de cierre de esta etapa: no se crea una Etapa 9, no
+se agregan módulos nuevos, no se continúa implementando funcionalidad
+nueva, no se inicia una nueva ronda de rediseño a partir de este punto.

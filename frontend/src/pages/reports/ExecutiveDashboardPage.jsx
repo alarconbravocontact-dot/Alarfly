@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { executiveDashboardApi } from '../../api/reports';
 import { ApiError } from '../../api/client';
-import { formatCurrency, formatDate, toIsoDate, currentMonthRange } from '../../utils/format';
+import { formatCurrency, formatDate, currentMonthRange } from '../../utils/format';
 import HelpTooltip from '../../components/HelpTooltip';
 import StatCard from '../../components/StatCard';
 import EmptyState from '../../core/ui/EmptyState';
+import DateRangeSelector from '../../core/ui/DateRangeSelector';
 
 const { from: defaultFrom, to: defaultTo } = currentMonthRange();
 
@@ -147,37 +148,64 @@ function WidgetContent({ widgetKey, data }) {
 
 export default function ExecutiveDashboardPage() {
   const [preferences, setPreferences] = useState([]);
-  const [dashboard, setDashboard] = useState(null);
-  const [range] = useState({ from: defaultFrom, to: defaultTo, asOfDate: toIsoDate(new Date()) });
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
+  const [isPrefsLoading, setIsPrefsLoading] = useState(true);
+  const [prefsError, setPrefsError] = useState('');
 
-  const loadAll = useCallback(async () => {
-    setIsLoading(true);
-    setLoadError('');
+  const [dashboard, setDashboard] = useState(null);
+  const [isDashboardLoading, setIsDashboardLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState('');
+
+  // Rediseño UX/UI (Etapa 6) — bug real corregido: este período era
+  // fijo (mes actual) y nunca se podía cambiar — con el mismo catálogo
+  // de widgets y las mismas preferencias que ya usa Inicio (comparten
+  // `executiveDashboardApi`, un solo `DashboardWidgetPreference` por
+  // usuario), este Tablero Ejecutivo era un clon exacto de Inicio sin
+  // ninguna capacidad propia. Un reporte, a diferencia del Centro
+  // Operativo de Inicio (siempre "ahora"), debe poder consultarse para
+  // cualquier período — es la única diferencia real que justifica que
+  // esta pantalla exista aparte, así que se le agregó el mismo
+  // `DateRangeSelector` que ya usa el resto de Reportes/Auditoría, sin
+  // tocar el catálogo de widgets ni las preferencias (siguen siendo la
+  // misma fuente de verdad que Inicio, a propósito — nunca un segundo
+  // Read Layer).
+  const [range, setRange] = useState({ from: defaultFrom, to: defaultTo });
+
+  const loadPreferences = useCallback(async () => {
+    setIsPrefsLoading(true);
+    setPrefsError('');
     try {
-      const [preferencesData, dashboardData] = await Promise.all([
-        executiveDashboardApi.getPreferences(),
-        executiveDashboardApi.get(range),
-      ]);
-      setPreferences(preferencesData);
-      setDashboard(dashboardData);
+      setPreferences(await executiveDashboardApi.getPreferences());
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : 'No se pudo cargar el tablero ejecutivo.');
+      setPrefsError(err instanceof ApiError ? err.message : 'No se pudieron cargar los widgets disponibles.');
     } finally {
-      setIsLoading(false);
+      setIsPrefsLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+    loadPreferences();
+  }, [loadPreferences]);
+
+  const loadDashboard = useCallback(async () => {
+    setIsDashboardLoading(true);
+    setDashboardError('');
+    try {
+      setDashboard(await executiveDashboardApi.get({ ...range, asOfDate: range.to }));
+    } catch (err) {
+      setDashboardError(err instanceof ApiError ? err.message : 'No se pudo cargar el tablero ejecutivo.');
+    } finally {
+      setIsDashboardLoading(false);
+    }
+  }, [range]);
+
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
 
   async function handleToggleVisible(pref) {
     try {
       await executiveDashboardApi.setPreference(pref.widgetKey, { isVisible: !pref.isVisible });
-      await loadAll();
+      await Promise.all([loadPreferences(), loadDashboard()]);
     } catch {
       // se refleja al recargar
     }
@@ -189,12 +217,12 @@ export default function ExecutiveDashboardPage() {
         <div className="panel-header">
           <h2 className="field-label">
             Widgets del tablero
-            <HelpTooltip text="Elige qué tarjetas quieres ver en tu tablero ejecutivo. Cada quien puede personalizar su propia vista sin afectar la de los demás." />
+            <HelpTooltip text="Elige qué tarjetas quieres ver en tu tablero ejecutivo. Cada quien puede personalizar su propia vista sin afectar la de los demás — incluido Inicio, que usa la misma lista de widgets." />
           </h2>
         </div>
-        {isLoading && <p className="text-muted">Cargando…</p>}
-        {!isLoading && loadError && <p className="alert-box alert-box-error">{loadError}</p>}
-        {!isLoading && !loadError && (
+        {isPrefsLoading && <p className="text-muted">Cargando…</p>}
+        {!isPrefsLoading && prefsError && <p className="alert-box alert-box-error">{prefsError}</p>}
+        {!isPrefsLoading && !prefsError && (
           <table className="data-table">
             <thead>
               <tr>
@@ -218,14 +246,27 @@ export default function ExecutiveDashboardPage() {
         )}
       </div>
 
-      {!isLoading && !loadError && dashboard && dashboard.widgets.length === 0 && (
+      <div className="panel">
+        <div className="panel-header">
+          <h2 className="field-label">
+            Período
+            <HelpTooltip text="A diferencia de Inicio (que siempre muestra el mes actual), acá puedes consultar estos mismos widgets para cualquier período — útil para armar un reporte de un mes o trimestre ya cerrado." />
+          </h2>
+        </div>
+        <DateRangeSelector value={range} onChange={setRange} initialKey="this-month" />
+      </div>
+
+      {isDashboardLoading && <p className="text-muted">Cargando…</p>}
+      {!isDashboardLoading && dashboardError && <p className="alert-box alert-box-error">{dashboardError}</p>}
+
+      {!isDashboardLoading && !dashboardError && dashboard && dashboard.widgets.length === 0 && (
         <div className="panel">
           <EmptyState icon="▤" message="No tienes ningún widget visible. Muéstralo desde la lista de arriba." />
         </div>
       )}
 
-      {!isLoading &&
-        !loadError &&
+      {!isDashboardLoading &&
+        !dashboardError &&
         dashboard &&
         dashboard.widgets.map((widget) => (
           <div className="panel" key={widget.widgetKey}>

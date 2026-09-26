@@ -4244,3 +4244,133 @@ encontró genuinamente necesario (Aprobaciones y Auditoría), con un
 cambio de backend mínimo, aditivo y sin riesgo (un `include` a una
 consulta de solo lectura ya existente). No se avanza a la Etapa 6
 (Analítica) sin continuación explícita del usuario.
+
+## Rediseño UX/UI Maestro — Etapa 6 (Analítica)
+
+A pedido explícito del usuario, siguiendo la misma metodología de las
+Etapas 1-5 y el prompt combinado de Etapas 6/7/8 (ejecución secuencial
+obligatoria, una etapa a la vez, con parada e informe antes de
+continuar). Esta entrada cubre solo la Etapa 6 (Analítica: FP&A,
+Reportes, Métricas del Negocio, Análisis Avanzados) — las Etapas 7-8
+siguen sin iniciarse, a la espera de confirmación explícita.
+
+### Auditoría (Paso 1) y mapa de pantallas (Paso 2)
+
+Se auditaron con capturas reales en navegador las 16 pantallas de
+Analítica: `FpaLayout` (Dimensiones, Presupuestos, Desviaciones,
+Simulador What-If, KPIs), `ReportsLayout` (Estados Financieros, Flujo
+de Efectivo, Rentabilidad, Antigüedad de Saldos, Consolidación,
+Tablero Ejecutivo, Exportar y Programar), `MetricsPage` (Métricas del
+Negocio), y `AdvancedAnalyticsLayout` (Catálogo, Repositorio de
+Reportes, Benchmarking). Se verificó además, con una simulación real
+(`POST /fpa/scenarios/simulate`), que el Simulador What-If separa con
+claridad SALDO BASE (real, sin escenario) de SALDO CON ESCENARIO
+(proyectado), incluyendo el aviso de saldo negativo — exactamente la
+separación REAL/FORECAST/SIMULATION que exige el documento maestro.
+
+### Hallazgo central de la auditoría
+
+Casi toda Analítica ya cumplía el objetivo del documento maestro:
+fuentes de verdad únicas (FP&A y Reportes ya reutilizan los mismos
+servicios de Contabilidad/Tesorería sin recalcular nada, documentado
+desde hace muchas sesiones en este mismo archivo), `DateRangeSelector`
+ya consistente en Estados Financieros/Flujo de Efectivo/Rentabilidad/
+Antigüedad/Consolidación/Exportar, catálogo de los 16 Análisis
+Avanzados agrupado por categoría con lenguaje simple y sin duplicar
+ningún motor de cálculo (Horizontal/Flujo de Efectivo/Rentabilidad/
+Presupuesto vs. Real/What-If/Predictivo llaman directo al servicio
+original, tal como ya documenta este archivo desde su construcción).
+Métricas del Negocio conserva su distinción ya documentada frente a
+KPIs de FP&A (número escrito a mano vs. calculado por fórmula).
+
+Se encontró **1 problema real**, en el bloque que el propio documento
+maestro señala como zona de riesgo (duplicar información que ya
+pertenece a Inicio o Finanzas):
+
+1. **Tablero Ejecutivo — duplicado real de Inicio, con un bug
+   agravante**: `ExecutiveDashboardPage` (pestaña "Tablero Ejecutivo"
+   de Reportes) usa el mismo `executiveDashboardApi` y por lo tanto la
+   misma tabla `DashboardWidgetPreference` (por usuario, no por
+   pantalla) que ya usa Inicio — mismo catálogo de widgets, mismas
+   preferencias de visibilidad. Sin ninguna capacidad propia, esto era
+   un clon sin etiquetar de Inicio dentro de Reportes. Peor: el
+   período estaba **fijo y era literalmente imposible de cambiar**
+   (`const [range] = useState(...)`, el setter nunca se desestructuró)
+   — ni siquiera cumplía el rol mínimo de "reporte consultable para
+   cualquier período" que exige el documento maestro para diferenciar
+   un reporte de un panel de "ahora".
+
+### Cambios implementados
+
+**`frontend/src/pages/reports/ExecutiveDashboardPage.jsx`**: en vez de
+eliminar la pantalla (desproporcionado para un rediseño solo de UX, y
+la propia regla de "no eliminar funcionalidad sin demostrar la
+duplicación" del prompt maestro exige conservar por defecto), se le
+dio la única capacidad que realmente la distingue de Inicio: un
+`DateRangeSelector` real y funcional (el mismo componente genérico ya
+usado en el resto de Reportes/Auditoría), reutilizando exactamente el
+mismo catálogo de widgets y las mismas preferencias — nunca un segundo
+Read Layer. Se separó la carga de preferencias de la carga del
+tablero (cada una con su propio `isLoading`/`error`), y se agregaron
+dos `HelpTooltip` explícitos aclarando la relación con Inicio ("las
+preferencias se comparten con Inicio", "a diferencia de Inicio, que
+siempre muestra el mes actual, acá puedes consultar cualquier
+período"). Así el Tablero Ejecutivo pasa de ser un clon sin etiquetar
+de Inicio a ser "el mismo catálogo de widgets, consultable para
+cualquier período" — la interpretación honesta de qué distingue un
+reporte de un panel operativo, ya usada en Etapa 2 para separar Inicio
+(siempre "ahora") del resto.
+
+### Validación
+
+- **661/661 tests de backend en serie (`--runInBand`)**, sin
+  regresiones — esta etapa no tocó ningún archivo de backend.
+- `npm run build`/`npm run lint` del frontend limpios, mismo baseline
+  de 8 warnings preexistentes (`only-export-components` en los
+  archivos de contexto). Se encontró y corrigió un `no-unused-vars`
+  real (`toIsoDate`, ya no se usaba tras el refactor) antes de dar por
+  cerrada la pieza.
+- **Verificado de punta a punta con Playwright contra los dos
+  servidores reales**: el selector de período se renderiza con sus 7
+  atajos, "Año pasado" queda seleccionable y resaltado, y los widgets
+  **sí recargan con datos distintos** al cambiar de período (EBITDA
+  360,41 US$ → 0,00 US$, Estado de Resultados/Balance General en cero,
+  todos coherentes con que no había movimiento hace un año) mientras
+  que Posición de Caja Consolidada se mantiene igual (215,00 US$),
+  correcto porque es una foto del saldo actual, no un dato por
+  período — confirma que la nueva capacidad funciona de verdad, no
+  solo visualmente.
+- **Responsive confirmado sin desbordamiento horizontal** en las 4
+  resoluciones estándar (1440/1280/1024/768px) — a 768px las 7
+  pestañas de Reportes envuelven en dos filas limpias, sin recorte.
+- **RBAC no se tocó**: `reports` sigue restringido a `ADMIN`/`FINANCE`
+  en `core/rbac/module-access.js`, sin cambios — el fix es puramente
+  de presentación sobre una pantalla que ya estaba gateada.
+- Se revisaron también, sin encontrar ningún problema que ameritara
+  cambio: Dimensiones y Presupuestos de FP&A, Estados Financieros,
+  Flujo de Efectivo, Rentabilidad, Antigüedad de Saldos, Consolidación
+  y Exportar y Programar de Reportes, Métricas del Negocio, y los 3
+  tabs de Análisis Avanzados (Catálogo, Repositorio, Benchmarking).
+
+### Archivos
+
+**Modificado**: `frontend/src/pages/reports/ExecutiveDashboardPage.
+jsx` (selector de período real + separación de estados de carga).
+**Sin cambios**: el resto de las 15 pantallas de Analítica — auditadas,
+sin cambios porque no se encontró un problema real.
+
+### Riesgos / deuda técnica documentada
+
+- Ninguna deuda nueva introducida por esta etapa. La flakiness de
+  tests de integración en paralelo contra Postgres real, ya documentada
+  en la Etapa 5, sigue siendo preexistente del entorno, no de esta
+  etapa (no se re-verificó en esta pieza porque no se tocó backend).
+
+### Estado
+
+**Etapa 6 (Analítica) completa y validada**, con el mismo criterio de
+alcance de las etapas anteriores: un solo hallazgo real (Tablero
+Ejecutivo duplicando Inicio sin capacidad propia), corregido de forma
+proporcionada y verificado de punta a punta. No se avanza a la Etapa 7
+(Configuración) sin continuación explícita del usuario — instrucción
+reforzada explícitamente en el prompt maestro de Etapas 6/7/8.

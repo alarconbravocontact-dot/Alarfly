@@ -5790,3 +5790,102 @@ bancario/fiscal fue inventado, la compatibilidad con la futura
 integración de IA quedó confirmada explícitamente. Por la regla final
 de esta fase: **no se avanza a F14 ni F15, no se integra IA** — se
 espera autorización explícita del usuario antes de continuar.
+
+## F14-E1 — Corrección de seguridad previa a E2 (multiempresa/Enterprise)
+
+**Contexto**: durante el barrido de auditoría de F14-Etapa1 (multiempresa
+actual) se encontró una vulnerabilidad real en `PATCH
+/accounting/consolidation/parent-company` — se corrigió antes de
+continuar con el mapa de ownership de F14-E2, a pedido explícito del
+usuario ("no quiero continuar construyendo la auditoría Enterprise
+sobre una vulnerabilidad conocida de aislamiento financiero").
+
+### Vulnerabilidad
+
+`consolidation.service.setParentCompany(companyId, parentCompanyId, userId)`
+solo validaba que `parentCompanyId` existiera y que no se formara un
+ciclo — **nunca** que quien llamaba tuviera ninguna autorización sobre
+la empresa nombrada como matriz. El ADMIN de cualquier empresa A podía
+ejecutar `PATCH /accounting/consolidation/parent-company` con el `id`
+de cualquier otra empresa Z existente en la base de datos, sin que Z
+lo aprobara. A partir de ahí, la próxima consolidación de Z
+(`GET /accounting/consolidation/trial-balance`, que suma matriz +
+subsidiarias por `parentCompanyId`) mezclaba silenciosamente el
+balance de comprobación de A dentro del reporte "consolidado" de Z —
+exactamente lo que la propia F14 prohíbe explícitamente ("Una relación
+entre empresas NO debe implicar automáticamente acceso a todos los
+datos. El acceso debe depender de autorización explícita.").
+
+### Causa
+
+El proyecto no tenía ningún concepto de "autorización entre dos
+empresas" — solo `UserCompanyAccess` (usuario↔empresa, usado hasta
+ahora únicamente para cambiar de empresa activa), y `setParentCompany`
+nunca lo consultaba.
+
+### Solución
+
+Se reutilizó `UserCompanyAccess` (el único mecanismo ya existente que
+representa "este usuario está legítimamente afiliado a esta empresa",
+el mismo que ya usa `companies.service.switchActiveCompany`) como
+prueba de autorización sobre la empresa matriz elegida — nunca se creó
+un motor de permisos nuevo. Nueva función privada
+`assertAuthorizedOverCompany(userId, companyId)` en
+`consolidation.service.js`: permite el vínculo si la empresa objetivo
+es la propia empresa de origen del usuario (`User.companyId`) o si
+existe una fila `UserCompanyAccess` real para ese usuario+empresa;
+rechaza con 403 `PARENT_COMPANY_NOT_AUTHORIZED` en cualquier otro caso.
+Se confirmó por grep que **hoy no existe ningún endpoint que escriba
+`UserCompanyAccess`** (solo se lee) — así que el fix cierra la fuga por
+completo sin impedir ningún caso legítimo futuro, y sin inventar
+infraestructura nueva.
+
+Se mantiene sin cambios: exigencia de rol ADMIN en la ruta (capa
+independiente, en el middleware, no en el servicio), protección contra
+ciclos, y toda la lógica de `getConsolidatedTrialBalance` (no se tocó).
+
+### Archivos modificados
+
+- `src/modules/accounting/services/consolidation.service.js` — nueva
+  función `assertAuthorizedOverCompany`, llamada desde
+  `setParentCompany` antes de la validación de existencia/ciclo.
+- `src/modules/accounting/services/consolidation-security.integration.test.js`
+  (nuevo) — 8 tests contra Postgres real cubriendo los 7 casos
+  exigidos: vínculo legítimo (empresa propia), vínculo no autorizado
+  rechazado (403, sin tocar la base de datos), vínculo autorizado con
+  `UserCompanyAccess` real permitido, rol no-ADMIN también rechazado
+  por el mismo motivo (la puerta de rol vive en la ruta, el servicio
+  igual exige autorización), ciclo rechazado incluso con autorización
+  real, consolidación legítima matriz+subsidiaria sin regresión, A no
+  gana lectura nueva sobre Z al intentar (sin éxito) el vínculo, Z no
+  recibe datos de A hasta que exista autorización real.
+
+### Validación
+
+680/680 tests de backend (672 previos + 8 nuevos), lint limpio,
+`npx prisma validate` sin errores. Validación real vía `curl` contra
+Postgres real con el backend reiniciado (para cargar el código
+corregido — el proceso llevaba corriendo desde antes del fix, mismo
+riesgo ya documentado en otras piezas de este proyecto): intento sin
+autorización → `403 PARENT_COMPANY_NOT_AUTHORIZED`, `parentCompanyId`
+de la empresa demo confirmado sin cambios en la base de datos;
+otorgado un `UserCompanyAccess` real → el mismo `PATCH` con el mismo
+body ahora responde `200` y sí establece el vínculo; revertido a
+`null` y limpiado (empresa de prueba y el acceso otorgado eliminados)
+para no dejar datos de prueba en el entorno demo.
+
+### Riesgos residuales
+
+- No existe todavía ningún flujo de negocio que otorgue
+  `UserCompanyAccess` a una empresa ajena (documentado como gap
+  conocido desde Mi Cuenta) — cuando se construya, deberá decidirse
+  quién puede otorgar ese acceso y con qué aprobación; esta corrección
+  no lo resuelve, solo asegura que, hasta que exista, nadie puede
+  fabricarse esa autorización por su cuenta.
+- El mensaje de error no distingue "la empresa no existe" de "no
+  tienes autorización" (ambos casos devuelven 403
+  `PARENT_COMPANY_NOT_AUTHORIZED` antes de siquiera consultar si la
+  empresa existe) — decisión intencional para no revelar por
+  enumeración si un id de empresa arbitrario es real.
+
+**F14-E1 — CORRECCIÓN DE SEGURIDAD PREVIA A E2: COMPLETA.**

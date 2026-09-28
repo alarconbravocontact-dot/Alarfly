@@ -6,15 +6,46 @@ const reportsService = require('./reports.service');
 
 const { Decimal } = Prisma;
 
+// F14-E1 (corrección de seguridad): el `parentCompanyId` que llega en
+// el body es un id de empresa arbitrario — que exista en la base de
+// datos no significa que quien llama tenga ninguna relación con esa
+// empresa. Se reutiliza `UserCompanyAccess` (el único mecanismo ya
+// existente que representa "este usuario está legítimamente afiliado
+// a esta empresa", el mismo que ya usa `switchActiveCompany`) como
+// prueba de autorización sobre la empresa matriz elegida — nunca se
+// crea un permiso nuevo. Hoy no existe ningún flujo que escriba
+// `UserCompanyAccess` para una empresa ajena, así que esto bloquea por
+// completo la fuga sin impedir el único caso legítimo (la propia
+// empresa de origen del usuario).
+async function assertAuthorizedOverCompany(userId, companyId) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
+  if (user?.companyId === companyId) return;
+
+  const access = await prisma.userCompanyAccess.findUnique({
+    where: { userId_companyId: { userId, companyId } },
+  });
+  if (!access) {
+    throw new AppError(
+      'No tienes autorización sobre la empresa que quieres asociar como matriz.',
+      403,
+      'PARENT_COMPANY_NOT_AUTHORIZED'
+    );
+  }
+}
+
 // Marca `companyId` como subsidiaria de `parentCompanyId` (o la separa
 // del grupo si se manda null). Evita ciclos simples (una empresa no
-// puede ser su propia ancestro).
+// puede ser su propia ancestro) y exige que quien llama esté
+// autorizado sobre la empresa matriz elegida (ver
+// `assertAuthorizedOverCompany`) — nunca solo que esa empresa exista.
 async function setParentCompany(companyId, parentCompanyId, userId) {
   if (parentCompanyId === companyId) {
     throw new AppError('Una empresa no puede ser subsidiaria de sí misma.', 400, 'INVALID_PARENT_COMPANY');
   }
 
   if (parentCompanyId) {
+    await assertAuthorizedOverCompany(userId, parentCompanyId);
+
     const parent = await prisma.company.findUnique({ where: { id: parentCompanyId } });
     if (!parent) {
       throw new AppError('La empresa matriz indicada no existe.', 404, 'COMPANY_NOT_FOUND');

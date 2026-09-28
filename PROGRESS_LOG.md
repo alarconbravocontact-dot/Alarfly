@@ -6499,3 +6499,112 @@ limpio, `prisma validate` sin errores.
 
 **BLOQUE F14 E9-E18: COMPLETO. STOP ABSOLUTO** — no se inicia E19, E20,
 F15, F16 ni IA. Se espera revisión antes de continuar.
+
+## F14 — Bloque Final (E19-E27): cierre definitivo de F14
+
+**Resultado del bloque: sin cambios de código en E19-E24 (auditoría
+confirma suficiencia); validación real exhaustiva en E22/E25/E26;
+cierre formal en E27 con `F14_ENTERPRISE_CLOSURE.md` nuevo.**
+
+### F14-E19 — Jobs y Procesos Enterprise
+Reconfirmado (evidencia ya recogida en el Bloque 2): los 9 cron jobs
+iteran `prisma.company.findMany` explícitamente, cada iteración recibe
+`company.id` propio con `try/catch` individual. Los 4 endpoints de
+escaneo manual (`POST /treasury/alerts/scan`,
+`/accounts-receivable/collections/scan`, `/inventory/purchase-orders/scan`,
+`/fiscal/obligations/scan`) usan `req.auth.companyId` exclusivamente —
+confirmado leyendo sus controladores. **Sin cambios de código.**
+
+### F14-E20 — Importaciones y Exportaciones Enterprise
+`customersService.importCustomers(req.auth.companyId, req.body.rows)`
+y todos los exportadores ya parten de `req.auth.companyId`. **Sin
+cambios de código.**
+
+### F14-E21 — Integraciones y Frontera con F13
+Reconfirmado desde F13: cero integraciones externas reales. Los 2
+únicos campos `externalId` del sistema
+(`BankTransaction.externalId` único por `treasuryAccountId`,
+`FiscalElectronicDocument.externalDocumentId` sin unicidad forzada,
+ambos con `companyId` propio) no tienen ningún camino de colisión o
+fuga entre empresas. **Sin cambios de código.**
+
+### F14-E22 — Seguridad Enterprise
+Auditoría estática: **0 rutas en todo el proyecto usan `companyId`
+como parámetro de URL** (`grep` exhaustivo de `:companyId`/`/companies/:`).
+Validación real con 3 empresas (A, B-subsidiaria EUR, C-ajena sin
+ninguna relación) y 4 usuarios (ADMIN×3, COLLABORATOR×1): Colaborador
+rechazado con 403 en Niveles de Acceso y en Consolidación (RBAC);
+ADMIN de A intentando `setParentCompany` hacia C (empresa ajena, sin
+`UserCompanyAccess`) sigue rechazado (F14-E1 intacto);
+`companyId` ajeno enviado por query string a `/accounting/accounts`
+resultó ignorado (el contexto viene del JWT, nunca del query);
+otorgamiento de acceso A→B confirmado con su fila real de `AuditLog`
+(`company_access.granted`, `companyId`/`userId`/`entityType`
+correctos); escaneo manual de alertas disparado por A generó 0
+alertas en B y C (aislamiento de jobs confirmado en vivo); exportación
+del Estado de Resultados de C confirmada sin mencionar ningún id de A
+ni B. **Sin cambios de código — 0 hallazgos nuevos.**
+
+### F14-E23 — Performance Enterprise
+Sin problema demostrado. Único punto Enterprise con lógica nueva
+(conversión de moneda en consolidación, F14-E8) ya resuelve la tasa
+una sola vez por empresa del grupo, no por línea (ya corregido antes
+de este cierre). `UserCompanyAccess` no tiene un índice que lidere con
+`companyId` (solo `@@unique([userId, companyId])` + `@@index([userId])`)
+— sin impacto real a la escala actual (la tabla solo crece con
+otorgamientos ADMIN→ADMIN explícitos), documentado como deuda BAJA,
+no corregido sin medición real que lo justifique (regla explícita del
+bloque: no optimización prematura). **Sin cambios de código.**
+
+### F14-E24 — Auditoría Final del Modelo de Datos
+Mapa completo ENTITY→OWNER→SCOPE→SOURCE OF TRUTH→WRITERS→READERS→
+AUTHORIZATION construido en `F14_ENTERPRISE_CLOSURE.md` (sección 4).
+Confirmado: sin modelos duplicados que ameriten fusión, sin campos sin
+uso, sin relación que permita saltarse `companyId`. La única entidad
+genuinamente global (`AccountTemplate`) ya estaba correctamente
+identificada desde F14-E2. **Sin cambios de código.**
+
+### F14-E25 — Suite Enterprise de Pruebas
+Matriz de cobertura confirmada contra los tests ya existentes: A
+(Aislamiento, 12+ archivos), B (Cambio de empresa,
+`companies.service.test.js`), C (Consolidación,
+`consolidation-security`/`consolidation-currency.integration.test.js`),
+E (RBAC, `rbac.middleware.test.js`/`rbac.rules.test.js`), H
+(Auditoría, verificada dentro de los tests de E1/E3), I (Jobs,
+`job-run.integration.test.js`, ya prueba "aísla por empresa"). D
+(Intercompany) y J (Integraciones): sin tests porque la capacidad no
+existe — documentado, no fabricado un test para una funcionalidad que
+no se construyó. F (Exports)/G (Reporting)/K (Seguridad): cubiertas
+por la garantía estructural universal (`companyId` siempre de
+`req.auth`) más la validación real de E22. 693/693 tests, sin
+necesidad de tests nuevos (ningún código nuevo que cubrir).
+
+### F14-E26 — Validación Real Enterprise
+Ejecutada junto con E22 (mismo script): 3 empresas reales, 4 usuarios,
+3 roles, contra Postgres real — login, RBAC negativo, autorización
+cross-company negativa (estática y en vivo), otorgamiento con
+auditoría verificada en la base de datos, jobs aislados, exports
+limpios. Reutiliza además la validación ya hecha en vivo en F14-E1
+(consolidación cross-company), F14-E3 (cambio de empresa activa) y
+F14-E8 (FX en consolidación) — no se repitió una prueba idéntica una
+tercera vez sin necesidad.
+
+### F14-E27 — Cierre Arquitectónico de F14
+Nuevo `F14_ENTERPRISE_CLOSURE.md` (28 secciones): objetivo, arquitectura
+final, empresas, ownership, `UserCompanyAccess`, grupos, sucursales,
+almacenes, dimensiones, consolidación, intercompany, FX, permisos,
+políticas, aprobaciones, reporting, dashboard, auditoría, jobs,
+imports/exports, integraciones, seguridad, performance, tests,
+validación real, deuda (clasificada), riesgos residuales, estado
+final. **Ningún riesgo crítico ni alto pendiente** — la única
+vulnerabilidad de todo F14 (`setParentCompany`) se corrigió en E1 y se
+revalidó en E8 y E22.
+
+### Validación de cierre del bloque final
+693/693 tests, lint limpio, `prisma validate` sin errores. Sin
+código nuevo en E19-E24 (auditoría confirma suficiencia); validación
+real exhaustiva en E22/E25/E26 sin código nuevo tampoco (nada que
+corregir). Cero código de F15, F16 o IA en todo el bloque.
+
+**F14 — CERRADA CON DEUDA** (toda la deuda restante clasificada como
+FUTURA/SIN CASO DE NEGOCIO o BAJA — ninguna CRÍTICA ni ALTA).

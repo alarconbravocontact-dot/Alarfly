@@ -131,6 +131,23 @@ async function changeRole(companyId, actingUserId, targetUserId, newRole) {
     newValue: { role: newRole },
   });
 
+  // F15-E2: el rol viaja embebido en el JWT (firmado al iniciar
+  // sesión) — requireRole/requireModuleAccess lo leen del token, nunca
+  // de una consulta fresca a User. Sin esto, una sesión ya abierta
+  // seguía operando con el rol VIEJO hasta que expirara sola (hasta
+  // 8h) o el usuario volviera a iniciar sesión por su cuenta — un
+  // cambio de rol pensado para restringir a alguien de inmediato no
+  // tenía ningún efecto real mientras la sesión siguiera viva. Se
+  // revocan sus sesiones activas (mismo `UserSession.revokedAt` que ya
+  // usa "cerrar sesión remota" en Mi Cuenta) para forzar un
+  // relogin — la próxima petición con esa sesión cae en
+  // SESSION_REVOKED (`requireAuth`) y el siguiente login ya firma el
+  // rol correcto.
+  await prisma.userSession.updateMany({
+    where: { userId: target.id, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+
   return updated;
 }
 
@@ -157,6 +174,19 @@ async function deactivateUser(companyId, actingUserId, targetUserId) {
     entityId: target.id,
     oldValue: { status: target.status },
     newValue: { status: 'INACTIVE' },
+  });
+
+  // F15-E2: requireAuth nunca revisaba User.isActive por fuera del
+  // login — solo validaba la firma del JWT y, si traía sessionId, que
+  // esa sesión no estuviera revocada. Sin esto, un usuario recién
+  // desactivado seguía pudiendo usar la API con su sesión ya abierta
+  // hasta que el token expirara solo (hasta 8h) — "desactivar" no
+  // cortaba el acceso de verdad. Mismo mecanismo que el cambio de rol
+  // de arriba: se revocan sus sesiones activas para que la próxima
+  // petición caiga en SESSION_REVOKED de inmediato.
+  await prisma.userSession.updateMany({
+    where: { userId: target.id, revokedAt: null },
+    data: { revokedAt: new Date() },
   });
 
   return updated;

@@ -9,6 +9,17 @@ const { decrypt } = require('../utils/crypto');
 
 const PENDING_2FA_EXPIRES_IN = '5m';
 
+// F15-E3: sin ninguna protección contra fuerza bruta hasta ahora —
+// login() nunca limitaba intentos. 5 fallos consecutivos bloquean la
+// cuenta 15 minutos; un login correcto reinicia el contador. Acotado a
+// la propia cuenta (no por IP): es el mismo trade-off que usa la
+// mayoría de sistemas de login (alguien podría bloquear a otro a
+// propósito adivinando mal su contraseña), documentado como límite
+// conocido — sigue siendo estrictamente mejor que no tener ninguna
+// protección, que era el estado real hasta este punto.
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+
 // companyIdOverride: usado por core/account (selector de empresa
 // activa, Mi Cuenta punto 5) para reemitir el token con otra empresa
 // sin crear una sesión nueva. El rol del usuario NO cambia por
@@ -41,9 +52,30 @@ async function login(email, password, { deviceInfo, ipAddress } = {}) {
     throw new AppError('Correo o contraseña incorrectos.', 401, 'INVALID_CREDENTIALS');
   }
 
+  if (user.lockedUntil && user.lockedUntil > new Date()) {
+    throw new AppError(
+      'Demasiados intentos fallidos. Vuelve a intentarlo en unos minutos.',
+      429,
+      'ACCOUNT_LOCKED'
+    );
+  }
+
   const passwordMatches = await bcrypt.compare(password, user.passwordHash);
   if (!passwordMatches) {
+    const attempts = user.failedLoginAttempts + 1;
+    const lockingOut = attempts >= MAX_FAILED_LOGIN_ATTEMPTS;
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        failedLoginAttempts: lockingOut ? 0 : attempts,
+        lockedUntil: lockingOut ? new Date(Date.now() + LOCKOUT_DURATION_MS) : null,
+      },
+    });
     throw new AppError('Correo o contraseña incorrectos.', 401, 'INVALID_CREDENTIALS');
+  }
+
+  if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+    await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0, lockedUntil: null } });
   }
 
   // Si el usuario activó 2FA (Mi Cuenta, sección Seguridad), el login

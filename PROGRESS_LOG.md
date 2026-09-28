@@ -6608,3 +6608,318 @@ corregir). Cero código de F15, F16 o IA en todo el bloque.
 
 **F14 — CERRADA CON DEUDA** (toda la deuda restante clasificada como
 FUTURA/SIN CASO DE NEGOCIO o BAJA — ninguna CRÍTICA ni ALTA).
+
+## F15 — Bloque 1 (E1-E5): SaaS / Escalabilidad / Producción
+
+**Contexto**: F14 cerró como "CERRADA CON DEUDA" (sin deuda crítica ni
+alta). F15 evalúa si Alarfly está preparado para operar como producto
+SaaS real. Metodología: auditar → medir → determinar gap real →
+implementar solo lo demostrado.
+
+### F15-E1 — Auditoría SaaS y Tenant Isolation
+
+**Auditoría**: confirmado que `Company` **es** el tenant real del
+sistema — no existe (ni hace falta crear) una entidad `Tenant`
+separada. Los 116 modelos del schema fueron re-verificados: cada uno
+o bien lleva `companyId` obligatorio, o es una línea hija que hereda
+el alcance de su padre (`JournalEntryLine`→`JournalEntry`, etc.), o es
+la única entidad genuinamente global y ya documentada
+(`AccountTemplate`, catálogo de referencia sin `companyId`). Un
+usuario SÍ puede pertenecer a varios tenants — vía `UserCompanyAccess`
+(F14-E3) — y una empresa SÍ contiene múltiples usuarios (`User.companyId`).
+Confirmado (ya evidenciado en F14-E22): 0 endpoints usan `companyId`
+como parámetro de URL en todo el proyecto; sin almacenamiento de
+archivos fuera de la base de datos (0 usos de `multer`/`fs.writeFile`/
+`diskStorage`) — nada que pudiera compartirse incorrectamente entre
+tenants a nivel de sistema de archivos.
+
+**Mapa TENANT**: Identidad (`User.email` único globalmente — correcto,
+es una restricción de identidad, no una fuga de datos) → Usuarios
+(`User.companyId`) → Empresas (el propio `Company`, más
+`parentCompanyId`/`subsidiaries` para grupos) → Datos (345 funciones
+de servicio con `companyId` como primer parámetro, patrón
+`findFirst({id, companyId})` generalizado) → Configuración
+(`Company.*`/`UserPreference`, ambos ya scoped) → Archivos (base64 en
+tablas ya scoped, sin storage externo) → Jobs (9 crons ya iteran
+explícito por empresa) → Auditoría (`AuditLog.companyId` obligatorio)
+→ Reportes (siempre `req.auth.companyId`) → Integraciones (F13: sin
+integraciones externas reales, `externalId` ya acotado por empresa).
+
+**Conclusión**: `Company = Tenant` ya es un modelo correcto y
+suficiente — no se encontró ninguna fuga entre tenants, ningún
+endpoint sin scope, ningún job sin contexto de empresa. **Sin cambios
+de código.**
+
+**F15-E1: COMPLETA (sin cambios de código).**
+
+### F15-E2 — Identidad, Autenticación y Sesiones SaaS 🔴→✅
+
+**Auditoría**: `requireAuth` (`core/auth/auth.middleware.js`) valida
+la firma del JWT y, si el token trae `sessionId`, que esa sesión no
+esté revocada — pero **nunca vuelve a consultar `User.isActive`/
+`User.status`/`User.role` en cada petición**. El rol viaja embebido en
+el JWT, firmado una sola vez al iniciar sesión.
+
+**Hallazgo real (BUG REAL, severidad ALTA)**: `deactivateUser` y
+`changeRole` (`access-levels/services/users.service.js`) nunca tocaban
+`UserSession` — solo actualizaban la fila de `User`. Efecto real:
+**desactivar a un usuario, o bajarle el rol, no tenía ningún efecto
+sobre una sesión ya abierta** — esa persona seguía pudiendo usar la
+API con el rol/estado viejo hasta que su token expirara solo (hasta
+8h) o alguien revocara su sesión por separado a mano. Esto contradice
+directamente la expectativa de "desactivar = cortar acceso ahora", que
+es justamente el propósito de la acción.
+
+**Corrección**: ambas funciones ahora revocan todas las sesiones
+activas del usuario objetivo (`prisma.userSession.updateMany({where:
+{userId, revokedAt:null}, data:{revokedAt: new Date()}})`) —
+reutilizando exactamente el mismo campo `UserSession.revokedAt` que ya
+usa "cerrar sesión remota" en Mi Cuenta, sin crear ningún mecanismo
+nuevo. La próxima petición de esa persona con esa sesión cae en
+`SESSION_REVOKED` de inmediato.
+
+**Archivos**: `src/modules/access-levels/services/users.service.js`.
+Sin migraciones (campo ya existente).
+
+**Otros puntos del checklist E2, ya correctos, sin cambios**: token
+viejo sin `sessionId` (compatibilidad documentada, aceptado hasta que
+expire); cambio de empresa activa (`switchActiveCompany`, ya validado
+en F14-E1/E3); recuperación de contraseña — **no existe ("forgot
+password")**, documentado como gap real pero **no implementado**: un
+flujo de recuperación sin entrega real de correo (`core/alerts.notifyAlert()`
+sigue vacío, documentado desde Tesorería) generaría un token que nunca
+llega al usuario — construir la mitad del flujo sin la entrega real
+sería infraestructura ficticia, exactamente lo que este bloque prohíbe
+explícitamente.
+
+**Tests**: 4 nuevos (`users.service.test.js`): revoca sesiones al
+cambiar rol, no toca sesiones si el rol no cambió (early return),
+revoca sesiones al desactivar, no toca sesiones si se rechaza la
+autodesactivación.
+
+**Validación real**: usuario de prueba real, login exitoso, admin lo
+desactiva con su sesión todavía viva — la MISMA sesión que antes
+respondía autenticada (403 por RBAC, rol sin acceso al módulo — prueba
+de que estaba autenticada) pasó a responder `401 SESSION_REVOKED`
+inmediatamente después de la desactivación, sin esperar ninguna
+expiración. Usuario de prueba eliminado sin dejar rastro.
+
+**F15-E2: COMPLETA — 1 bug real corregido, ALTO → resuelto.**
+
+### F15-E3 — Seguridad de Producción 🔴→✅
+
+**Auditoría transversal**: `.env` correctamente en `.gitignore` (sin
+secretos en el repositorio); `errorHandler` confirmado (ya auditado en
+F13) que nunca reenvía stack traces/SQL crudo; política de contraseña
+mínima de 8 caracteres (aceptable como base, no se amplía sin caso de
+abuso real); CORS sigue sin restricción de origen (reconfirmado desde
+F13, no se toca sin conocer el dominio real de producción — misma
+razón que antes).
+
+**Hallazgo real (BUG REAL, severidad ALTA)**:
+`login()` (`core/auth/auth.service.js`) **no tenía ninguna protección
+contra fuerza bruta** — cero límite de intentos, cero demora, cero
+bloqueo. Es el único endpoint del sistema alcanzable por cualquiera
+sin autenticación, y era completamente atacable con intentos
+ilimitados de contraseña.
+
+- **Archivo**: `src/core/auth/auth.service.js`
+- **Endpoint**: `POST /auth/login`
+- **Riesgo**: fuerza bruta de contraseña sin límite
+- **Evidencia**: `login()` no leía ni escribía ningún contador de
+  intentos antes de este cambio
+- **Impacto**: cuenta comprometida por diccionario/fuerza bruta sin
+  ninguna fricción
+- **Corrección**: campos nuevos `User.failedLoginAttempts`/
+  `User.lockedUntil` (migración `login_lockout`); 5 intentos fallidos
+  consecutivos bloquean la cuenta 15 minutos (`lockedUntil` en el
+  futuro rechaza el login **antes** de comparar la contraseña, sin
+  gastar el costo de bcrypt); un login correcto reinicia el contador.
+  **Trade-off aceptado y documentado**: el bloqueo es por cuenta, no
+  por IP — alguien podría bloquear deliberadamente a otro usuario
+  adivinando mal su contraseña a propósito; sigue siendo estrictamente
+  mejor que no tener ninguna protección (que era el estado real).
+
+**Archivos**: `prisma/schema.prisma` (migración
+`20260928211052_login_lockout`), `src/core/auth/auth.service.js`.
+
+**Tests**: 6 nuevos (`auth.service.test.js`): incrementa contador sin
+bloquear, bloquea al 5to intento, cuenta bloqueada rechaza sin llegar
+a comparar contraseña, vencido el bloqueo vuelve a evaluar
+normalmente, login correcto reinicia el contador, login correcto sin
+intentos previos no hace un `update` de más.
+
+**Validación real**: usuario de prueba real — 5 intentos con
+contraseña incorrecta, confirmados `401 INVALID_CREDENTIALS`; 6to
+intento **con la contraseña correcta** confirmado `429 ACCOUNT_LOCKED`;
+estado real en base de datos confirmado (`lockedUntil` en el futuro,
+`failedLoginAttempts` en 0). Usuario de prueba eliminado.
+
+**F15-E3: COMPLETA — 1 bug real corregido, ALTO → resuelto.**
+
+### F15-E4 — Performance y Escalabilidad
+
+**Auditoría**: el único punto de F14 con lógica nueva
+(`getConsolidatedTrialBalance`, conversión de moneda) ya resuelve la
+tasa una sola vez por empresa del grupo, no por línea (corregido antes
+del cierre de F14 — ver F14-E23). No se midió ninguna operación con un
+dataset real grande (el entorno de pruebas tiene volúmenes de decenas
+de filas, no miles) — **no se puede demostrar, con evidencia real, un
+problema de performance existente hoy**, y el propio bloque exige
+medición real antes de optimizar ("no decir simplemente 'esto podría
+ser lento'").
+
+**Hallazgo real documentado (DEUDA TÉCNICA, no bug)**: varios
+endpoints de listado de alto volumen potencial (`listCustomers`,
+`listEntries` de asientos contables, `listInvoices` de AR, y
+previsiblemente la mayoría de los `list*` del proyecto) usan
+`prisma.*.findMany` **sin paginación** (`take`/`skip`) — devuelven el
+conjunto completo filtrado solo por `companyId`. Con los volúmenes
+actuales (decenas de registros de prueba) esto no es un problema
+medible; con una empresa real de varios años de operación (miles de
+facturas/asientos), cada llamada sería O(n) en payload y tiempo de
+respuesta, y — a diferencia de una app de un solo inquilino — en un
+despliegue SaaS con **varias empresas compartiendo el mismo proceso**,
+una consulta sin límite de una empresa grande puede degradar la
+latencia de las demás mientras se resuelve. **No se implementa
+paginación retroactiva en este bloque**: es un cambio de superficie
+grande (backend + cada pantalla de listado del frontend que tendría
+que agregar controles de paginación), no está demostrado como un
+problema hoy, y el propio bloque prohíbe explícitamente la
+optimización prematura. Documentado como deuda técnica real, con
+evidencia concreta, para una fase posterior si el volumen de datos de
+un cliente real lo amerita.
+
+**Conclusión**: sin problema de performance demostrado hoy. **Sin
+cambios de código.**
+
+**F15-E4: COMPLETA (sin cambios de código; 1 deuda técnica real
+documentada con evidencia).**
+
+### F15-E5 — Límites, Capacidad y Protección del SaaS
+
+**Auditoría**: `express.json({limit:'5mb'})` (`app.js`) es el único
+límite de tamaño de payload de todo el sistema — cubre imports/
+importación de archivos (base64 en JSON) y cualquier body de
+escritura. Sin límite de tamaño específico por endpoint, sin límite de
+cantidad de filas por import (`tabularFileParser` procesa el archivo
+completo sin tope de filas), sin límite de tasa de peticiones
+(reconfirmado desde F13: 0 dependencias de rate-limiting instaladas).
+
+**Clasificación de límites** (pedida explícitamente por el bloque):
+- **Límites de seguridad** (evitar abuso): el bloqueo de login (F15-E3)
+  es el primero real de este tipo en todo el proyecto. Rate-limiting
+  general de API: sigue sin existir, mismo criterio que F13 — sin un
+  endpoint público para terceros, el único punto realmente expuesto a
+  abuso externo era login, ya cubierto.
+- **Límites técnicos** (evitar fallos): el límite de 5MB de
+  `express.json` ya protege contra un payload arbitrariamente grande
+  reventando el proceso. Sin límite de filas en import — un archivo de
+  decenas de miles de filas dentro del límite de 5MB igual se
+  procesaría entero en memoria de una sola vez; documentado como
+  DEUDA TÉCNICA, no corregido sin evidencia de que alguien ya lo esté
+  golpeando.
+- **Límites comerciales** (planes/suscripciones): explícitamente fuera
+  de alcance de este bloque, quedan para una etapa posterior de F15 si
+  se decide construir un modelo de planes.
+
+**Conclusión**: sin evidencia de abuso real ni de un límite técnico ya
+insuficiente hoy. **Sin cambios de código** (el único límite de
+seguridad realmente accionable en este bloque, login, ya se corrigió
+en E3).
+
+**F15-E5: COMPLETA (sin cambios de código; límites clasificados y
+documentados).**
+
+### Validación de cierre del Bloque 1
+
+703/703 tests (693 previos + 10 nuevos: 4 de `users.service.test.js`,
+6 de `auth.service.test.js`), lint limpio, `prisma validate` sin
+errores, 1 migración nueva (`login_lockout`, sin romper compatibilidad
+— campos nuevos con default `0`/`null`).
+
+### F15 — BLOQUE 1
+
+## 1. E1 — SaaS / Tenant Isolation
+`Company` confirmado como el tenant real y suficiente. Sin fugas
+encontradas. Sin cambios.
+
+## 2. E2 — Identidad
+Bug real (ALTO) corregido: desactivar/cambiar rol ahora revoca
+sesiones activas de inmediato. "Forgot password" documentado como gap
+sin implementar (bloqueado por falta de entrega real de correo).
+
+## 3. E3 — Seguridad
+Bug real (ALTO) corregido: bloqueo de cuenta tras 5 intentos fallidos
+de login (15 minutos), primera protección contra fuerza bruta del
+proyecto.
+
+## 4. E4 — Performance
+Sin problema demostrado hoy. 1 deuda técnica real documentada
+(paginación ausente en listados de alto volumen potencial).
+
+## 5. E5 — Límites
+Límites de seguridad/técnicos/comerciales clasificados. Único límite
+de seguridad realmente accionable (login) ya resuelto en E3.
+
+## 6. Problemas reales encontrados
+- **CRÍTICOS**: ninguno.
+- **ALTOS**: 2 (E2: sesión no revocada al desactivar/cambiar rol —
+  corregido; E3: sin protección de fuerza bruta en login — corregido).
+- **MEDIOS**: ninguno.
+- **BAJOS**: ninguno.
+- **DEUDA**: paginación ausente en listados de alto volumen (E4);
+  límite de filas por import (E5); CORS sin restricción de origen (ya
+  documentado desde F13, sin dominio de producción conocido);
+  bloqueo de login por cuenta, no por IP (trade-off aceptado).
+- **FUTURO**: rate-limiting general de API (sin endpoint público que
+  lo justifique todavía); recuperación de contraseña (bloqueado por
+  falta de entrega de correo real); límites comerciales/planes.
+
+## 7. Archivos modificados
+`prisma/schema.prisma`, `src/core/auth/auth.service.js`,
+`src/core/auth/auth.service.test.js`,
+`src/modules/access-levels/services/users.service.js`,
+`src/modules/access-levels/services/users.service.test.js`.
+
+## 8. Migraciones
+`20260928211052_login_lockout` (agrega `User.failedLoginAttempts`
+Int @default(0), `User.lockedUntil` DateTime? — sin romper
+compatibilidad).
+
+## 9. Endpoints modificados
+Ninguno cambió de forma/contrato — `POST /auth/login` ahora puede
+responder `429 ACCOUNT_LOCKED` además de los códigos ya existentes;
+`POST /access-levels/users/:id/deactivate` y
+`PATCH /access-levels/users/:id/role` mismo contrato, efecto adicional
+(revocan sesiones).
+
+## 10. Tests
+ANTES: 693. NUEVOS: 10. DESPUÉS: 703. REGRESIONES: 0.
+
+## 11. Validación real
+- **Empresa**: Empresa Demo (entorno real)
+- **Usuarios**: 1 usuario de prueba (COLLABORATOR) + admin@demo.alarfly.com (ADMIN)
+- **Roles**: ADMIN, COLLABORATOR
+- **Escenarios**: login correcto, 5 intentos fallidos + bloqueo,
+  intento con contraseña correcta mientras está bloqueado, estado real
+  en BD confirmado; token vivo antes de desactivar vs. después de
+  desactivar (mismo token, `SESSION_REVOKED` inmediato)
+- **Resultados**: todos los esperados, datos de prueba eliminados sin
+  rastro
+
+## 12. Riesgos residuales
+Ninguno de severidad crítica o alta. Trade-off aceptado documentado
+(bloqueo de login por cuenta, no por IP).
+
+## 13. Documentación
+`PROGRESS_LOG.md` actualizado (esta entrada). Sin documento SaaS
+maestro creado todavía — se pospone a cuando F15 tenga más bloques
+completos, para no crear documentación dispersa (regla explícita del
+bloque).
+
+## 14. Estado del bloque
+
+**BLOQUE CERRADO CON DEUDA** (deuda exclusivamente BAJA/FUTURA —
+paginación, límite de filas de import, CORS sin dominio conocido,
+rate-limiting general — ninguna crítica ni alta pendiente).

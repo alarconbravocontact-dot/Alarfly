@@ -125,3 +125,120 @@ describe('login (segundo paso de 2FA)', () => {
     expect(prisma.userSession.create).toHaveBeenCalledTimes(1);
   });
 });
+
+// F15-E3: login() nunca limitaba intentos fallidos — cualquiera podía
+// probar contraseñas sin límite. Estos tests cubren el contador, el
+// bloqueo al quinto fallo consecutivo, el rechazo mientras sigue
+// bloqueada, y que un login correcto reinicia todo.
+describe('login (bloqueo por intentos fallidos)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('una contraseña incorrecta incrementa el contador sin bloquear todavía', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      isActive: true,
+      passwordHash: 'hash',
+      failedLoginAttempts: 2,
+      lockedUntil: null,
+    });
+    bcrypt.compare.mockResolvedValue(false);
+
+    await expect(authService.login('admin@demo.com', 'mala')).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { failedLoginAttempts: 3, lockedUntil: null },
+    });
+  });
+
+  test('el 5to intento fallido consecutivo bloquea la cuenta 15 minutos', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      isActive: true,
+      passwordHash: 'hash',
+      failedLoginAttempts: 4,
+      lockedUntil: null,
+    });
+    bcrypt.compare.mockResolvedValue(false);
+
+    await expect(authService.login('admin@demo.com', 'mala')).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { failedLoginAttempts: 0, lockedUntil: expect.any(Date) },
+    });
+  });
+
+  test('una cuenta bloqueada rechaza el login (incluso con la contraseña correcta) sin ni siquiera comparar la contraseña', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      isActive: true,
+      passwordHash: 'hash',
+      failedLoginAttempts: 0,
+      lockedUntil: new Date(Date.now() + 10 * 60 * 1000),
+    });
+
+    await expect(authService.login('admin@demo.com', 'lo-que-sea')).rejects.toMatchObject({
+      code: 'ACCOUNT_LOCKED',
+      statusCode: 429,
+    });
+
+    expect(bcrypt.compare).not.toHaveBeenCalled();
+  });
+
+  test('pasado el tiempo de bloqueo, el login vuelve a evaluarse normalmente', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      isActive: true,
+      passwordHash: 'hash',
+      failedLoginAttempts: 0,
+      lockedUntil: new Date(Date.now() - 1000), // ya venció
+      twoFactorEnabled: false,
+    });
+    bcrypt.compare.mockResolvedValue(true);
+    prisma.userSession.create.mockResolvedValue({ id: 'session-1' });
+
+    const result = await authService.login('admin@demo.com', 'clave-correcta');
+
+    expect(result.token).toEqual(expect.any(String));
+  });
+
+  test('un login correcto reinicia el contador de intentos fallidos', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      isActive: true,
+      passwordHash: 'hash',
+      failedLoginAttempts: 3,
+      lockedUntil: null,
+      twoFactorEnabled: false,
+    });
+    bcrypt.compare.mockResolvedValue(true);
+    prisma.userSession.create.mockResolvedValue({ id: 'session-1' });
+
+    await authService.login('admin@demo.com', 'clave-correcta');
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { failedLoginAttempts: 0, lockedUntil: null },
+    });
+  });
+
+  test('un login correcto sin ningún intento fallido previo no llama a update de más', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      isActive: true,
+      passwordHash: 'hash',
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+      twoFactorEnabled: false,
+    });
+    bcrypt.compare.mockResolvedValue(true);
+    prisma.userSession.create.mockResolvedValue({ id: 'session-1' });
+
+    await authService.login('admin@demo.com', 'clave-correcta');
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+});

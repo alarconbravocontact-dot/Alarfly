@@ -213,6 +213,16 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
+  // F15-E3: bloqueo temporal por intentos fallidos de login (nunca
+  // existió ninguna protección contra fuerza bruta — ver
+  // core/auth/auth.service.login). Se guarda en la propia fila del
+  // usuario, no en un contador en memoria, para que sobreviva un
+  // reinicio del proceso y funcione igual si el backend llega a correr
+  // en más de un proceso — mismo criterio ya usado para cualquier otro
+  // estado de seguridad del proyecto (ej. UserSession.revokedAt).
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+
   // Invitación (módulo Niveles de Acceso): quién invitó a este usuario y
   // el token de un solo uso para que acepte y ponga su contraseña.
   invitedByUserId     String?

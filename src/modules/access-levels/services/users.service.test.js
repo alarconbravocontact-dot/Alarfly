@@ -7,6 +7,9 @@ jest.mock('../../../core/database/prisma', () => ({
     update: jest.fn(),
     groupBy: jest.fn(),
   },
+  userSession: {
+    updateMany: jest.fn(),
+  },
 }));
 jest.mock('../../../core/audit/audit.service', () => ({ log: jest.fn() }));
 
@@ -102,5 +105,59 @@ describe('changeRole', () => {
     });
 
     expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  // F15-E2: el rol viaja en el JWT — sin revocar la sesión, un cambio
+  // de rol pensado para restringir a alguien no tenía ningún efecto
+  // mientras su sesión ya abierta siguiera viva.
+  test('revoca las sesiones activas del usuario al cambiarle el rol', async () => {
+    prisma.user.findFirst.mockResolvedValue({ id: 'target-1', role: 'COLLABORATOR', status: 'ACTIVE' });
+    prisma.user.count.mockResolvedValue(0);
+    prisma.user.update.mockResolvedValue({ id: 'target-1', role: 'FINANCE' });
+
+    await usersService.changeRole('company-1', 'admin-1', 'target-1', 'FINANCE');
+
+    expect(prisma.userSession.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'target-1', revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+
+  test('si el rol pedido es el mismo que ya tiene, no toca sesiones (early return)', async () => {
+    prisma.user.findFirst.mockResolvedValue({ id: 'target-1', role: 'FINANCE', status: 'ACTIVE' });
+
+    await usersService.changeRole('company-1', 'admin-1', 'target-1', 'FINANCE');
+
+    expect(prisma.userSession.updateMany).not.toHaveBeenCalled();
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('deactivateUser', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // F15-E2: requireAuth nunca revisaba User.isActive por fuera del
+  // login — sin esto, un usuario recién desactivado seguía pudiendo
+  // usar la API hasta que su token expirara solo.
+  test('revoca las sesiones activas del usuario al desactivarlo', async () => {
+    prisma.user.findFirst.mockResolvedValue({ id: 'target-1', status: 'ACTIVE' });
+    prisma.user.update.mockResolvedValue({ id: 'target-1', status: 'INACTIVE' });
+
+    await usersService.deactivateUser('company-1', 'admin-1', 'target-1');
+
+    expect(prisma.userSession.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'target-1', revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+
+  test('rechaza que un usuario se desactive a sí mismo, sin tocar sesiones', async () => {
+    await expect(usersService.deactivateUser('company-1', 'admin-1', 'admin-1')).rejects.toMatchObject({
+      code: 'CANNOT_DEACTIVATE_SELF',
+    });
+
+    expect(prisma.userSession.updateMany).not.toHaveBeenCalled();
   });
 });

@@ -125,6 +125,38 @@ async function scanPaymentsDueSoon(companyId) {
     }
   }
 
+  // F12-A (Automatización Determinística), punto 7: "cuentas por pagar
+  // próximas a vencer" no tenía ninguna alerta — a diferencia de las
+  // Cuentas por Cobrar (que ya avisan por CUSTOMER_RECURRING_LATE_
+  // PAYMENT/AR_COLLECTION_ESCALATION), ninguna factura de compra (AP)
+  // generaba aviso alguno de vencimiento. Se resuelve reutilizando
+  // exactamente el mismo tipo PAYMENT_DUE_SOON, la misma regla/umbral
+  // ya configurado (nunca uno nuevo) y la misma función pura de
+  // detección que ya usan Órdenes de Pago y Cuotas de Deuda arriba —
+  // no se creó ningún AlertType, AlertRule, cron ni motor nuevo.
+  const bills = await prisma.apBill.findMany({
+    where: { companyId, status: { in: ['OPEN', 'PARTIALLY_PAID'] } },
+    include: { vendor: true },
+  });
+  if (bills.length > 0) {
+    const company = await prisma.company.findUnique({ where: { id: companyId }, select: { baseCurrency: true } });
+    for (const bill of bills) {
+      if (detectPaymentDueSoon(bill.dueDate, today, daysBefore)) {
+        const outstanding = new Decimal(bill.totalAmount).minus(bill.paidAmount);
+        const alert = await createAlertIfNotExists({
+          companyId,
+          ruleId: rule.id,
+          type: 'PAYMENT_DUE_SOON',
+          severity: severityForPaymentDueSoon(bill.dueDate, today),
+          message: `La factura de compra N.º ${bill.billNumber} de "${bill.vendor.name}" (${outstanding.toFixed(2)} ${company.baseCurrency}) vence el ${bill.dueDate.toISOString().slice(0, 10)}.`,
+          entityType: 'ApBill',
+          entityId: bill.id,
+        });
+        if (alert) created.push(alert);
+      }
+    }
+  }
+
   return created;
 }
 

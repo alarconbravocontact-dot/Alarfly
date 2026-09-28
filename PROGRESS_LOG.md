@@ -5237,3 +5237,273 @@ Por la regla de detención de esta fase: no se inicia Fase 12, no se
 comienza automatización, no se comienza IA, no se agregan
 integraciones nuevas ni funcionalidades nuevas. Se espera autorización
 explícita del usuario antes de continuar.
+
+## Auditoría de control independiente de Fase 11 (bis)
+
+A pedido explícito del usuario, actuando estrictamente como auditor
+técnico independiente (sin modificar código). Re-verificó con
+evidencia fresca — no reutilizada del informe anterior — los 20 puntos
+del checklist: Ledger único, sin dependencias circulares, RBAC (curl
+en vivo contra 6 combinaciones rol×endpoint), multiempresa (4 roles
+re-autenticados, mismo companyId cada uno), 665/665 tests corridos de
+nuevo, 46/46 migraciones. Encontró y corrigió 2 omisiones del propio
+informe anterior (no del código): `core/workflow/segregation.rules.js`
+(consolidación real de maker-checker, 3 módulos) y
+`core/jobs/job-run.service.js` (observabilidad de las 9/9 corridas de
+cron, no 8/9 como sugería un primer grep limitado) — ambos ya
+correctamente implementados desde el commit `aa206d0` (la "Fase 11"
+original, distinta de esta "Fase 11 (bis)"), simplemente no
+mencionados explícitamente en el informe de cierre. **Decisión final:
+FASE 11 APROBABLE** — sin hallazgos críticos ni altos, mismos 6
+hallazgos medios/bajos ya documentados arriba, reforzados con
+evidencia independiente en vez de solo reafirmados.
+
+## F12-A — Automatización Determinística
+
+A pedido explícito del usuario. Objetivo: evolucionar Alarfly de "ERP
+que informa y registra" a "ERP que también detecta situaciones y
+avisa", **sin IA generativa** (eso queda para una F12-B posterior) y
+**sin motores nuevos** — reutilizar `core/alerts`, `core/jobs`,
+`core/audit`, `core/rbac`, `core/workflow` tal como ya existen.
+
+### 1-2. Auditoría e inventario de automatización existente
+
+Se construyó el inventario completo leyendo el código real (no la
+documentación), verificando cada pieza contra Postgres/API real donde
+fue posible:
+
+**El motor de alertas (`core/alerts`) es el único motor de "informar"
+del proyecto** — 12 `AlertType` (`LOW_BALANCE`,
+`CREDIT_CARD_NEAR_LIMIT`, `PAYMENT_DUE_SOON`, `FISCAL_OBLIGATION_DUE`,
+`CUSTOMER_RECURRING_LATE_PAYMENT`, `LOW_STOCK`,
+`PRODUCT_EXPIRING_SOON`, `AR_COLLECTION_ESCALATION`,
+`ADVANCED_ANALYSIS_ALERT`, `BANK_ACCOUNT_DISCONNECTED`,
+`APPROVAL_PENDING`, `LIQUIDITY_RISK_FORECAST`), todos con la misma
+idempotencia central (`createAlertIfNotExists`: no duplica una alerta
+ACTIVA para la misma `{companyId, type, entityType, entityId}`) y la
+misma tabla `Alert`. Clasificación EXISTENTE Y CORRECTA para las 12.
+
+**9 cron jobs, todos observables**: `fiscal-alerts` (6:30), `treasury-
+alerts` (6:00), `inventory-alerts` (6:45), `ar-collections` (7:00),
+`scheduled-reports` (7:00), `ar-recurring` (7:10), `advanced-
+analytics` (7:15), `fixed-assets` (mensual, día 1, 3am), `fx` (mensual,
+día 1, 2am) — horarios escalonados, sin solapamiento. **Los 9/9** pasan
+por `core/jobs/job-run.service.runJob` (éxito/error/duración quedan en
+`JobRun`, consultable, sin motor de monitoreo nuevo).
+
+**Workflow (maker-checker)**: `core/workflow/segregation.rules.
+assertDifferentActors` — una sola función, usada por Tesorería
+(Órdenes de Pago), Caja Chica y Conteos Físicos de Inventario.
+EXISTENTE Y CORRECTA.
+
+**Insights (Nivel 2 — Sugerir) ya existen**: `reports/services/
+insights.service.js` genera `LIQUIDITY_RISK_FORECAST` (semana con
+saldo proyectado negativo, con la evidencia — qué facturas/cuotas la
+causan) y un insight de cobranza — ambos con enlace directo a la
+pantalla correspondiente, formato "detección + evidencia +
+recomendación" exactamente como pide esta fase.
+
+**Advanced Analytics automation-runner** (`ADVANCED_ANALYSIS_ALERT`):
+motor genérico que corre cualquiera de los 16 tipos de análisis en
+cron y evalúa una condición configurable — incluye "Presupuesto vs.
+Real" (reutiliza `fpa/budget-variance.service`), así que **la
+"desviación presupuestaria" de la sección 5 del pedido YA está
+cubierta** por este mecanismo genérico existente, sin necesitar una
+alerta específica nueva — es EXISTENTE Y CORRECTA, solo opt-in por
+empresa (no forzada por defecto), consistente con cómo ya funcionan
+los otros 15 tipos.
+
+**Cobranza (AR)**: `CUSTOMER_RECURRING_LATE_PAYMENT` +
+`AR_COLLECTION_ESCALATION` (3 niveles de severidad con bloqueo
+automático en el nivel crítico) cubren "cuentas por cobrar vencidas".
+EXISTENTE Y CORRECTA.
+
+**RBAC (`core/rbac`), Auditoría (`core/audit`) y `core/events`**:
+RBAC y Auditoría son transversales y ya centralizados, reutilizados
+sin excepción por toda automatización auditada. `core/events`
+(el bus de eventos) sigue **sin ningún consumidor real** en todo el
+proyecto — confirmado de nuevo en esta fase (mismo hallazgo ya
+documentado en la revisión de 2026-07-16 de la bitácora original): no
+se activó, tal como exige esta fase ("no forzarlo si no hay necesidad
+real").
+
+### 3. OPORTUNIDAD real encontrada (la única con brecha genuina)
+
+**"Cuentas por pagar próximas a vencer" (`ApBill`) no tenía ninguna
+alerta.** Confirmado leyendo `treasury/services/alerts.service.
+scanPaymentsDueSoon`: cubre `PaymentOrder` y `DebtInstallment` bajo
+`PAYMENT_DUE_SOON`, pero nunca `ApBill` — a diferencia de Cuentas por
+Cobrar, que sí tiene su propio mecanismo (`CUSTOMER_RECURRING_LATE_
+PAYMENT`/`AR_COLLECTION_ESCALATION`). Confirmado además que
+`accounts-payable/services/` no tiene ningún archivo `*-alerts.*`/
+`*-collections.*`/`*.cron.js` (sí existe su espejo en `accounts-
+receivable/`). Clasificación: **OPORTUNIDAD**, Nivel 1 (Informar),
+justificada por coincidir textualmente con dos ítems explícitos del
+pedido ("cuentas por pagar próximas a vencer" en FINANZAS, "facturas
+pendientes" en COMPRAS).
+
+### 4. Oportunidades investigadas y descartadas para esta fase (NO JUSTIFICADA por ahora)
+
+- **Tasa de cambio faltante**: sin mecanismo hoy. Descartada por
+  ambigüedad genuina de alcance — "faltante" exigiría definir primero
+  qué monedas cuentan como "en uso" (¿cuáles aparecen en facturas/
+  movimientos bancarios abiertos?), una regla de negocio no
+  especificada por el usuario; el sistema ya rechaza de forma reactiva
+  cualquier operación que necesite una tasa inexistente (documentado
+  desde Fase 1/3), así que no es un vacío de seguridad, solo de
+  proactividad. Documentada para una fase futura si se confirma que es
+  un problema real.
+- **Pedidos de venta/compra estancados, entregas/recepciones
+  pendientes, reservas de inventario antiguas**: sin mecanismo hoy
+  (`SalesOrder`/`PurchaseOrder`/`InventoryReservation` no tienen fecha
+  de vencimiento, solo `createdAt` y, en compras, un `expectedDate`
+  opcional). Implementar esto exigiría **inventar** un umbral de "cuántos
+  días es demasiado" sin que el usuario lo haya pedido con un número —
+  exactamente el caso que la sección 15 de esta fase manda resolver
+  con "si existe duda razonable, no ejecutar automáticamente,
+  convertir en alerta... o no construir". Se documenta como oportunidad
+  real pero de alcance ambiguo, no implementada esta fase.
+- **Inconsistencias entre estados comercial/financiero/inventario**:
+  demasiado genérico para implementar sin casos concretos — no se
+  encontró ningún caso real y específico durante la auditoría (los 27
+  enums de estado ya están bien separados, ver Fase 11 (bis)/auditoría
+  de control). No justificada sin un caso de uso concreto.
+
+### 5. Automatización implementada
+
+**Nivel de autonomía: 1 — Informar** (detecta y avisa; nunca ejecuta
+ni modifica nada). `src/modules/treasury/services/alerts.service.js`,
+función `scanPaymentsDueSoon`: se agregó un tercer bloque (junto a los
+ya existentes de `PaymentOrder`/`DebtInstallment`) que recorre
+`ApBill` con `status: OPEN|PARTIALLY_PAID`, usando **exactamente** la
+misma función pura de detección (`detectPaymentDueSoon`/
+`severityForPaymentDueSoon`, sin cambios), el mismo `AlertRule` de tipo
+`PAYMENT_DUE_SOON` ya configurado (no se creó un tipo, regla, cron ni
+motor nuevo), y el mismo `createAlertIfNotExists` para la
+idempotencia. El mapa `PAYMENT_DUE_SOON → /tesoreria/liquidez` de
+`frontend/src/config/alertLinks.js` es por tipo de alerta, no por tipo
+de entidad, así que el enlace de "ver más" ya funciona para esta
+nueva fuente sin ningún cambio de frontend.
+
+Respuesta explícita a las 10 preguntas de la sección 15 antes de
+implementar: reversible (sí, es solo una fila `Alert`, se puede
+"atender"), determinística (sí, comparación de fechas), impacto
+financiero/contable/fiscal (ninguno, no escribe nada financiero),
+requiere aprobación (no, es solo informativa), auditada (la propia
+fila `Alert` es su registro — mismo criterio que los otros 12 tipos,
+ninguno llama a `core/audit` por separado para su propia creación),
+segura ante reintentos (sí, `createAlertIfNotExists`), puede fallar
+por datos incompletos (no — el mismo query ya filtra por estado
+abierto, sin campos opcionales de los que depender). Ninguna duda
+razonable → se implementó como automatización Nivel 1 directa, sin
+pasar por aprobación humana (no aplica, no es una acción sensible).
+
+### 6-18. Idempotencia, auditoría, permisos, transacciones, notificaciones, eventos, jobs — todo reutilizado
+
+- **Idempotencia**: la misma de siempre (`createAlertIfNotExists`),
+  verificada con test dedicado y con una llamada real dos veces
+  seguidas contra Postgres real (ver Validación).
+- **Auditoría**: ninguna nueva — la fila `Alert` es el registro, mismo
+  criterio que los 12 tipos ya existentes.
+- **Permisos**: sin cambios — disparar el escaneo manual sigue siendo
+  `ADMIN` (`requireRole('ADMIN')` en `treasury/routes/alerts.routes.
+  js`, sin tocar), pero la alerta resultante es visible a cualquier
+  usuario autenticado vía `/notifications` (transversal, como los 12
+  tipos existentes) — verificado con Colaborador real: 403 al intentar
+  escanear, pero SÍ ve la alerta ya creada en sus notificaciones.
+- **Transacciones**: no aplica — crear una fila `Alert` no participa
+  del Ledger ni de ningún asiento, mismo patrón que los 12 tipos ya
+  existentes (ninguno usa `withTransaction`).
+- **Notificaciones**: el mismo Centro de Notificaciones, sin cambios —
+  el nuevo tipo de origen (`entityType: 'ApBill'`) hereda automáticamente
+  filtro por preferencia de usuario, deduplicación y el enlace de
+  navegación.
+- **Eventos**: no se usó `core/events` — no había ninguna necesidad
+  real que lo justificara (ver punto 2).
+- **Jobs**: no se creó ningún cron nuevo — el escaneo diario de
+  Tesorería (6:00am) ya ejecuta `runAlertsScan`, que ahora incluye
+  este bloque automáticamente.
+
+### 19-20. UI e Inteligencia existente reutilizada
+
+Sin cambios de frontend: el Centro de Notificaciones, la pantalla
+Tesorería > Alertas y el enlace a Previsión de Liquidez ya son
+genéricos por `AlertType`, así que la nueva fuente aparece sola, sin
+badges nuevos ni una sección "Automatización" inventada — exactamente
+lo que pide la sección 16 ("integrarse donde ya hay contexto").
+
+### Tests
+
+7 tests de integración nuevos (contra Postgres real, sin mocks) en
+`src/modules/treasury/services/ap-bill-due-alerts.integration.test.js`:
+condición positiva (WARNING), overdue (CRITICAL), condición negativa
+(sin alerta), borde (factura ya pagada, excluida del escaneo pese a
+"vencida"), idempotencia (doble escaneo, 1 sola alerta), aislamiento
+multiempresa (factura vencida de otra empresa nunca aparece), y sin
+regla activa (sin alertas de este tipo). **672/672 tests de backend en
+total** (665 anteriores + 7 nuevos), sin regresiones.
+
+### Validación real (no solo tests unitarios)
+
+- `npm run build`/`npm run lint` del frontend limpios, mismo baseline
+  (no se tocó ningún archivo de frontend).
+- **Verificado con `curl` contra Postgres/API reales** (no solo el
+  entorno de tests): regla `PAYMENT_DUE_SOON` creada de verdad, escaneo
+  real generó la alerta con datos genuinos de "Empresa Demo"
+  ("La factura de compra N.º 1 de "Proveedor Fase2" (255.00 USD) vence
+  el 2026-10-23."), **un segundo escaneo devolvió 0 nuevas** (idempotencia
+  confirmada en vivo, no solo en el test), `GET /notifications` confirmó
+  exactamente 1 alerta activa de este tipo/entidad.
+- **RBAC verificado en vivo**: Colaborador recibió `403` al intentar
+  `POST /treasury/alerts/scan`, pero SÍ vio la alerta ya generada en
+  `GET /notifications` — confirma que la protección real vive en el
+  servidor y que la naturaleza transversal de las notificaciones no se
+  rompió.
+- **Verificado con Playwright contra los dos servidores reales**: el
+  Centro de Notificaciones (campana) mostró la alerta real con el
+  texto exacto y el botón "Atendida"; la pantalla Tesorería > Alertas
+  también la mostró — confirmado con capturas de pantalla, no solo
+  revisión de código.
+- El umbral de la regla de prueba (`daysBefore: 30`, usado para poder
+  demostrar el mecanismo con la única factura de compra real ya
+  existente en el entorno, vencida a 25 días) se dejó configurado en
+  `daysBefore: 7` al terminar — mismo criterio que
+  `Company.dueDateWarningThresholdDays` (default 7) — para que la
+  regla quede en un valor realista para el entorno de demostración, no
+  en el valor amplio usado solo para la verificación.
+
+### Riesgos
+
+Ninguno nuevo — la pieza implementada reutiliza el 100% del mecanismo
+ya probado (12 tipos de alerta existentes comparten exactamente el
+mismo motor), sin ninguna superficie nueva de fallo.
+
+### Deuda técnica
+
+Las 4 oportunidades investigadas y descartadas (sección 4 de arriba)
+quedan documentadas como candidatas reales para una fase futura, si el
+usuario confirma los umbrales/reglas de negocio que hoy no están
+especificados (cuántos días es "estancado", qué monedas cuentan como
+"en uso").
+
+### Archivos
+
+**Modificado**: `src/modules/treasury/services/alerts.service.js` (un
+bloque nuevo dentro de `scanPaymentsDueSoon`, sin tocar el resto de la
+función).
+**Nuevo**: `src/modules/treasury/services/ap-bill-due-alerts.
+integration.test.js` (7 tests).
+**Sin cambios**: todo lo demás — ningún `AlertType`, `AlertRule`,
+cron, endpoint, componente de frontend ni modelo Prisma nuevo.
+
+### Estado final de F12-A
+
+**Completa.** Inventario de automatización existente construido y
+verificado contra código real; 1 oportunidad genuina identificada e
+implementada con el nivel de autonomía correcto (Nivel 1 — Informar);
+4 oportunidades investigadas y descartadas explícitamente por falta de
+una regla de negocio especificada (no por pereza); ningún motor nuevo
+creado; idempotencia, auditoría, RBAC y multiempresa verificados con
+evidencia real, no solo tests. No se implementó IA generativa. No se
+avanza a F12-B (arquitectura de IA) ni a F12-C ni a F13 — se espera
+autorización explícita del usuario.

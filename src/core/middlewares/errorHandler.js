@@ -7,7 +7,7 @@ const AppError = require('../utils/AppError');
 // eslint-disable-next-line no-unused-vars
 function errorHandler(err, req, res, next) {
   if (err instanceof AppError) {
-    return res.status(err.statusCode).json({ error: { message: err.message, code: err.code } });
+    return res.status(err.statusCode).json({ error: { message: err.message, code: err.code, requestId: req.id } });
   }
 
   // Restricción de base de datos (ej: intentar borrar una cuenta con
@@ -17,6 +17,7 @@ function errorHandler(err, req, res, next) {
       error: {
         message: 'No se puede completar la acción porque hay datos relacionados que dependen de esto.',
         code: 'RELATED_DATA_EXISTS',
+        requestId: req.id,
       },
     });
   }
@@ -36,13 +37,30 @@ function errorHandler(err, req, res, next) {
       error: {
         message: 'Ya existe un registro con ese mismo valor. Revisa el dato e intenta con uno distinto.',
         code: 'DUPLICATE_VALUE',
+        requestId: req.id,
       },
     });
   }
 
-  console.error(err);
+  // F15-E8: antes, un fallo inesperado solo dejaba `console.error(err)`
+  // — el stack, sin saber a qué petición, empresa o usuario
+  // correspondía. Con decenas de rutas y varias empresas compartiendo
+  // el mismo proceso, un error reportado por alguien no se podía
+  // ubicar en el log. Se agrega el contexto mínimo (nunca datos
+  // sensibles: sin body, sin headers, sin contraseñas/tokens) — esto
+  // es un LOG TÉCNICO, no auditoría de negocio (core/audit sigue
+  // siendo el único lugar que registra "quién hizo qué"; esto es
+  // "qué falló técnicamente y dónde", nunca se mezclan).
+  console.error({
+    requestId: req.id,
+    method: req.method,
+    path: req.originalUrl,
+    companyId: req.auth?.companyId,
+    userId: req.auth?.userId,
+    error: err,
+  });
   return res.status(500).json({
-    error: { message: 'Ocurrió un error inesperado. Intenta de nuevo.', code: 'INTERNAL_ERROR' },
+    error: { message: 'Ocurrió un error inesperado. Intenta de nuevo.', code: 'INTERNAL_ERROR', requestId: req.id },
   });
 }
 

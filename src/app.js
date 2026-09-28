@@ -36,18 +36,43 @@ const helpRoutes = require('./core/help/help.routes');
 const auditLogRoutes = require('./core/audit/audit.routes');
 const jobsRoutes = require('./core/jobs/jobs.routes');
 const errorHandler = require('./core/middlewares/errorHandler');
+const requestId = require('./core/middlewares/requestId');
+const prisma = require('./core/database/prisma');
 
 const app = express();
 
 app.use(helmet());
 app.use(cors());
-app.use(morgan('dev'));
+app.use(requestId);
+morgan.token('id', (req) => req.id);
+app.use(morgan(':id :method :url :status :response-time ms - :res[content-length]'));
 // Límite más alto que el default (100kb): los archivos bancarios
 // importados (CSV/OFX/MT940) viajan como texto dentro del body JSON.
 app.use(express.json({ limit: '5mb' }));
 
+// Liveness: ¿el proceso de Node sigue vivo? A propósito NUNCA toca la
+// base de datos — si Postgres está caído pero Node sigue respondiendo,
+// reiniciar el proceso no arregla nada (mismo criterio que cualquier
+// probe de liveness estándar). Sin autenticación: un balanceador/
+// orquestador necesita poder pedirlo sin credenciales.
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// F15-E9: readiness — ¿puede este proceso atender peticiones de
+// verdad ahora mismo? A diferencia de /health (liveness), sí depende
+// de la base de datos: antes de este endpoint no había NINGUNA forma
+// de distinguir "el proceso está vivo" de "el proceso está vivo pero
+// no puede hacer nada útil porque Postgres no responde" — confirmado
+// en este mismo entorno de desarrollo varias veces (el backend seguía
+// respondiendo 200 en /health mientras Postgres estaba caído aparte).
+app.get('/health/ready', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ready', database: 'ok' });
+  } catch {
+    res.status(503).json({ status: 'not_ready', database: 'error' });
+  }
 });
 
 app.use('/auth', authRoutes);

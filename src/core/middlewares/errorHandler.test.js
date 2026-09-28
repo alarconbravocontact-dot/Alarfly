@@ -47,11 +47,51 @@ describe('errorHandler', () => {
 
   test('un error inesperado sigue respondiendo 500 sin filtrar detalles internos', () => {
     const res = mockRes();
-     
+
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
     errorHandler(new TypeError('boom'), {}, res, jest.fn());
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json.mock.calls[0][0].error.code).toBe('INTERNAL_ERROR');
+    spy.mockRestore();
+  });
+
+  // F15-E8: antes de esto, un error inesperado solo dejaba
+  // `console.error(err)` — sin saber a qué petición/empresa/usuario
+  // correspondía. Ahora todo error de cualquier tipo incluye
+  // `requestId` en la respuesta (para que el usuario/frontend lo pueda
+  // reportar), y el 500 además deja contexto técnico en el log
+  // (nunca datos sensibles: sin body, sin headers).
+  test('incluye requestId en la respuesta para cualquier tipo de error', () => {
+    const res = mockRes();
+    errorHandler(new AppError('mensaje claro', 404, 'NOT_FOUND'), { id: 'req-123' }, res, jest.fn());
+    expect(res.json.mock.calls[0][0].error.requestId).toBe('req-123');
+  });
+
+  test('un error inesperado (500) registra contexto técnico correlacionable, sin exponer datos sensibles', () => {
+    const res = mockRes();
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const req = {
+      id: 'req-456',
+      method: 'POST',
+      originalUrl: '/accounting/journal-entries',
+      auth: { companyId: 'company-1', userId: 'user-1' },
+      body: { secret: 'no-debería-aparecer-en-el-log' },
+    };
+
+    errorHandler(new TypeError('boom'), req, res, jest.fn());
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: 'req-456',
+        method: 'POST',
+        path: '/accounting/journal-entries',
+        companyId: 'company-1',
+        userId: 'user-1',
+      })
+    );
+    const logged = spy.mock.calls[0][0];
+    expect(logged.body).toBeUndefined();
+    expect(res.json.mock.calls[0][0].error.requestId).toBe('req-456');
     spy.mockRestore();
   });
 });

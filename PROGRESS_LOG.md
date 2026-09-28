@@ -6923,3 +6923,268 @@ bloque).
 **BLOQUE CERRADO CON DEUDA** (deuda exclusivamente BAJA/FUTURA —
 paginación, límite de filas de import, CORS sin dominio conocido,
 rate-limiting general — ninguna crítica ni alta pendiente).
+
+## F15 — Bloque 2 (E6-E10): Backups, Recovery, Observabilidad, Health Checks, Configuración de Producción
+
+### F15-E6 — Backups
+
+**Auditoría**: sin backup de infraestructura (PostgreSQL) — el
+entorno actual es de desarrollo/pruebas, sin proveedor cloud ni
+pipeline de despliegue configurado, tal como el propio bloque anticipa
+explícitamente ("Si actualmente no existe mecanismo de backup porque
+el entorno todavía es local/de desarrollo: DOCUMENTAR EL GAP. No
+fabricar una falsa solución"). **Backup de aplicación** (lo que sí le
+pertenece a Alarfly, no a infraestructura): confirmado que no hay
+ningún archivo fuera de la base de datos que respaldar por separado —
+todo documento (comprobantes, avatares, adjuntos de Junta) vive en
+base64 dentro de tablas ya scoped por `companyId`, así que un backup
+de Postgres YA cubre el 100% de los datos de la aplicación, sin
+necesidad de un mecanismo de backup de archivos aparte.
+
+**Respuestas al checklist**: (1) ¿Existe backup? No, hoy no. (2-7)
+No aplican sin un backup real. (8) Los "archivos" ya están dentro de
+Postgres, así que si hubiera backup de Postgres, los cubriría. (9)
+¿Se puede restaurar PostgreSQL? Sí — probado en E7 (restauración de
+schema desde cero). (10) ¿Se puede verificar que un backup funciona?
+No aplica sin un backup real que verificar.
+
+**Conclusión**: backup de PostgreSQL es responsabilidad de
+infraestructura (pg_dump/snapshot gestionado, según dónde se despliegue
+finalmente) — no se fabrica un mecanismo dentro de la aplicación para
+esto. **Sin cambios de código.** Gap documentado explícitamente: no
+existe backup real todavía.
+
+**F15-E6: COMPLETA (sin cambios de código; gap de infraestructura
+documentado honestamente).**
+
+### F15-E7 — Recovery / Restore
+
+**RPO/RTO**: no se inventan números — sin un entorno de producción
+real desplegado (proveedor, frecuencia de backup real, SLA), cualquier
+cifra sería ficticia. **Documentado como pendiente**, a definir cuando
+exista un despliegue de producción real.
+
+**Validación real ejecutada** (la única pieza de E7 que SÍ se podía
+probar honestamente en este entorno, en una base de datos aislada,
+nunca sobre producción): se creó `alarfly_restore_test` (base vacía,
+propiedad del mismo rol `alarfly`) y se corrió
+`prisma migrate deploy` contra ella con las 47 migraciones del
+historial completo del proyecto, desde la primera hasta
+`login_lockout` (F15-E3) — **las 47 se aplicaron sin errores**,
+confirmado con una consulta real: 118 tablas creadas, 0 filas (estado
+limpio esperado). Esto prueba que el **schema es restaurable desde
+cero de verdad** — no es una afirmación sin evidencia. Base de prueba
+eliminada; la base real (`alarfly`, con 16 empresas) permaneció
+intacta durante y después de la prueba, verificado explícitamente.
+
+**Lo que esta prueba NO cubre** (honesto, no se exagera el alcance):
+restaurar **datos** reales desde un backup — porque no existe ningún
+backup de datos real que restaurar (ver E6). La prueba demuestra
+"¿puede reconstruirse la estructura completa de la base de datos desde
+cero?" (sí), no "¿puede recuperarse el contenido después de perderlo?"
+(depende de que exista un backup real, que no existe todavía).
+
+**Otros puntos del checklist**: jobs (los 9 crons vuelven a correr
+solos en el siguiente ciclo tras un reinicio, sin estado que
+recuperar); configuraciones (viven en `Company`/`UserPreference`,
+restauradas junto con el resto de la base); dato parcialmente escrito
+(cubierto por transacciones de Prisma en cada operación crítica, ya
+verificado en cada módulo desde F0-F14); empresa eliminada — **no hay
+soft-delete ni papelera de reciclaje para `Company`** (un
+`DELETE`/`Company.delete` es irreversible salvo por un backup externo)
+— documentado como deuda real, no corregido en este bloque (no se
+demostró un caso de eliminación accidental real).
+
+**F15-E7: COMPLETA — schema/restauración validado en vivo; RPO/RTO
+documentados como pendientes de un despliegue de producción real.**
+
+### F15-E8 — Observabilidad y Logging 🔴→✅
+
+**Auditoría**: `morgan('dev')` (formato humano coloreado) más
+`console.error(err)` desnudo en el manejador de errores eran el único
+logging técnico de todo el sistema — sin ningún identificador que
+conecte una línea de log con una petición concreta. `core/jobs` ya
+resuelve observabilidad para los cron jobs específicamente (`JobRun`,
+`/jobs/status`/`/jobs/runs`) — no se duplicó nada de eso. `core/audit`
+sigue siendo, sin cambios, el único registro de "qué hizo un usuario"
+— explícitamente NO se mezcló con el logging técnico nuevo (son
+conceptos distintos, tal como exige el bloque).
+
+**Hallazgo real (MEDIO)**: un error reportado por un usuario no se
+podía correlacionar con ninguna línea concreta del log del servidor —
+sin request ID, sin contexto de empresa/usuario en el log del 500.
+
+**Corrección**: `core/middlewares/requestId.js` (nuevo) — cada
+petición recibe un id (`crypto.randomUUID()`, nativo de Node, sin
+dependencia nueva), expuesto en el header `X-Request-Id` y en el
+formato de `morgan`. `errorHandler.js`: todo error (no solo el 500)
+ahora incluye `requestId` en la respuesta JSON; el 500 además deja en
+el log `{requestId, method, path, companyId, userId, error}` —
+**nunca el body de la petición ni headers** (confirmado explícitamente
+con un test: una contraseña en el body nunca llega al log).
+
+**Archivos**: `src/core/middlewares/requestId.js` (nuevo),
+`src/core/middlewares/errorHandler.js`, `src/app.js` (monta
+`requestId` antes de `morgan`, actualiza el formato de `morgan` para
+incluir el id).
+
+**Tests**: 4 nuevos (`requestId.test.js`: id único por petición, header
+seteado; `errorHandler.test.js` ampliado: `requestId` en cualquier
+tipo de error, contexto técnico correlacionable en el log del 500 sin
+exponer el body).
+
+**Validación real**: `curl -sI /health` confirmó el header
+`X-Request-Id` presente; un login con body inválido devolvió
+`requestId` real en la respuesta de error; el log de `morgan` en vivo
+mostró el id de la petición junto a método/ruta/status/tiempo.
+
+**F15-E8: COMPLETA — 1 hallazgo real (MEDIO) corregido.**
+
+### F15-E9 — Health Checks y Monitoreo Operativo 🔴→✅
+
+**Auditoría**: `GET /health` existía pero era **puramente liveness**
+(`{status:'ok'}` estático, sin tocar la base de datos) — no había
+ninguna forma de distinguir "el proceso de Node sigue vivo" de "el
+proceso está vivo pero no puede atender nada porque Postgres no
+responde". `GET /jobs/status` ya existe para el estado de los jobs
+(reutilizado tal cual, sin duplicar).
+
+**Hallazgo real (MEDIO), con evidencia de primera mano**: este mismo
+entorno de desarrollo experimentó, repetidas veces a lo largo de toda
+esta sesión de trabajo, el backend respondiendo `200` en `/health`
+mientras Postgres estaba caído por separado — el síntoma exacto que
+este gap permite.
+
+**Corrección**: `GET /health/ready` (nuevo) — hace `SELECT 1` real
+contra Postgres; `200 {status:'ready', database:'ok'}` si responde,
+`503 {status:'not_ready', database:'error'}` si no. Se mantuvo
+`/health` **sin tocar** (correcto que la liveness NO dependa de la
+base de datos — si Postgres cae pero Node sigue vivo, reiniciar Node
+no soluciona nada, mezclar ambos conceptos en un único endpoint
+habría sido el anti-patrón que el propio bloque pide evitar). Sin
+autenticación en ninguno de los dos (un balanceador/orquestador
+necesita poder consultarlos sin credenciales) y sin exponer ningún
+detalle interno (nunca la cadena de conexión, nunca el mensaje de
+error crudo de Postgres).
+
+**Archivos**: `src/app.js` (nueva ruta `/health/ready`).
+
+**Validación real, la más contundente de este bloque**: con el
+backend real corriendo, se detuvo Postgres a propósito —
+`GET /health` siguió devolviendo `200 {"status":"ok"}` (correcto,
+liveness no depende de la DB) mientras `GET /health/ready` devolvió
+`503 {"status":"not_ready","database":"error"}` (correcto, detectó la
+caída real). Se reinició Postgres y `/health/ready` volvió a `200`
+de inmediato. Reproduce exactamente el problema real que este entorno
+experimentó varias veces en esta misma sesión.
+
+**F15-E9: COMPLETA — 1 hallazgo real (MEDIO) corregido, validado en
+vivo apagando y reencendiendo Postgres de verdad.**
+
+### F15-E10 — Configuración y Administración de Producción
+
+**Auditoría**: `.env` correctamente en `.gitignore` (reconfirmado, sin
+secretos en el repositorio); `config/index.js` centraliza toda la
+configuración de infraestructura (`port`, `jwtSecret`, `jwtExpiresIn`,
+`databaseUrl`) — un solo punto, sin duplicación; ningún secreto se
+expone al frontend (el cliente HTTP del frontend nunca recibe
+`JWT_SECRET`/`DATABASE_URL`, confirmado por diseño — esas variables
+solo existen del lado del servidor). Configuración por empresa
+(`Company.baseCurrency`/`fiscalYearStartMonth`/`defaultLanguage`/etc.)
+correctamente separada de configuración de infraestructura — sin
+ningún caso encontrado de mezcla (algo que debería ser global
+guardado por empresa, o viceversa) más allá de lo ya identificado y
+correcto desde F14-E2 (`AccountTemplate`, única entidad
+deliberadamente global). CORS reconfirmado sin restricción de origen
+(mismo hallazgo ya documentado desde F13 y F14) — **no se corrige**
+por la misma razón de siempre: no hay un dominio de producción real
+conocido, y restringir a ciegas podría romper el despliegue real el
+día que exista.
+
+**Conclusión**: sin inconsistencia real de configuración encontrada
+que corregir. **Sin cambios de código** (más allá de lo ya hecho en
+E8/E9, que sí toca configuración de logging/health, ya reportado ahí).
+
+**F15-E10: COMPLETA (sin cambios de código).**
+
+### Validación de cierre del Bloque 2
+
+707/707 tests (703 previos + 4 nuevos: `requestId.test.js` +
+ampliación de `errorHandler.test.js`), lint limpio, `prisma validate`
+sin errores. Sin migraciones nuevas en este bloque (E8/E9 no tocan el
+schema).
+
+# F15 — BLOQUE 2
+
+## 1. E6 — Backups
+Sin backup real (entorno de desarrollo, sin infraestructura de
+producción). Documentado honestamente, no fabricado. Confirmado que
+un backup de Postgres ya cubriría el 100% de los datos de aplicación
+(sin archivos externos).
+
+## 2. E7 — Recovery / Restore
+RPO/RTO documentados como pendientes de un despliegue real. Validación
+real ejecutada: las 47 migraciones del historial completo se
+aplicaron sin errores a una base vacía y aislada (118 tablas, 0
+filas) — prueba real de restauración de schema, distinta y más
+limitada que restauración de datos (que depende de un backup que no
+existe).
+
+## 3. E8 — Observabilidad / Logging
+Hallazgo real (MEDIO) corregido: sin request ID ni contexto en los
+logs de error. Agregado `requestId` (header + respuesta) y contexto
+técnico correlacionable en el log del 500, sin exponer datos
+sensibles. Audit y logs técnicos permanecen separados, sin mezclarse.
+
+## 4. E9 — Health Checks / Monitoring
+Hallazgo real (MEDIO) corregido, con evidencia de primera mano de esta
+misma sesión: `/health` (liveness) nunca detectaba una base de datos
+caída. Agregado `/health/ready` (readiness, con `SELECT 1` real).
+Validado apagando y reencendiendo Postgres de verdad.
+
+## 5. E10 — Configuración de Producción
+Sin inconsistencias reales encontradas. Secretos correctamente fuera
+del repositorio y nunca expuestos al frontend. CORS sigue abierto,
+mismo motivo ya documentado (sin dominio de producción conocido).
+
+## 6. Clasificación
+- **CRÍTICOS**: 0.
+- **ALTOS**: 0.
+- **MEDIOS**: 2 (E8: sin correlación de errores — corregido; E9: sin
+  distinción liveness/readiness — corregido).
+- **BAJOS**: 0.
+- **DEUDA**: sin soft-delete/papelera para `Company` (E7); CORS sin
+  restricción de origen (ya documentado desde F13/F14).
+- **FUTURO / SIN CASO DE NEGOCIO**: backup/restore de datos reales
+  (depende de un despliegue de producción real); RPO/RTO formales.
+
+## 7. Tests
+ANTES: 703. NUEVOS: 4. DESPUÉS: 707. REGRESIONES: 0.
+
+## 8. Archivos
+**Nuevos**: `src/core/middlewares/requestId.js`,
+`src/core/middlewares/requestId.test.js`.
+**Modificados**: `src/core/middlewares/errorHandler.js`,
+`src/core/middlewares/errorHandler.test.js`, `src/app.js`.
+**Migraciones**: ninguna. **Endpoints nuevos**: `GET /health/ready`.
+**Configuración**: sin cambios.
+
+## 9. Validación real
+- **Entorno**: este mismo entorno de desarrollo, backend real
+  reiniciado para cargar el código nuevo, Postgres real detenido y
+  reencendido a propósito.
+- **Escenarios**: `/health` con Postgres caído (200, correcto);
+  `/health/ready` con Postgres caído (503, correcto) y recuperado
+  (200); header `X-Request-Id` presente en cualquier respuesta;
+  `requestId` real devuelto en un error de validación; 47 migraciones
+  aplicadas desde cero a una base aislada (118 tablas, 0 filas); base
+  de datos real (16 empresas) confirmada intacta antes y después de
+  la prueba de restauración.
+- **Resultados**: todos los esperados.
+
+## 10. Estado
+
+**BLOQUE CERRADO CON DEUDA** (solo BAJA/FUTURA — sin papelera de
+reciclaje para empresas, CORS sin dominio conocido, backup/restore de
+datos reales y RPO/RTO dependientes de un despliegue de producción
+que todavía no existe — ninguna crítica ni alta).

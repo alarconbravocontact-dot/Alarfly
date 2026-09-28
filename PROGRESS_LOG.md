@@ -7188,3 +7188,83 @@ ANTES: 703. NUEVOS: 4. DESPUÉS: 707. REGRESIONES: 0.
 reciclaje para empresas, CORS sin dominio conocido, backup/restore de
 datos reales y RPO/RTO dependientes de un despliegue de producción
 que todavía no existe — ninguna crítica ni alta).
+
+## F15 — Bloque Final (E16-E20): Cierre definitivo de F15
+
+**Resultado: sin cambios de código.** Este bloque fue de auditoría
+transversal y validación real, sintetizando y reconfirmando en vivo lo
+ya corregido en los Bloques 1 y 2 — ningún hallazgo nuevo que
+justificara código adicional.
+
+### F15-E16 — Deployment Readiness
+`npm start`/`npm run build` confirmados funcionales (build de frontend
+re-ejecutado en este bloque: 867 módulos, sin errores). Sin uso de
+`NODE_ENV` en todo el código — decisión correcta y consciente (nunca
+depender de un flag de entorno para ocultar detalles sensibles, ya se
+ocultan siempre). Confirmado que el cliente HTTP del frontend
+(`api/client.js`) nunca hardcodea una URL de backend — construye cada
+petición relativa a su propio origen (`/api${path}`), lo que requiere
+un proxy inverso real en producción (mismo patrón que ya usa el proxy
+de desarrollo de Vite, a nivel de infraestructura). **Resultado: READY
+WITH DEPLOYMENT DEPENDENCIES** — código listo, despliegue depende de
+`JWT_SECRET`/`DATABASE_URL` reales, proxy `/api/*`, CORS con dominio
+real, backup gestionado.
+
+### F15-E17 — Observability & Operational Monitoring
+Reconfirmado: `requestId` (F15-E8) correlaciona petición↔error↔log en
+vivo; `core/audit` y el log técnico permanecen separados sin
+mezclarse (log técnico nunca escribe en `AuditLog`, nunca incluye
+body/headers); `/health`/`/health/ready` (F15-E9) distinguen liveness
+de readiness; `core/jobs` ya cubre observabilidad de jobs, reutilizado
+sin duplicar. Sin sistema de métricas externo (confirmado, cero
+dependencias) — no se instala sin necesidad real; métricas mínimas
+necesarias documentadas (latencia, tasa de error, disponibilidad de
+DB, fallos/duración de jobs, usuarios activos) para cuando se elija un
+proveedor de infraestructura.
+
+### F15-E18 — Security Hardening Final
+Validación en vivo de 4 escenarios de autenticación: sin token (401
+`NOT_AUTHENTICATED`), token manipulado (401 `INVALID_TOKEN`), firma
+inválida (401 `INVALID_TOKEN`), token expirado firmado con el secreto
+real (401 `INVALID_TOKEN`) — los 4 con mensaje genérico, sin
+distinguir la causa exacta. Headers de seguridad confirmados en vivo
+(`helmet()` sin configuración adicional ya entrega CSP/COOP/CORP/HSTS/
+X-Frame-Options/etc.). Matriz de seguridad final (Auth/RBAC/
+Multiempresa/IDOR-BOLA/Inputs/Exports/Files/Errors/Headers): las 9
+áreas en ✅, sin ningún hallazgo nuevo — los únicos 2 hallazgos reales
+de todo F15 (sesión no revocada, sin protección de fuerza bruta) ya se
+habían corregido en el Bloque 1.
+
+### F15-E19 — SaaS Production Readiness
+Reconfirmado el flujo completo `Company → UserCompanyAccess →
+req.auth.companyId → dominio → Ledger`. Ciclo de vida de usuario
+(creación/activación/desactivación con revocación real desde F15-E2/
+cambio de empresa/pérdida de acceso) ya completo. Ciclo de vida de
+empresa: **sin soft-delete** (deuda ya documentada en F15-E7,
+reconfirmada, no implementada sin caso de negocio real). Dependencias
+SaaS separadas explícitamente en 3 categorías: ya resuelto,
+dependiente del despliegue, y F16 (billing/subscriptions/onboarding
+comercial — ninguno tocado).
+
+### F15-E20 — Final Production Audit & Closure
+Auditoría transversal de los 12 puntos exigidos (multiempresa, RBAC,
+auth, database, Ledger, jobs, health, logging, exports, frontend,
+performance, continuidad) — todos ✅ o explícitamente marcados
+"PENDIENTE DE INFRAESTRUCTURA" donde corresponde (backup/restore de
+datos reales, RPO/RTO). **Matriz final de riesgo: CRITICAL=0, HIGH=0,
+MEDIUM=0 (los 2 MEDIUM de todo F15 ya resueltos dentro del propio
+F15), LOW=3, DEBT=4** — ninguna deuda oculta.
+
+### Documentación
+Nuevo `F15_PRODUCTION_CLOSURE.md` (31 secciones) — documento maestro
+único de F15, sin duplicar `AI_ARCHITECTURE.md`/
+`INTEGRATIONS_ARCHITECTURE.md`/`F14_ENTERPRISE_CLOSURE.md`.
+
+### Validación de cierre
+707/707 tests (sin cambios respecto al Bloque 2 — este bloque no tocó
+código), lint limpio, `prisma validate` sin errores. Build de frontend
+reconfirmado exitoso.
+
+**F15 — CERRADA CON DEUDA** (CRITICAL=0, HIGH=0 — condición de cierre
+cumplida; deuda restante exclusivamente LOW/dependencias normales de
+un despliegue real, todas documentadas en `F15_PRODUCTION_CLOSURE.md`).

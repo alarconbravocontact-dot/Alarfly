@@ -4782,3 +4782,458 @@ el único archivo modificado es este mismo `PROGRESS_LOG.md`.
 Por regla absoluta de cierre de esta etapa: no se crea una Etapa 9, no
 se agregan módulos nuevos, no se continúa implementando funcionalidad
 nueva, no se inicia una nueva ronda de rediseño a partir de este punto.
+
+## Fase 11 (bis) — Optimización y Cierre Arquitectónico
+
+**Aviso de colisión de nombre, verificado antes de empezar**: ya
+existe en el historial de este proyecto un commit
+`aa206d0 Fase 11: control empresarial, aprobaciones, auditoría y jobs
+automáticos` (una fase distinta, sobre control empresarial/RBAC,
+completada mucho antes de esta sesión). El pedido actual, también
+llamado "Fase 11" por el usuario, es una auditoría de consolidación
+arquitectónica de alcance totalmente distinto (duplicación, imports,
+modelos/endpoints obsoletos, trazabilidad, atomicidad, rendimiento).
+Se avisó del choque de nombres al usuario y se etiqueta esta entrada
+"Fase 11 (bis)" para no confundirla con la anterior — mismo criterio
+ya usado en este archivo para el "Módulo 7" que resultó ser una
+ampliación de AR ya existente.
+
+Regla explícita de esta fase: NO reescribir Alarfly, NO introducir
+arquitectura paralela, NO agregar funcionalidades nuevas. Auditar →
+identificar → consolidar → eliminar duplicación real → validar →
+documentar → cerrar. Si algo funciona, se conserva.
+
+### 1. Auditoría previa — estado real de la infraestructura
+
+El contenedor se había reiniciado entre la sesión anterior y esta
+fase (Postgres, backend y frontend detenidos). Se levantaron los tres
+antes de auditar nada, para que toda evidencia de esta fase viniera de
+sistemas reales corriendo, no de suposición: `service postgresql
+start`, backend (`node src/server.js`), frontend (`npm run dev`).
+`npx prisma migrate status`: **46 migraciones en `prisma/migrations/`,
+46 aplicadas — schema al día, sin drift, sin pendientes.**
+
+Estructura real confirmada: `src/core/` con 27 subcarpetas
+transversales (account, alerts, ar-ap-settings, audit, auth, config,
+database, dimensions, events, fx, glossary, help, import,
+import-templates, jobs, ledger, middlewares, panel-preferences,
+payment-methods, period-lock, pinned-items, rbac, recently-used,
+saved-views, table-preferences, utils, view-preferences, workflow) y
+`src/modules/` con 14 módulos de negocio (access-levels, accounting,
+accounts-payable, accounts-receivable, advanced-analytics,
+business-metrics, finance, fiscal, fpa, inventory, junta, reports,
+sales, treasury) — coincide exactamente con lo que documenta este
+archivo en cada fase anterior, sin sorpresas.
+
+### 2. Eliminación de duplicaciones — verificado con evidencia real, no solo leído
+
+**Ledger — fuente única de contabilización, confirmado por código, no
+solo por documentación**: `grep` de escrituras directas a
+`journalEntry`/`journalEntryLine` en TODO `src/` (911 archivos) fuera
+de `core/ledger` — **cero resultados en código de producción** (el
+único archivo que escribe `journalEntry` directo es
+`src/test-helpers/integration-fixtures.js`, infraestructura de tests,
+no código de negocio). Confirma que la regla de oro de la arquitectura
+maestra ("ningún módulo escribe JournalEntry por fuera de
+core/ledger.postEntry") sigue siendo 100% cierta después de 8 fases
+adicionales de rediseño UX/UI que no tocaron backend salvo 2
+excepciones puntuales (Etapas 5 y 7, ya documentadas, ambas también
+pasan por `core/ledger`/`core/account`).
+
+**Maestros — sin catálogos paralelos**: exactamente un modelo
+`Customer`, un `Vendor`, un `Product`/`ProductVariant` en
+`prisma/schema.prisma` (con `ProductCategory`/`ProductUnitConversion`
+como conceptos de soporte legítimos, no duplicados).
+
+**KPIs — una sola definición por cálculo crítico**: `calculateEbitda`/
+`calculateBurnRate`/`calculateRunway` existen en un único lugar
+(`fpa/services/kpi.rules.js`), y los 3 consumidores que necesitan estos
+números (`reports/dashboard.service.js`, `core/glossary`,
+`advanced-analytics/shared-data.js`) los importan y reutilizan — ninguno
+reimplementa la fórmula. El único otro archivo que toca
+`interestExpense`/`amortization` (`advanced-analytics/financial-risk-
+leverage.rules.js`) es una función pura distinta (apalancamiento
+financiero, no EBITDA) que recibe el interés ya resuelto desde
+`shared-data.js`, que a su vez lo obtiene de `kpisService.getEbitda`
+— confirmado leyendo las 3 líneas exactas del `require`/llamada, no
+solo por el nombre del archivo.
+
+**Posición de caja consolidada — una sola fuente**:
+`getConsolidatedCashPosition` (treasury) tiene 7 puntos de import en
+todo el código; los 6 que no son el propio Tesorería (FP&A para
+runway, Finance Summary, Dashboard, Liquidity Forecast) la consumen
+tal cual, ninguno reconstruye el cálculo consultando cuentas
+bancarias por su cuenta. (El 7mo resultado, en `core/fx/fx.rules.js`,
+era solo un comentario mencionando el nombre de la función — no una
+importación real, verificado leyendo la línea.)
+
+**Conclusión de la sección 2: no se encontró ninguna duplicación real
+de lógica financiera, KPI, maestro ni lectura consolidada. Nada que
+fusionar.**
+
+### 3-4. Imports, dependencias y Core
+
+Se auditó específicamente si `core/` importa de `modules/` (el
+anti-patrón que rompería la transversalidad de `core/`, sección 4 de
+esta fase pide revisarlo "especialmente" en Glossary):
+
+**Hallazgo real — `core/glossary/glossary.service.js` importa 3
+servicios de dominio**: `fpa/services/kpis.service`,
+`finance/services/finance-summary.service`,
+`accounts-receivable/services/ar-invoices.service`. Es el **único**
+archivo de los 27 subdirectorios de `core/` con esta dependencia — se
+confirmó explícitamente que ningún otro archivo de `core/` importa de
+`modules/`. Investigado el motivo: el Glosario necesita mostrar el
+**valor en vivo** de un término (EBITDA, Colchón de liquidez, Total
+por cobrar) desde cualquier pantalla de la app — su naturaleza es
+transversal en cuanto a DÓNDE se usa, pero su cálculo es
+inherentemente específico de dominio. Se verificó que **no existe
+dependencia circular** (ninguno de los 3 servicios importa
+`core/glossary` de vuelta) — el riesgo real de esta dependencia es
+bajo: no rompe testabilidad, no crea un ciclo, no causa ningún bug
+conocido.
+
+**Decisión: CONSERVAR, no refactorizar.** Mover `core/glossary` a
+`modules/glossary` "para que quede puro" sería un refactor de
+ubicación de archivo sin ninguna mejora funcional demostrable —
+exactamente el tipo de cambio que esta fase prohíbe explícitamente
+("No modifiques código simplemente porque podría escribirse de otra
+manera", "Solo modifica dependencias cuando exista una mejora
+arquitectónica real y demostrable"). Se documenta como la única
+excepción conocida y deliberada a la regla de transversalidad de
+`core/`, para que quede registrada y no se repita el patrón sin darse
+cuenta en un módulo futuro.
+
+No se encontraron dependencias circulares en ningún otro punto
+auditado, ni imports de alto nivel innecesarios en los servicios
+revisados a fondo (Ledger, AR, Fiscal, Treasury, Dashboard).
+
+### 5. Compatibilidad temporal
+
+Se identificó y evaluó la única compatibilidad temporal explícita que
+queda en el código: `core/auth/auth.middleware.js` sigue aceptando
+JWT emitidos **antes** de que el login empezara a crear `UserSession`
+(sin `sessionId` en el payload) — documentado en el propio código
+desde que se construyó. No existe evidencia de que todos esos tokens
+ya hayan expirado (serían necesarios datos de uso real en producción
+que este entorno no tiene) y el costo de mantener la excepción es
+mínimo (una condición, sin efectos secundarios). **Decisión: CONSERVAR
+Y DOCUMENTAR**, tal como exige la regla de esta sección cuando no hay
+evidencia suficiente para retirar algo con seguridad.
+
+### 6. Modelos obsoletos
+
+No se encontró ningún modelo Prisma sin consumidores. Se revisaron los
+27 enums `*Status` del schema (ver sección 12) y los modelos de
+maestros/Ledger/traceability — todos con relaciones activas,
+consultados por al menos un servicio real. No se retira ningún modelo.
+
+### 7. Endpoints obsoletos — y un hallazgo distinto: capacidades reales sin interfaz
+
+No se encontró ningún endpoint duplicado, antiguo o que apunte a un
+servicio reemplazado. Pero el barrido comparando las 321 rutas
+declaradas contra el código real del frontend (más allá de la
+verificación ya documentada en 2026-07-16, que solo comprobó
+frontend→backend) encontró **6 capacidades de backend completas,
+probadas, y nunca conectadas a ninguna pantalla**:
+
+1. **Activos Fijos (`/accounting/fixed-assets/*`, todo el módulo)** —
+   depreciación línea recta/saldo decreciente/unidades de producción,
+   baja de activo, cron mensual — construido en la Fase 6 original
+   (2026-07-12), con sus propios tests, pero **nunca tuvo pantalla**.
+   Solo aparece en `auditLabels.js` (la traducción genérica de
+   cualquier evento de auditoría, no una pantalla real).
+2. **Consolidación multiempresa — fijar empresa matriz
+   (`PATCH /accounting/consolidation/parent-company`)** —
+   `ConsolidationPage.jsx` (Reportes) solo muestra el balance
+   consolidado de solo lectura; no existe ninguna pantalla para que un
+   Administrador establezca la relación matriz-subsidiaria desde la
+   interfaz.
+3. **`GET /inventory/stock-levels/lookup`** — consulta el stock de una
+   variante+almacén puntual; sin consumidor en el frontend (que ya
+   tiene `GET /inventory/stock-levels/cost`, sí usado, para lo mismo
+   con otro propósito).
+4. **`POST /treasury/payment-orders/vendor-bills`** — la conexión
+   AP↔Tesorería documentada como construida y probada por `curl` en
+   2026-07-14 nunca ganó un botón en `ApBillsPage`/`PaymentOrdersPage`
+   — sigue siendo alcanzable solo por API directa.
+5. **`POST /treasury/reconciliations/:id/manual-match`** — emparejar a
+   mano un movimiento bancario con una línea de asiento YA EXISTENTE
+   (distinto de "generar un asiento nuevo", que sí tiene botón).
+   `ReconciliationPage.jsx` solo expone auto-match y
+   match-con-asiento-nuevo. Esto aclara una ambigüedad de una entrada
+   anterior de este archivo (2026-07-12) que decía "conciliación
+   manual" verificada — al revisar el código real, esa verificación
+   fue sobre `matchWithNewEntry`, no sobre este endpoint distinto.
+6. **`POST /fpa/dimensions/tags` / `DELETE /fpa/dimensions/tags/:tagId`**
+   — etiquetar a mano cualquier línea de asiento con una Dimensión
+   FP&A. Sin consumidor en el frontend. Investigado por qué el
+   etiquetado de líneas SÍ funciona en la práctica (Rentabilidad por
+   Producto, ya verificada con datos reales): Inventario escribe la
+   tabla puente `journalEntryLineFpaDimension` **directo por Prisma**
+   (`tagCogsLineWithProduct`), sin pasar por este servicio ni por esta
+   ruta — el etiquetado real hoy es 100% automático (perezoso, al
+   vender un producto), nunca manual.
+
+**Ninguno de estos 6 es un bug ni algo que retirar** — son
+capacidades reales, con tests, que funcionan si se llaman
+directamente. **No se construyó ninguna pantalla nueva para
+resolverlos** — hacerlo sería agregar funcionalidad nueva, prohibido
+explícitamente por esta fase. Quedan documentados en la sección G
+(Deuda Técnica) como el hallazgo más concreto y accionable de esta
+auditoría, para que una fase futura (si se pide) sepa exactamente qué
+falta y no tenga que re-descubrirlo.
+
+### 8. Componentes frontend obsoletos
+
+No se auditó desde cero — las Etapas 1-8 del Rediseño UX/UI Maestro
+(sesión inmediatamente anterior a esta) ya hicieron un barrido visual
+completo de las 7 áreas conceptuales y documentaron explícitamente,
+pantalla por pantalla, cada reutilización de componente
+(`DataTable`/`StatusSeal`/`EmptyState`/`ConfirmContext`/
+`DateRangeSelector`) sin encontrar ni introducir una sola duplicación
+— la única pieza nueva de ese rediseño sin equivalente previo fue
+`Disclosure` (revelación progresiva, Etapa 3), genérica y reutilizable
+por diseño. Releer esa auditoría entera para esta fase habría sido
+repetir trabajo ya hecho y validado; se confirma su conclusión sigue
+vigente (0 cambios de código desde entonces salvo el fix puntual de
+Etapa 7).
+
+### 9. Índices y rendimiento
+
+Verificado con un script que parsea `prisma/schema.prisma` real (no
+supuesto): las 10 tablas de mayor tráfico (`ArInvoice`, `ApBill`,
+`JournalEntry`, `JournalEntryLine`, `BankTransaction`, `Alert`,
+`AuditLog`, `TreasuryAccount`, `PaymentOrder`, `InventoryMovement`)
+tienen **todas** un índice compuesto que arranca con `companyId`
+(exactamente el patrón de consulta real: filtrar primero por empresa).
+La única sin `companyId` propio es `JournalEntryLine` — a propósito,
+no lo tiene denormalizado: pertenece a `JournalEntry` (que sí lo
+indexa) vía relación normal, y tiene su propio `@@index([accountId])`
+para el patrón real de "todas las líneas de esta cuenta" que usa el
+Libro Mayor. Sin evidencia de una consulta lenta real (no se hizo
+profiling, no hay reporte de lentitud) — no se agregó ningún índice
+nuevo, tal como exige "no optimizar prematuramente, solo con
+evidencia".
+
+### 10. Trazabilidad financiera
+
+Confirmado en el propio schema: `JournalEntry.origin`
+(`JournalEntryOrigin`, default `MANUAL`) + `sourceModule`/
+`sourceReference` (nullable, poblados cuando `origin != MANUAL`) +
+relación directa `fiscalTransaction` + auto-relación `reversalOf` —
+la cadena completa Documento origen → operación → Ledger → auditoría,
+y en reversa, ya existe en el modelo. Verificado que no es solo un
+campo de schema sin usar: **11 servicios distintos** (`ap-credit-
+notes`, `ap-payments`, `fiscal-transactions`, `ar-payments`, `ar-
+credit-notes`, `fixed-assets`, `inventory-movements`, `petty-cash`,
+`debts`, `payment-orders`, `reconciliation`) efectivamente poblan
+`sourceModule`/`sourceReference` al postear. Sin gaps encontrados.
+
+### 11. Atomicidad e idempotencia
+
+Se encontró y verificó el patrón real: `core/database/unit-of-work.js`
+(`withTransaction(work, tx = null)`) — Unit of Work genuino, usado por
+16 archivos, que permite que una operación de negocio (ej. `ar-
+invoices.createInvoice`) comparta UNA sola transacción con el motor
+fiscal y el Ledger sin abrir transacciones anidadas (`ledger.
+postEntry`/`reverseEntry` aceptan el mismo patrón de `tx` opcional).
+Las acciones que SÍ abren su propia `prisma.$transaction` directo
+(`submitForApproval`/`approveEntry`/`deleteDraft` del Ledger) son
+correctamente las que nunca se componen dentro de otra operación más
+grande — no es una inconsistencia, son dos casos de uso distintos
+manejados con la herramienta correcta cada uno. **No se encontró
+ninguna vulnerabilidad real de duplicación de asientos/facturas/pagos/
+movimientos** en los servicios auditados a fondo — no se reescribió
+nada, tal como exige la regla ("si no existe evidencia de problema, no
+reescribir").
+
+### 12. Estados
+
+27 enums `*Status` en el schema, uno por concepto de dominio
+(`SalesOrderStatus`, `ArInvoiceStatus`, `ApBillStatus`,
+`SalesDeliveryStatus`, `PaymentOrderStatus`, `FiscalElectronicDocument
+Status`, etc.) — ninguno mezclado ni reutilizado entre dominios que no
+correspondan. Estado comercial, financiero, fiscal y operativo
+permanecen genuinamente separados.
+
+### 13. RBAC y seguridad
+
+Reutiliza la verificación ya hecha en la Etapa 8 del Rediseño UX/UI
+(curl real contra 7 endpoints × 3 roles no-admin, confirmando 403 en
+cada combinación no autorizada por `core/rbac/module-access.js`), más
+2 verificaciones nuevas frescas de esta fase, después de reiniciar los
+servidores: Colaborador rechazado (403) al intentar aprobar un asiento
+contable; Financiero rechazado (403) en `/treasury/accounts` directo
+pero aceptado (200) en `/finance/summary` (el portón consolidado que
+sí le corresponde) — confirma que "Finanzas" como hub consolidado y
+"Tesorería" como módulo directo tienen gates distintos e
+intencionales, no una fuga. El backend sigue siendo la autoridad real;
+no se creó ningún sistema de permisos nuevo.
+
+### 14. Multiempresa
+
+Todas las 10 tablas de alto tráfico auditadas en la sección 9 indexan
+por `companyId` como primera columna — el aislamiento por empresa está
+presente en la capa de consulta, no solo confiado a la lógica de
+aplicación. Se reutiliza además la verificación ya hecha en Etapa 7
+(el fix de `UserCompanyAccess`/`listMyCompanies`, probado con 2
+usuarios reales de la misma empresa recibiendo cada uno su propio
+`companyId` correcto, nunca el del otro). Este entorno sigue teniendo
+una sola empresa real operativa — no fue posible una prueba cruzada
+completa con una segunda empresa con datos, documentado como
+limitación del entorno, no del código.
+
+### 15. Auditoría
+
+Confirmado que las operaciones automáticas (cron) auditan sus corridas
+usando el mismo `core/audit` que las operaciones manuales — verificado
+leyendo 4 servicios invocados por cron (`fixed-assets.
+runMonthlyDepreciation`, `fx.revalueCompany`, `ar-recurring.
+runDueTemplates`, `advanced-analytics.automation-runner`), los 4 con
+`auditService.log(...)` real. No se creó un segundo sistema de
+auditoría.
+
+### 16. Jobs y cron
+
+9 jobs registrados (`fiscal-alerts` 6:30, `ar-collections` 7:00,
+`ar-recurring` 7:10, `fixed-assets` mensual día 1 3am,
+`inventory-alerts` 6:45, `advanced-analytics` 7:15,
+`scheduled-reports` 7:00, `treasury-alerts` 6:00, `fx` mensual día 1
+2am) — horarios escalonados sin solapamiento, consistente con lo ya
+documentado fase a fase. La idempotencia de los más sensibles
+(depreciación mensual, facturas recurrentes, análisis automáticos) ya
+está cubierta por tests existentes que siguen pasando (665/665) y por
+verificación manual ya documentada en su momento ("corrida dos veces
+seguidas, la segunda no generó nada"). No se creó un sistema de jobs
+nuevo.
+
+### 17. Documentación
+
+Esta misma entrada actualiza `PROGRESS_LOG.md`. No se encontró
+documentación que describiera funcionalidad inexistente — al
+contrario, el hallazgo de la sección 7 (6 capacidades sin pantalla)
+es información que faltaba documentar como tal y que ahora queda
+explícita.
+
+### 18. Tests
+
+**665/665 tests de backend pasando en serie**, confirmado al inicio y
+al final de esta fase (sin cambios de código entre ambas corridas —
+esta fase no modificó ningún archivo fuente, solo audita y
+documenta). `npm run build`/`npm run lint` del frontend limpios,
+mismo baseline de 8 warnings preexistentes. No hubo ningún test que no
+se pudiera ejecutar — Postgres, backend y frontend se levantaron
+correctamente después del reinicio del contenedor antes de correr
+nada.
+
+### 19. Regresión global
+
+No aplica un cambio de código que pudiera romper algo — esta fase no
+modificó ningún archivo de `src/` ni `frontend/src/`. La suite
+completa (107 suites, 665 tests, cubriendo Ventas/Compras/Inventario/
+CxC/CxP/Tesorería/Fiscal/FP&A/Reportes/Analytics/Dashboard/Control/
+RBAC/Auditoría/Jobs/Multiempresa) sigue en verde.
+
+---
+
+## Informe final — Fase 11 (bis)
+
+### A. CONSERVAR
+- Ledger como único punto de escritura (verificado por código en las
+  911 archivos, no solo documentación).
+- Maestros únicos (Customer/Vendor/Product), sin catálogos paralelos.
+- KPIs con una sola definición y reutilización real en Dashboard/
+  Glossary/Advanced Analytics.
+- Posición de caja consolidada, Finance Summary, como única fuente de
+  lectura consolidada.
+- El patrón Unit of Work (`withTransaction`) y su uso consistente en
+  los 16 puntos donde se necesita composición transaccional.
+- Los 27 enums de estado, correctamente separados por dominio.
+- RBAC (`core/rbac/module-access.js`) y el patrón "sidebar visible +
+  servidor protege" (ya verificado en Etapa 8, re-confirmado acá).
+- Auditoría centralizada (`core/audit`), usada igual por operaciones
+  manuales y automáticas.
+- Los 9 jobs/cron existentes, horarios escalonados sin solapamiento.
+- Trazabilidad financiera (`sourceModule`/`sourceReference`), ya en
+  uso real por 11 servicios.
+- El shim de compatibilidad de JWT sin `sessionId` (sin evidencia
+  suficiente para retirarlo con seguridad).
+
+### B. MODIFICAR
+Ninguno. No se encontró ningún problema real que ameritara una
+corrección de código en esta fase — todos los hallazgos son
+capacidades sin interfaz (sección D/E) o deuda ya documentada y
+correctamente conservada (sección A), no bugs.
+
+### C. CREAR
+Ninguno. Por regla explícita de esta fase, no se agregó ninguna
+funcionalidad nueva.
+
+### D. FUSIONAR
+Ninguna duplicación real encontrada que fusionar — ver sección 2 del
+detalle arriba (Ledger, maestros, KPIs, posición de caja, todos con
+una sola fuente ya).
+
+### E. RETIRAR
+Nada retirado. No se encontró ningún modelo, endpoint o componente sin
+consumidores que pudiera retirarse con evidencia suficiente. El único
+candidato evaluado (el shim de JWT sin `sessionId`) se conserva por
+falta de evidencia de que sea seguro retirarlo.
+
+### F. RIESGOS RESIDUALES
+- **`core/glossary` depende de 3 servicios de `modules/`** (única
+  excepción a la transversalidad de `core/` en todo el proyecto) — sin
+  riesgo funcional demostrado (no hay ciclo, no rompe tests), pero es
+  un precedente a vigilar si se repite en un módulo futuro sin la
+  misma justificación (necesidad genuina de un valor en vivo
+  transversal a la UI).
+- Las 6 capacidades backend sin interfaz (sección 7) representan
+  trabajo ya pagado (construido y probado) que el negocio no puede
+  usar todavía desde la aplicación — riesgo de producto, no de código.
+
+### G. DEUDA TÉCNICA
+**Crítica**: ninguna.
+**Alta**: ninguna.
+**Media**: las 6 capacidades backend sin interfaz de la sección 7
+(Activos Fijos completo, fijar empresa matriz, conciliación manual a
+línea existente, AP↔Órdenes de Pago desde la UI, etiquetado manual de
+dimensiones FP&A, lookup puntual de stock) — cada una requeriría
+trabajo de frontend real si el negocio las necesita, ninguna es
+urgente hoy.
+**Baja**: la dependencia de `core/glossary` hacia `modules/` (sección
+F); el shim de JWT sin `sessionId` (sección A/5); el breakpoint de
+480px y el envío real de correo, ambos ya documentados en fases
+anteriores, sin cambios en esta.
+
+### H. TESTS
+Ejecutados: 107 suites / 665 tests de backend (`--runInBand`), 100%
+exitosos, dos corridas (inicio y fin de esta fase, sin cambios de
+código entre ambas). `npm run build` y `npm run lint` del frontend,
+ambos limpios. Ningún test resultó no ejecutable — Postgres/backend/
+frontend se recuperaron correctamente después del reinicio del
+contenedor.
+
+### I. MIGRACIONES
+0 migraciones nuevas creadas (esta fase no cambió el schema). 46
+migraciones en `prisma/migrations/`, 46 aplicadas — `npx prisma
+migrate status` confirma "Database schema is up to date", sin drift
+ni pendientes.
+
+### J. ESTADO FINAL DE ARQUITECTURA
+
+**CERRADA CON DEUDA (documentada, no crítica).**
+
+No se declara "CERRADA" sin calificar porque existen 6 capacidades de
+backend reales sin interfaz (deuda media, sección G) — no son
+problemas críticos ni bloqueantes, pero tampoco es honesto decir que
+no queda nada pendiente. No se declara "BLOQUEADA" porque no existe
+ningún problema crítico ni de alto riesgo sin resolver: Ledger,
+Financial/Business Data, RBAC, auditoría, workflows, multiempresa y
+trazabilidad financiera están todos verificados, coherentes y
+funcionando con evidencia real, no solo por documentación.
+
+Por la regla de detención de esta fase: no se inicia Fase 12, no se
+comienza automatización, no se comienza IA, no se agregan
+integraciones nuevas ni funcionalidades nuevas. Se espera autorización
+explícita del usuario antes de continuar.

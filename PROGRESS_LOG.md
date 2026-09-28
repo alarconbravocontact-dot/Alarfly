@@ -5889,3 +5889,58 @@ para no dejar datos de prueba en el entorno demo.
   enumeración si un id de empresa arbitrario es real.
 
 **F14-E1 — CORRECCIÓN DE SEGURIDAD PREVIA A E2: COMPLETA.**
+
+## F14-E2 — Mapa de Ownership y Límites de Acceso Actuales
+
+Auditoría read-only exhaustiva (sin cambios de código) de cómo se
+relacionan `User`, `Company`, `UserCompanyAccess`,
+`parentCompanyId`/`subsidiaries`, sucursales, almacenes, dimensiones/
+centros de costo y `AccountTemplate` (única entidad genuinamente
+global del sistema, catálogo de plan de cuentas sin `companyId`).
+
+**Evidencia verificada por archivo/línea** (no de memoria): JWT firma
+`{userId, companyId, role, sessionId}` en `auth.service.js:18-26`;
+`requireAuth` (`auth.middleware.js:34-38`) valida sesión no revocada;
+`UserCompanyAccess` se lee en `companies.service.js` (`listMyCompanies`,
+`switchActiveCompany`) pero **confirmado por grep que ningún endpoint
+la escribe** — solo existe por una migración de backfill de una sola
+vez; `Company.parentCompanyId`/`subsidiaries` solo se usa en
+`consolidation.service.js` (confirmado, ningún otro servicio lo lee);
+"sucursal" no es una entidad propia, es `Dimension.type = BRANCH`;
+"centro de costo" está deliberadamente duplicado entre `Dimension`
+(core, plano) y `FpaDimension` (FP&A, jerárquico) — decisión ya
+documentada, no un descuido. Confirmado: 345 funciones de servicio
+reciben `companyId` como primer parámetro declarado (patrón dominante
+y consistente), 0 usos de `$queryRaw`/`$executeRaw` en todo el
+proyecto (sin riesgo de SQL crudo saltándose el aislamiento), 12
+archivos de test ya prueban aislamiento multiempresa explícitamente,
+los 9 cron jobs procesan empresa por empresa con `try/catch`
+individual (un fallo nunca mezcla ni bloquea otras empresas).
+
+**Matriz de ownership/autorización** construida para 12 relaciones,
+cada una respondiendo las 10 preguntas pedidas (propietario, quién lee,
+quién modifica, origen de autorización, dependencia de
+`req.auth.companyId`, dependencia de RBAC, aislamiento, pertenencia sin
+acceso implícito, capacidad multiempresa existente, gap real) y
+clasificada como EXISTE Y FUNCIONA / EXISTE PARCIALMENTE / NO EXISTE /
+EXISTE PERO TIENE RIESGO. Resultado: **ninguna relación quedó
+clasificada como "EXISTE PERO TIENE RIESGO"** (el único riesgo real
+detectado, `setParentCompany`, ya se corrigió en F14-E1 y ahora
+clasifica como EXISTE Y FUNCIONA).
+
+**4 gaps reales identificados** (ninguno de seguridad activa): (1)
+`UserCompanyAccess` sin ningún flujo real que la alimente; (2) sin RBAC
+diferenciado por empresa (`User.role` es un solo valor global); (3)
+consolidación de un solo nivel, solo balance de comprobación; (4) sin
+agrupación transversal por sucursal a través de módulos (el dato existe
+vía `Dimension.BRANCH`/`Warehouse.branchDimensionId`, ninguna capacidad
+lo usa todavía).
+
+**Propuesta mínima para E3** (no implementada): documentar que el
+modelo actual de `Company`/relaciones ya es suficiente para el estado
+presente del proyecto, evaluando únicamente si vale la pena habilitar
+(con aprobación explícita) un flujo acotado para poblar
+`UserCompanyAccess` — sin construir nada todavía, a la espera de un
+caso de uso real.
+
+**F14-E2 — MAPA DE OWNERSHIP: COMPLETA.**

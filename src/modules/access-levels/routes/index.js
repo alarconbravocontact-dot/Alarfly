@@ -6,6 +6,7 @@ const {
   inviteUserSchema,
   changeRoleSchema,
   delegatedPermissionSchema,
+  companyAccessSchema,
 } = require('../validators/users.validator');
 const controller = require('../controllers/users.controller');
 
@@ -45,5 +46,12 @@ router.post(
   validate(delegatedPermissionSchema),
   controller.revokeDelegatedPermission
 );
+
+// F14-E3: otorgar/revocar acceso a otra empresa cruza el límite de una
+// sola empresa — mismo criterio que los permisos delegados de arriba,
+// se reserva al Administrador real, nunca a un Contador delegado.
+router.get('/company-access', requireRole('ADMIN'), controller.listCompanyAccess);
+router.post('/company-access/grant', requireRole('ADMIN'), validate(companyAccessSchema), controller.grantCompanyAccess);
+router.post('/company-access/revoke', requireRole('ADMIN'), validate(companyAccessSchema), controller.revokeCompanyAccess);
 
 module.exports = router;

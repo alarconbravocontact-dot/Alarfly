@@ -19,4 +19,10 @@ const delegatedPermissionSchema = z.object({
   permissionKey: permissionKeyEnum,
 });
 
-module.exports = { inviteUserSchema, changeRoleSchema, delegatedPermissionSchema };
+// F14-E3: otorgar/revocar acceso a otra empresa, siempre por correo de
+// un usuario ya existente (nunca se crea un usuario nuevo desde acá).
+const companyAccessSchema = z.object({
+  email: z.string().email('Escribe un correo válido.'),
+});
+
+module.exports = { inviteUserSchema, changeRoleSchema, delegatedPermissionSchema, companyAccessSchema };

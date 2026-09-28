@@ -5944,3 +5944,100 @@ presente del proyecto, evaluando únicamente si vale la pena habilitar
 caso de uso real.
 
 **F14-E2 — MAPA DE OWNERSHIP: COMPLETA.**
+
+## F14-E3 — Empresas y Relaciones Empresariales
+
+**Diseño**: basado exclusivamente en el único gap real que E2 dejó
+dentro del alcance permitido de esta etapa — `UserCompanyAccess` ya
+existía y ya se validaba correctamente (`switchActiveCompany`,
+`assertAuthorizedOverCompany` de F14-E1), pero ningún endpoint podía
+escribirla. Tras la corrección de seguridad de F14-E1, esto había
+vuelto *funcionalmente inservible* la relación matriz/subsidiaria para
+cualquier par de empresas real (antes insegura pero usable; ahora
+segura pero, sin esta pieza, imposible de establecer legítimamente).
+
+Se construyó la capacidad mínima "Otorgar/revocar acceso a otra
+empresa", deliberadamente acotada a **ADMIN otorgando a ADMIN** —
+evita tener que resolver cupos por rol cruzando empresas (`ADMIN` no
+tiene cupo en `core/rbac/roles.js`), sin inventar ningún motor de
+permisos nuevo. Cero migraciones: `UserCompanyAccess` ya tenía
+exactamente la forma necesaria.
+
+**Cómo se evita que la relación implique acceso automático a datos**:
+otorgar la fila no da lectura ni escritura de ningún dato de negocio
+por sí sola — solo permite que `switchActiveCompany` acepte esa
+empresa como destino. Para ver algo, el usuario debe cambiar
+activamente su empresa activa (JWT nuevo, `companyId` distinto); nunca
+opera sobre dos empresas con el mismo token. Verificado en vivo:
+otorgar el acceso no cambió ni un byte de lo que el token de origen
+podía leer.
+
+**Archivos nuevos/modificados**:
+- `src/modules/access-levels/services/company-access.service.js`
+  (nuevo) — `grantCompanyAccess`, `revokeCompanyAccess`,
+  `listGrantedAccess`. Reutiliza `prisma`, `AppError`, `core/audit`
+  tal cual, mismo estilo que `users.service.js`.
+- `src/modules/access-levels/validators/users.validator.js` —
+  `companyAccessSchema` (solo `email`).
+- `src/modules/access-levels/controllers/users.controller.js` — 3
+  controladores nuevos.
+- `src/modules/access-levels/routes/index.js` — `GET
+  /access-levels/company-access`, `POST
+  /access-levels/company-access/grant`, `POST
+  /access-levels/company-access/revoke`, los 3 con `requireRole('ADMIN')`
+  encima de `requireAccessManagement` (mismo patrón ya usado por
+  otorgar/revocar un permiso delegado — una acción de mayor alcance se
+  reserva al Administrador real, nunca a un Contador delegado).
+- `src/modules/access-levels/services/company-access.integration.test.js`
+  (nuevo) — 10 tests contra Postgres real.
+
+**Reglas de negocio del servicio**: el objetivo debe existir, ser
+`ADMIN` y estar `ACTIVE` (`TARGET_MUST_BE_ADMIN`/`TARGET_NOT_ACTIVE`);
+rechaza otorgar hacia la propia empresa de origen
+(`ALREADY_HOME_COMPANY`) y una segunda vez el mismo par
+(`ACCESS_ALREADY_GRANTED`); revocar rechaza tocar la empresa de origen
+(`CANNOT_REVOKE_HOME_ACCESS`) o un acceso inexistente
+(`ACCESS_NOT_FOUND`). Cada otorgamiento/revocación se audita
+(`company_access.granted`/`company_access.revoked`).
+
+**Tests**: 10 nuevos (otorgar válido, correo inexistente, no-ADMIN
+rechazado, propia empresa rechazada, duplicado rechazado, otorgar no
+da lectura de datos por sí solo, revocar borra solo la fila otorgada,
+revocar empresa de origen rechazado, revocar acceso inexistente
+rechazado, y el caso real de punta a punta: con el acceso otorgado,
+`setParentCompany`/`getConsolidatedTrialBalance` de F14-E1 funcionan
+sin fricción). 690/690 tests de backend en total (680 previos + 10
+nuevos), lint limpio, `prisma validate` sin errores (sin migración).
+
+**Validación real** (curl contra Postgres real, backend reiniciado
+para cargar el código nuevo): con una segunda empresa y un segundo
+ADMIN reales creados para la prueba — antes de otorgar, `PATCH
+.../parent-company` seguía dando `403 PARENT_COMPANY_NOT_AUTHORIZED`
+(F14-E1 intacto); el ADMIN de la empresa B otorgó acceso al ADMIN de
+la empresa A (`201`); listado de accesos otorgados confirmado (`200`);
+el mismo `PATCH` ahora dio `200` y estableció el vínculo real; se
+confirmó que el token de A (todavía con `companyId=A`) seguía leyendo
+únicamente el plan de cuentas de A al pedir `/accounting/accounts` —
+otorgar el acceso no filtró nada de B a esa sesión. Revertido a `null`,
+revocado, y la empresa/usuario de prueba eliminados sin dejar rastro
+en el entorno demo.
+
+**Riesgos residuales**: ninguno nuevo — el diseño ADMIN→ADMIN evita
+deliberadamente la superficie más compleja (cupos por rol cruzando
+empresas, revocación por terceros, expiración de accesos temporales),
+que quedan fuera de alcance hasta que exista un caso de uso real que
+los pida.
+
+**Deuda técnica**: sin frontend todavía (no se pidió explícitamente
+para esta etapa) — el otorgamiento/revocación/listado solo existen
+como API; se puede agregar una pantalla en Niveles de Acceso más
+adelante reutilizando el mismo patrón de `NivelesAccesoPage.jsx`.
+
+**Explícitamente fuera de alcance de E3, para etapas posteriores**:
+motor de permisos por empresa/sucursal/almacén (E12/E13), políticas
+corporativas (E14), consolidación más allá de balance de comprobación
+o de un solo nivel (E8), intercompany (E9), centros de costo/sucursales
+nuevos (E7/E5, ya existen y no se tocaron), IA (explícitamente pospuesta
+a F12-C).
+
+**F14-E3 — EMPRESAS Y RELACIONES EMPRESARIALES: COMPLETA.**

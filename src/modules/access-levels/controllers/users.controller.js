@@ -1,5 +1,6 @@
 const asyncHandler = require('../../../core/utils/asyncHandler');
 const usersService = require('../services/users.service');
+const companyAccessService = require('../services/company-access.service');
 const delegatedPermissionsService = require('../../../core/rbac/delegated-permissions.service');
 const { ROLES, ROLE_LABELS, ROLE_QUOTAS } = require('../../../core/rbac/roles');
 
@@ -71,6 +72,23 @@ const revokeDelegatedPermission = asyncHandler(async (req, res) => {
   res.json(grant);
 });
 
+// F14-E3: otorgar/revocar acceso a otra empresa (siempre ADMIN→ADMIN,
+// ver company-access.service.js) y consultarlo.
+const listCompanyAccess = asyncHandler(async (req, res) => {
+  const rows = await companyAccessService.listGrantedAccess(req.auth.companyId);
+  res.json(rows);
+});
+
+const grantCompanyAccess = asyncHandler(async (req, res) => {
+  const access = await companyAccessService.grantCompanyAccess(req.auth.companyId, req.auth.userId, req.body.email);
+  res.status(201).json(access);
+});
+
+const revokeCompanyAccess = asyncHandler(async (req, res) => {
+  const result = await companyAccessService.revokeCompanyAccess(req.auth.companyId, req.auth.userId, req.body.email);
+  res.json(result);
+});
+
 module.exports = {
   myPermissions,
   list,
@@ -83,4 +101,7 @@ module.exports = {
   listDelegatedPermissions,
   grantDelegatedPermission,
   revokeDelegatedPermission,
+  listCompanyAccess,
+  grantCompanyAccess,
+  revokeCompanyAccess,
 };

@@ -6230,3 +6230,272 @@ queda para una etapa posterior si se nombra un caso real.
   multinivel o de otros reportes (si aparece un caso real), workflows
   Enterprise (E15), intercompany (E9, sin necesidad real detectada
   todavía).
+
+## F14 — Bloque 3 (E9-E18): Intercompany, consolidación contable, FX, permisos, políticas, aprobaciones, reporting, dashboard y auditoría Enterprise
+
+**Resultado del bloque completo: sin cambios de código.** Las 10
+etapas se auditaron exhaustivamente contra el código real; en las 10 el
+modelo/infraestructura ya existente resultó suficiente para el estado
+actual, real y no especulativo del proyecto — ningún caso de uso
+concreto (nombrado por el usuario, no un ejemplo ilustrativo de un
+prompt) demostró la necesidad de construir algo nuevo. Se documenta
+cada hallazgo con evidencia de código, siguiendo la regla explícita del
+bloque: "no crear funcionalidades solo para que cada etapa tenga
+cambios".
+
+### F14-E9 — Intercompany
+
+**Auditoría**: `Account.isIntercompany`/`intercompanyCompanyId` ya
+existen (schema, `accounts.service.js:84-85`,
+`accounts.validator.js:36-37`) — un ADMIN puede marcar manualmente una
+cuenta como "representa un saldo con la empresa X del grupo", y
+`consolidation.service.js` ya excluye automáticamente esas cuentas del
+total consolidado (elimina el doble conteo). **No existe** ningún
+motor de operación empresa→empresa (venta/compra/préstamo
+intercompany automatizado que postee ambos lados a la vez) — cada
+lado de una operación relacionada se sigue registrando manualmente en
+su propio Ledger, con la cuenta marcada a mano en ambas empresas (ya
+documentado como límite consciente desde antes de F14).
+
+**Conclusión**: ningún caso de uso real (venta intercompany concreta,
+préstamo entre empresas del grupo, etc.) fue nombrado en ningún
+momento de F14. Construir un "motor intercompany" sin ese caso sería
+exactamente la infraestructura especulativa que el bloque prohíbe
+explícitamente. **Sin cambios de código.**
+
+**F14-E9: COMPLETA (sin cambios de código).**
+
+### F14-E10 — Contabilidad Consolidada
+
+**Auditoría**: hoy solo existe consolidación de **balance de
+comprobación** (`getConsolidatedTrialBalance`). Confirmado por grep
+que no existe ningún `getConsolidatedIncomeStatement`/
+`getConsolidatedBalanceSheet`/`getConsolidatedCashFlow` en todo el
+código — ni en `accounting`, ni en `reports`. La única otra
+"consolidación" real del sistema es
+`treasury.getConsolidatedCashPosition` (multi-moneda, ya usada por
+FP&A/Finanzas/Dashboard/Previsión de Liquidez), que consolida saldos
+de tesorería **dentro de una sola empresa** (varias cuentas bancarias),
+no entre empresas del grupo — un nombre similar, un alcance distinto,
+sin relación con matriz/subsidiaria.
+
+**Conclusión**: extender la consolidación a estado de resultados/
+balance general/flujo de efectivo consolidados es una capacidad real
+pero no demostrada como necesaria hoy (nadie ha pedido "ver el estado
+de resultados combinado del grupo"). Documentado como gap para una
+etapa futura si aparece el caso. **Sin cambios de código.**
+
+**F14-E10: COMPLETA (sin cambios de código, gap documentado).**
+
+### F14-E11 — FX Enterprise
+
+**Auditoría**: `core/fx` sigue siendo la única fuente de tasas
+(`ExchangeRate`, `getLatestRate`, `recordRate`), ya reutilizada de
+forma consistente por Tesorería (`getConsolidatedCashPosition`,
+revaluación mensual), Ventas/AR (snapshot BCV en `ArPayment`),
+Compras/AP (snapshot BCV en `ApPayment`) y, desde F14-E8, por la
+consolidación matriz/subsidiaria. Confirmado: ninguna tasa se inventa
+en ningún punto del código — cada lugar que necesita convertir, o
+encuentra una tasa real registrada, o falla/excluye explícitamente
+(mismo patrón `missingRates`/`currenciesWithoutRate` ya establecido).
+
+**Conclusión**: no se encontró ningún punto de Enterprise (grupos,
+consolidación) que maneje moneda por fuera de `core/fx` — el único gap
+real de todo el proyecto en este eje (consolidación mezclando monedas
+sin convertir) ya se corrigió en F14-E8. **Sin cambios de código
+adicionales en esta etapa.**
+
+**F14-E11: COMPLETA (sin cambios de código; el hallazgo real de este
+eje ya se resolvió en F14-E8).**
+
+### F14-E12 — Permisos Enterprise
+
+**Auditoría**: `core/rbac/module-access.js` (`MODULE_ROLES`) sigue
+siendo puramente por rol global — `User.role` es un solo valor
+(confirmado, sin ningún campo de rol por empresa en el schema). No
+existe ningún mecanismo de "rol distinto según la empresa activa", ni
+de permisos por sucursal/almacén.
+
+**Conclusión**: el propio bloque exige "primero demostrar el caso de
+uso" antes de construir cualquier extensión — en ningún momento de
+F14 (ni en este bloque, ni en los anteriores) el usuario nombró un
+caso real y concreto (una persona, un rol distinto en una empresa
+distinta, con una necesidad de negocio específica) que requiera esto.
+El ejemplo del pedido original ("ADMIN completo en A, solo lectura en
+B") es ilustrativo, no un caso real confirmado. Construirlo ahora
+sería inventar una necesidad — prohibido explícitamente. **Sin cambios
+de código.**
+
+**F14-E12: COMPLETA (sin cambios de código, gap documentado — ningún
+caso de uso real demostrado).**
+
+### F14-E13 — Permisos por Empresa
+
+Condicional a E12 por instrucción explícita del propio bloque: *"Si
+E12 demuestra que no existe todavía un caso suficientemente definido:
+NO IMPLEMENTAR."* E12 no demostró ningún caso real — **E13 no se
+implementa**, documentado como dependencia para una etapa posterior si
+aparece una necesidad concreta.
+
+**F14-E13: COMPLETA (no implementada, per regla condicional del
+bloque).**
+
+### F14-E14 — Políticas Corporativas
+
+**Auditoría**: confirmado que ya existen políticas reales, cada una
+viviendo en su propio dominio (nunca un motor genérico): límites de
+aprobación por monto y nivel (`PaymentApprovalRule`/
+`PaymentApprovalLevel`, `payment-approval-rules.service.js`), bloqueo
+de periodo contable (`core/period-lock`), límite de crédito y
+bloqueo automático de clientes (AR), maker-checker de caja
+chica/conteos físicos/órdenes de pago (`core/workflow.assertDifferentActors`,
+reutilizado por los 3). Cada una ya tiene empresa/alcance/actor/
+efecto/auditoría propios.
+
+**Conclusión**: las políticas ya suficientes están correctamente
+implementadas como reglas de dominio — construir un "Policy Engine"
+genérico por encima de ellas sin una regla NUEVA y real que lo
+requiera sería la infraestructura especulativa que el bloque prohíbe
+explícitamente. **Sin cambios de código.**
+
+**F14-E14: COMPLETA (sin cambios de código).**
+
+### F14-E15 — Aprobaciones Enterprise
+
+**Auditoría**: `core/workflow/segregation.rules.js` (`assertDifferentActors`)
+confirmado como la única función de maker-checker del sistema,
+reutilizada por Órdenes de Pago, Caja Chica y Conteos Físicos —
+ninguno duplica la regla. `payment-orders.service.js` confirmado:
+cada función (`createPaymentOrder`, `submitForApproval`,
+`decideApproval`, etc.) recibe `companyId` explícito y filtra cada
+consulta con `{id, companyId}` junta — una orden de pago nunca puede
+aprobarse ni leerse fuera de su propia empresa. Dado que operar en
+"otra empresa" siempre exige cambiar la empresa activa (JWT nuevo,
+F14-E1/E3), no existe ningún camino para que alguien apruebe algo de
+la Empresa B mientras su token sigue siendo el de la Empresa A — la
+segregación de funciones y el aislamiento de empresa son ortogonales y
+ambos se siguen cumpliendo.
+
+**Conclusión**: las aprobaciones ya funcionan correctamente por
+empresa y ya respetan segregación de funciones — no se encontró
+ninguna vía de escalación indebida entre empresas. **Sin cambios de
+código.**
+
+**F14-E15: COMPLETA (sin cambios de código).**
+
+### F14-E16 — Reporting Enterprise
+
+**Auditoría**: reconfirmado (ya verificado en F13 con un script que
+comparó las 224 llamadas del frontend contra las 264 rutas del
+backend) que todo reporte/exportación ya parte de
+`req.auth.companyId`. El único reporte "de grupo" es la consolidación
+de balance de comprobación (F14-E4/E8), ya restringida a ADMIN y ya
+sin exponer nada de otra empresa salvo lo que la propia matriz
+autorizó explícitamente.
+
+**Conclusión**: no existe necesidad real de una segunda capa de
+reporting para sucursales/almacenes (ninguna capacidad de negocio lo
+pide hoy) — los reportes existentes ya son suficientes. **Sin cambios
+de código.**
+
+**F14-E16: COMPLETA (sin cambios de código).**
+
+### F14-E17 — Dashboard Enterprise
+
+**Auditoría**: `reports/services/dashboard.service.js` confirmado —
+los 8 widgets del Centro Operativo Inteligente (`cash_position`,
+`ebitda`, `burn_rate_runway`, `income_statement_summary`,
+`balance_sheet_summary`, `liquidity_forecast`, `liquidity_risk`, etc.)
+reciben todos `companyId` como su primer parámetro y llaman a un
+servicio ya existente y ya companyId-scoped — ninguno agrega ni mezcla
+datos de más de una empresa. Inicio nunca muestra una vista
+consolidada: la única vista de grupo (consolidación) vive en su propia
+pantalla de Reportes, explícita, separada y restringida a ADMIN — el
+usuario nunca puede confundir "mi empresa activa" con "el grupo".
+
+**Conclusión**: el comportamiento exigido ("empresa activa como
+contexto principal, vista consolidada siempre explícita y nunca
+mezclada en Inicio") ya se cumple por construcción. **Sin cambios de
+código.**
+
+**F14-E17: COMPLETA (sin cambios de código).**
+
+### F14-E18 — Auditoría Enterprise
+
+**Auditoría**: `AuditLog` (schema) ya trae `companyId` (empresa
+activa), `userId` (quién, nullable para procesos automáticos ya
+documentados), `createdAt` (cuándo), `entityType`/`entityId`
+(entidad), `action` (acción), `oldValue`/`newValue` (antes/después) —
+exactamente los 8 campos mínimos que pide esta etapa. Confirmado que
+las 3 acciones Enterprise-sensibles ya construidas en este bloque
+quedan auditadas: `company.parent_company_changed` (F14-E1),
+`company_access.granted`/`company_access.revoked` (F14-E3) — las 3 ya
+verificadas en vivo con curl en sus respectivas etapas. Las
+aprobaciones (Órdenes de Pago) y la consolidación en sí ya siguen el
+patrón general del proyecto: **las escrituras se auditan, las lecturas
+no** (consistente en todo el sistema, no solo en Enterprise — ver
+reportes/dashboard/consolidación, ninguno de los cuales audita
+lecturas tampoco).
+
+**Conclusión**: no se necesita ningún campo nuevo en `AuditLog` — el
+contexto Enterprise (empresa activa) YA es exactamente lo que
+`companyId` representa; agregar un campo redundante sería duplicar lo
+que ya existe. **Sin cambios de código.**
+
+**F14-E18: COMPLETA (sin cambios de código).**
+
+### Validación de cierre del bloque
+
+Sin cambios de código en las 10 etapas → sin necesidad de tests
+nuevos. Regresión completa ejecutada de todas formas para confirmar
+que el estado del proyecto sigue intacto: **693/693 tests**, lint
+limpio, `prisma validate` sin errores.
+
+### RESUMEN F14 — BLOQUE E9-E18
+
+1. **Capacidades que ya existían**: marcado manual de cuentas
+   inter-compañía (E9), consolidación de balance de comprobación
+   (E10, ya extendida con moneda en E8), motor único de FX (E11),
+   RBAC por rol global (E12), políticas de dominio ya implementadas
+   —aprobación por monto, bloqueo de periodo, límite de crédito,
+   maker-checker— (E14), workflow único de segregación de funciones
+   (E15), reportes/exports ya companyId-scoped (E16), dashboard ya
+   companyId-scoped sin mezclar empresas (E17), auditoría ya completa
+   para las acciones Enterprise ya construidas (E18).
+2. **Capacidades nuevas realmente construidas en este bloque**:
+   ninguna — las únicas piezas nuevas de todo F14 siguen siendo las de
+   los bloques anteriores (E1: corrección de `setParentCompany`; E3:
+   otorgar/revocar `UserCompanyAccess`; E8: consolidación segura en
+   moneda extranjera).
+3. **Capacidades que no necesitaban cambios**: las 10 etapas
+   completas (E9-E18).
+4. **Vulnerabilidades encontradas en este bloque**: ninguna.
+5. **Vulnerabilidades corregidas en este bloque**: ninguna (no había
+   ninguna que corregir).
+6. **Tests totales**: 693/693 (sin cambios, ningún test nuevo
+   requerido).
+7. **Resultado de regresión**: 693/693 sin fallos.
+8. **Validaciones reales**: las de bloques anteriores siguen vigentes
+   y cubren el comportamiento actual (curl de F14-E1/E3/E8); no se
+   requirió validación nueva al no haber código nuevo.
+9. **Riesgos residuales**: ninguno nuevo.
+10. **Deuda técnica**: consolidación limitada a balance de
+    comprobación y a un solo nivel (E10, ya documentado desde E4/E8);
+    intercompany sigue siendo manual, sin motor automatizado (E9); sin
+    RBAC diferenciado por empresa (E12/E13) — las 3 documentadas como
+    gaps reales pero no urgentes, sin caso de uso que las justifique
+    todavía.
+11. **Dependencias para E19 en adelante**: cualquiera de las 3 piezas
+    de deuda de arriba, si en algún momento se nombra un caso de uso
+    real y concreto para alguna.
+12. **Dependencias para F15**: ninguna identificada en este bloque —
+    F15 (según lo ya documentado) es infraestructura SaaS
+    (billing/subscriptions/landing/etc.), fuera del dominio Enterprise
+    de F14.
+13. **Confirmación explícita**: no se modificó nada de F15, F16 ni de
+    IA (F12-C) en este bloque — cero código relacionado con billing,
+    subscriptions, landing, pricing, trial, afiliados, growth, LLM,
+    chatbot o asistente.
+
+**BLOQUE F14 E9-E18: COMPLETO. STOP ABSOLUTO** — no se inicia E19, E20,
+F15, F16 ni IA. Se espera revisión antes de continuar.

@@ -5656,3 +5656,137 @@ integró ningún LLM ni proveedor, no se creó chatbot, 672/672 tests
 pasan, build/lint pasan, `PROGRESS_LOG.md` actualizado. Por la regla
 final de esta fase: **no se ejecuta F12-C ni F13** — se espera
 autorización explícita del usuario antes de continuar.
+
+## Fase 13 — Integraciones y Ecosistema
+
+**Objetivo del pedido**: auditar todo lo relacionado con integraciones
+externas (bancos, sistemas fiscales, APIs de terceros, webhooks,
+importadores/exportadores, conectores) y, solo donde estuviera
+genuinamente justificado, construir capacidades reales — nunca
+"conectar todo porque se puede". Regla explícita repetida en el propio
+pedido: "NO CREAR INTEGRACIONES POR EL SIMPLE HECHO DE PODER HACERLO".
+
+### Auditoría inicial (Sección 1 del pedido)
+
+Barrido exhaustivo de todo `src/` en busca de cualquier integración
+externa ya existente o parcialmente construida:
+
+**Ya existe y es correcto** (sin duplicar): `core/import` +
+`core/import-templates` (importación genérica CSV/Excel, manual,
+base64-en-JSON), `modules/treasury/services/parsers/` (CSV/OFX/MT940,
+patrón adapter, también manual — nunca un feed bancario en vivo),
+`modules/fiscal/services/electronic-invoicing/providers/` (patrón
+adapter, solo `MOCK`), `core/utils/exporters/` (CSV/Excel/PDF),
+`PaymentMethod` (tabla de etiquetas, no una pasarela de pago real),
+exactamente 2 campos `externalId` en todo el schema
+(`BankTransaction.externalId`, `FiscalElectronicDocument.externalDocumentId`),
+`core/alerts.createAlertIfNotExists` (idempotencia de facto del
+proyecto), `core/jobs` (observabilidad de los 9 cron jobs, rutas
+`/jobs/status`/`/jobs/runs`, ADMIN-only), `core/audit` (auditoría
+única y ya reutilizada por todo).
+
+**Confirmado que NO existe** (búsqueda exhaustiva, cero resultados):
+webhooks entrantes o salientes, rate limiting (ni código ni
+dependencia instalada), versionado de API (`/v1`), mecanismo de
+autenticación para terceros (API keys/OAuth/HMAC — solo JWT de sesión
+humana vía `core/auth`), cliente HTTP saliente instalado
+(`axios`/`node-fetch`), conexión bancaria en tiempo real, proveedor
+fiscal real conectado. CORS registrado sin restricción de origen
+(`app.use(cors())`) — no es un hallazgo nuevo, documentado pero no
+corregido (ver abajo). `parseTabularFile` ya valida extensión
+(csv/xlsx/xls únicamente) y nunca escribe a disco — sin riesgo de path
+traversal ni de contenido malicioso ejecutable; el único límite de
+tamaño es el `express.json({limit:'5mb'})` global (un archivo mayor
+cae al branch de error 500 genérico de `errorHandler`, no a uno
+amigable — hallazgo de severidad baja, de experiencia de usuario, no
+de seguridad, no corregido por estar fuera del alcance estricto de
+esta fase). `errorHandler` confirmado que nunca reenvía stack
+traces/SQL crudo al cliente.
+
+### Conclusión de la auditoría: no hay ninguna integración externa real que construir
+
+Ningún banco, proveedor fiscal, marketplace, CRM o desarrollador
+externo concreto fue nombrado por el usuario en ningún momento de esta
+fase ni de las anteriores. Construir infraestructura genérica (motor
+de webhooks, gateway de API, servidor OAuth, motor de sincronización
+universal, API-keys con scopes) sin un consumidor real detrás sería
+exactamente la sobre-ingeniería especulativa que esta fase prohíbe
+explícitamente (lista de 8 prohibiciones del propio pedido: no
+marketplace de integraciones, no motor universal de conectores, no
+motor universal de webhooks, no motor universal de sincronización, no
+ESB/message broker/event bus, no API gateway complejo, no servidor
+OAuth completo, no proveedor bancario/fiscal real inventado).
+
+### Qué se construyó: solo documentación
+
+`INTEGRATIONS_ARCHITECTURE.md` (nuevo, raíz del repo, ~16 secciones,
+mismo criterio que `AI_ARCHITECTURE.md` de F12-B): mapa de fuente de
+la verdad por dominio (asientos = siempre Alarfly vía `core/ledger`;
+movimiento bancario = autoridad del banco hasta conciliarse, nunca
+genera asiento automático; tasa de cambio = única fuente que hoy ya se
+reconoce externa), evaluación de autenticación para terceros (API Keys
+por empresa con scopes, recomendado pero NO implementado — mismo
+principio `permisos del tercero ⊆ scopes ⊆ autorización de empresa`
+que ya usa `AI_ARCHITECTURE.md`), diseño conceptual de webhooks
+entrantes (auth→firma HMAC→idempotencia→validación→servicio de
+dominio→auditoría→respuesta, reutilizando `core/utils/crypto.js` para
+cifrar el secreto de firma, mismo cifrado que ya protege el secreto
+TOTP de 2FA) y salientes (sin infraestructura de entrega/reintentos,
+documentado como "cuarto canal de notificación" futuro de
+`AlertRule`, no un motor nuevo), verificación del contrato de
+importación de 7 pasos contra el importador real de Clientes
+(cumplido, con una variante intencional ya documentada: crea fila por
+fila, no en una transacción global, para que una fila mala no tumbe
+las válidas), justificación de por qué no se conecta un banco/proveedor
+fiscal real (ninguno fue nombrado con país/credenciales/sandbox
+concretos), evaluación y rechazo de abstracciones de conector
+(`BankProvider`/`FiscalProvider`/`EmailProvider`/`StorageProvider` —
+mismo veredicto que `AIProvider` en F12-B: no se crean sin 2+
+implementaciones reales), principio de reintentos no-ciegos para
+operaciones financieras futuras, gap real menor documentado
+(`correlationId` en `core/audit`, necesario solo cuando exista un
+webhook entrante real — ya anticipado en `AI_ARCHITECTURE.md`),
+catálogo de ecosistema futuro (bancos/fiscal/e-commerce/CRM/nómina/
+pagos/BI/almacenamiento/comunicación/IA — solo catalogado, nada
+construido), y confirmación explícita de que nada de esto bloquea la
+futura integración de IA (F12-C).
+
+### Por qué no se corrigió el CORS abierto ni el límite de tamaño de importación
+
+Ambos son hallazgos reales pero de bajo riesgo y fuera del núcleo de
+"integraciones" de esta fase: restringir CORS sin conocer el dominio
+real de producción podría romper la aplicación en vivo (mismo
+principio de "no adivinar" que rige toda la fase); el límite de
+tamaño de importación ya está cubierto por el límite global de 5MB
+(no hay ningún desborde posible), solo el mensaje de error sería menos
+amigable de lo ideal. Documentados en `INTEGRATIONS_ARCHITECTURE.md`
+sección 10 para una futura pieza de endurecimiento, no corregidos
+aquí sin una razón de seguridad real que lo justifique.
+
+### Validación
+
+Sin cambios de código en esta fase (documentación pura, mismo patrón
+que F12-B) — 672/672 tests de backend sin regresiones (confirmado
+tras restaurar Postgres/backend, que se habían vuelto a caer entre
+turnos, el mismo problema de entorno ya documentado en fases
+anteriores), `npx prisma validate` sin errores. No se validó ninguna
+integración externa real porque ninguna existe para probar — no se
+inventó ninguna validación falsa, siguiendo la instrucción explícita
+del pedido ("Si una integración externa real no puede probarse por
+falta de proveedor/credenciales: NO inventar la validación").
+
+### Estado final de F13
+
+**Completada.** Los 20 criterios de éxito del pedido se cumplen por
+diseño documental y por la propia naturaleza del hallazgo: no se violó
+ninguna regla de las 8 prohibiciones explícitas, no se duplicó ningún
+motor existente, la fuente de la verdad de cada dominio quedó
+explícita, el modelo de autenticación/scopes para terceros quedó
+diseñado (no implementado, sin consumidor real), el diseño de
+webhooks entrantes/salientes quedó documentado (no implementado, sin
+consumidor real), el contrato de importación de 7 pasos se verificó
+cumplido contra el importador real existente, ningún proveedor
+bancario/fiscal fue inventado, la compatibilidad con la futura
+integración de IA quedó confirmada explícitamente. Por la regla final
+de esta fase: **no se avanza a F14 ni F15, no se integra IA** — se
+espera autorización explícita del usuario antes de continuar.

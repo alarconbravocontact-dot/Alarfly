@@ -6041,3 +6041,192 @@ nuevos (E7/E5, ya existen y no se tocaron), IA (explícitamente pospuesta
 a F12-C).
 
 **F14-E3 — EMPRESAS Y RELACIONES EMPRESARIALES: COMPLETA.**
+
+## F14 — Bloque 2 (E4-E8): Grupos empresariales, sucursales, almacenes, dimensiones, consolidación
+
+Metodología aplicada por etapa: Auditoría → Diseño → Implementación
+(solo si justificado) → Tests → Validación real → Documentación.
+Principio rector de todo el bloque: **no agregar funcionalidad para
+que el informe parezca más completo** — donde el modelo actual ya
+alcanza, se documenta como tal, sin tocar código.
+
+### F14-E4 — Grupos Empresariales
+
+**Auditoría**: `Company.parentCompanyId`/`subsidiaries` (auto-relación
+`CompanyGroup`) ya soporta matriz→**múltiples** subsidiarias directas
+(`subsidiaries: Company[]`, sin límite de cantidad). Detección de
+ciclos ya existente y probada (`setParentCompany`, recorrido de
+ancestros). Desde F14-E1, requiere `UserCompanyAccess` real sobre la
+empresa matriz elegida — desde F14-E3, existe un flujo legítimo para
+obtenerla (ADMIN→ADMIN). **Límite consciente, ya documentado desde
+antes de F14**: la consolidación solo abarca subsidiarias **directas**
+(un nivel) — una subsidiaria de una subsidiaria no se refleja en la
+consolidación de la matriz original. No se encontró ningún caso de uso
+real de un grupo multinivel en todo el proyecto.
+
+**Conclusión**: el modelo actual ya es suficiente para el estado
+presente (empresa independiente, matriz, múltiples subsidiarias,
+relación válida/inválida, ciclo rechazado, acceso no autorizado
+rechazado, consolidación funcional) — **sin cambios de código**. El
+límite de un solo nivel queda documentado como dependencia para una
+etapa posterior (E9+) si algún día se nombra un caso real de holding
+con 3+ niveles.
+
+**F14-E4: COMPLETA (sin cambios de código).**
+
+### F14-E5 — Sucursales
+
+**Auditoría**: no existe una entidad `Branch` separada — "sucursal" es
+`Dimension.type = BRANCH` (core, plana, `@@unique([companyId, type,
+code])`, ya soporta múltiples sucursales por empresa sin límite).
+`Warehouse.branchDimensionId` (opcional) es el único vínculo lateral
+real: un almacén PUEDE asociarse a una sucursal, pero nunca depende
+jerárquicamente de ella — confirma la estructura real es `Company →
+Warehouse` (con `Dimension.BRANCH` como etiqueta lateral opcional), no
+`Company → Branch → Warehouse` como árbol obligatorio.
+
+**Ownership/aislamiento**: `Dimension` siempre lleva `companyId`
+obligatorio — aislamiento total, ya cubierto por el patrón general.
+Ningún módulo (Ventas/Compras/Clientes/Proveedores/Usuarios/Reportes)
+tiene hoy un permiso o filtro por sucursal — es una etiqueta
+descriptiva/de reporte, nunca un límite de acceso.
+
+**Conclusión**: la estructura existente (`Dimension.BRANCH` +
+`Warehouse.branchDimensionId`) ya representa correctamente "empresa
+con múltiples ubicaciones operativas" para el estado actual del
+proyecto — construir una entidad `Branch` nueva habría duplicado
+`Dimension` sin necesidad real. Permisos/políticas por sucursal quedan
+explícitamente fuera de alcance de este bloque (lo pide el propio
+pedido) y se documentan como dependencia para una etapa posterior.
+
+**F14-E5: COMPLETA (sin cambios de código).**
+
+### F14-E6 — Almacenes e Inventario Enterprise
+
+**Auditoría**: `Warehouse` ya cuelga directo de `Company`
+(`companyId` obligatorio, `@@unique([companyId, code])`), con
+multi-almacén, transferencias, reservas, valoración FIFO/LIFO/PMP y
+trazabilidad de lotes ya completos y probados desde el módulo
+Inventario original (ver registro de esa fecha en este mismo archivo).
+`StockLevel`/`StockCostLayer`/`InventoryMovement`/`InventoryTransfer`
+siempre filtran por `companyId` + `warehouseId` juntos — confirmado
+que ninguna operación puede cruzar almacenes de empresas distintas
+(mismo patrón `findFirst({id, companyId})` ya generalizado en todo el
+proyecto). El "almacén activo" no es un concepto de sesión —cada
+operación indica explícitamente su `warehouseId`, sin ambigüedad.
+
+**Conclusión**: la arquitectura de inventario ya soporta `Empresa →
+(Sucursal opcional) → Almacén` sin ninguna modificación — no se
+encontró ningún gap real. **Sin cambios de código.**
+
+**F14-E6: COMPLETA (sin cambios de código).**
+
+### F14-E7 — Dimensiones y Centros de Costo
+
+**Auditoría**: confirmada la duplicación ya documentada y consciente
+entre `Dimension` (core, plana: `COST_CENTER`/`PROJECT`/`BRANCH`,
+tabla puente `JournalEntryLineDimension`) y `FpaDimension` (FP&A,
+jerárquica vía `parentId`: `DEPARTMENT`/`BUSINESS_LINE`/`COST_CENTER`/
+`PRODUCT`/`CLIENT`/`OTHER`, tabla puente propia
+`JournalEntryLineFpaDimension`) — ambas coexisten sin pisarse, una
+línea de asiento puede llevar etiquetas de las dos a la vez. Ambas ya
+respetan aislamiento total por `companyId`. Presupuestos, KPIs y
+Rentabilidad por Producto/Cliente ya se segmentan por `FpaDimension`
+en producción.
+
+**Conclusión**: la infraestructura de dimensiones ya es suficiente
+para representar centro de costo/sucursal/departamento/proyecto/
+producto/cliente en Enterprise — no se justificó ningún sistema nuevo
+ni convertir automáticamente cada almacén/sucursal en una dimensión
+(el pedido explícitamente lo prohíbe sin necesidad real, y no apareció
+ninguna). **Sin cambios de código.**
+
+**F14-E7: COMPLETA (sin cambios de código).**
+
+### F14-E8 — Consolidación Empresarial
+
+**Auditoría**: `getConsolidatedTrialBalance` (matriz + subsidiarias
+directas, eliminación inter-compañía con detalle) ya es sólida en
+autorización (F14-E1: solo la propia empresa puede pedirse a sí misma
+como matriz; `requireRole('ADMIN')`), aislamiento (nunca expone datos
+fuera del balance de comprobación) y auditoría de la relación
+(`company.parent_company_changed`, ya registrado desde F14-E1).
+
+**Hallazgo real (única pieza de código de todo el bloque)**: la suma
+de balances por código de cuenta se hacía **sin verificar
+`Company.baseCurrency`** — un grupo con una subsidiaria en una moneda
+distinta a la matriz (ej. matriz USD, subsidiaria EUR) mezclaba
+unidades distintas en el mismo total sin ningún aviso, produciendo un
+número materialmente incorrecto en silencio.
+
+**Corrección**: se convierte el balance de cada empresa a la moneda de
+la matriz antes de sumarlo, reutilizando `core/fx.getLatestRate` (la
+misma fuente de verdad de tasas que ya usa
+`treasury/treasury-accounts.service.convertToBase` para la posición de
+caja consolidada) — nunca una segunda rutina de FX. La tasa se busca
+en el registro de la propia matriz, mismo sentido ya establecido por
+`revalueAccount`. **Nunca se inventa una tasa**: si no hay una
+registrada, esa empresa se excluye del total (nunca se mezcla un
+número incorrecto) y se reporta explícitamente en el nuevo campo
+`currenciesWithoutRate`, mismo criterio honesto ya usado por
+`missingRates` en la posición de caja consolidada. Se implementó como
+un ayudante local minúsculo dentro de `accounting/consolidation.service.js`
+(no una importación cruzada `accounting → treasury`, que habría
+invertido el orden de construcción documentado del proyecto) sobre la
+misma fuente de datos (`core/fx`).
+
+**Archivos modificados**: `src/modules/accounting/services/consolidation.service.js`
+(`resolveConversionFactor` nuevo, conversión aplicada dentro de
+`getConsolidatedTrialBalance`, campo nuevo `currenciesWithoutRate` en
+la respuesta). **Sin migraciones** — `Company.baseCurrency` ya
+existía.
+
+**Tests**: 3 nuevos (`consolidation-currency.integration.test.js`,
+Postgres real): conversión correcta con tasa registrada, exclusión
+honesta sin tasa (nunca inventada), sin regresión del caso ya cubierto
+de misma moneda (F14-E1). 693/693 tests de backend en total (690
+previos + 3 nuevos), lint limpio, `prisma validate` sin errores.
+
+**Validación real** (curl contra Postgres real, backend reiniciado):
+creada una subsidiaria EUR real, otorgado el acceso (F14-E3) y
+establecida la relación (F14-E1) — sin tasa registrada, la
+consolidación excluyó correctamente la subsidiaria y la reportó en
+`currenciesWithoutRate`; la matriz registró 1 EUR = 1.10 USD (en su
+propio libro de tasas, nunca en el de la subsidiaria) y la subsidiaria
+posteó un asiento real de 2000 EUR; la consolidación resultante mostró
+exactamente `255.00 + 2200.00 = 2455.00` para la cuenta "1105 · Caja"
+(el saldo propio de la matriz más el de la subsidiaria ya convertido)
+— confirmado matemáticamente exacto. Datos de prueba eliminados sin
+dejar rastro en el entorno demo.
+
+**Riesgos residuales**: ninguno nuevo. **Deuda**: la consolidación
+sigue limitada a balance de comprobación y a un solo nivel (ya
+documentado en E4) — extenderla a otros reportes (estado de
+resultados, flujo de efectivo consolidados) o a grupos multinivel
+queda para una etapa posterior si se nombra un caso real.
+
+**F14-E8: COMPLETA.**
+
+### RESUMEN DEL BLOQUE E4-E8
+
+- **Capacidades existentes confirmadas suficientes, sin tocar**:
+  grupos empresariales (matriz/múltiples subsidiarias, un nivel),
+  sucursales (`Dimension.BRANCH`), multi-almacén e inventario,
+  dimensiones/centros de costo (`Dimension` + `FpaDimension`).
+- **Capacidad nueva**: consolidación segura en moneda extranjera
+  (conversión honesta, nunca una tasa inventada).
+- **Vulnerabilidades corregidas en este bloque**: ninguna nueva (la
+  única de todo F14, `setParentCompany`, ya se corrigió en F14-E1).
+- **Tests totales**: 693/693, sin regresiones en ningún punto del
+  bloque.
+- **Validaciones reales**: curl contra Postgres real para el hallazgo
+  de moneda de E8 (única pieza de código del bloque).
+- **Deuda**: consolidación de un solo nivel y limitada a balance de
+  comprobación (ambas ya documentadas, sin caso de uso real que las
+  justifique todavía).
+- **Riesgos residuales**: ninguno nuevo detectado en E4-E8.
+- **Dependencias para E9-E13**: permisos por sucursal/almacén (E12/E13
+  del pedido original), políticas corporativas (E14), consolidación
+  multinivel o de otros reportes (si aparece un caso real), workflows
+  Enterprise (E15), intercompany (E9, sin necesidad real detectada
+  todavía).

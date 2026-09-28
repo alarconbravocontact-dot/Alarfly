@@ -2,6 +2,7 @@ const { Prisma } = require('@prisma/client');
 const prisma = require('../../../core/database/prisma');
 const AppError = require('../../../core/utils/AppError');
 const auditService = require('../../../core/audit/audit.service');
+const fxService = require('../../../core/fx/fx.service');
 const reportsService = require('./reports.service');
 
 const { Decimal } = Prisma;
@@ -80,13 +81,47 @@ async function setParentCompany(companyId, parentCompanyId, userId) {
   });
 }
 
+// F14-E8: convierte el balance de una subsidiaria a la moneda base de
+// la matriz antes de sumarlo — antes de este fix, `combined` sumaba
+// `row.balance` de cada empresa sin mirar `baseCurrency` en absoluto,
+// así que un grupo con una subsidiaria en otra moneda (ej. matriz USD,
+// subsidiaria EUR) mezclaba unidades distintas en el mismo total sin
+// ningún aviso. Mismo criterio ya probado y usado por
+// `treasury/services/treasury-accounts.service.convertToBase` para la
+// posición de caja consolidada — reimplementado acá como un ayudante
+// local minúsculo (no una importación cruzada `accounting → treasury`,
+// que invertiría el orden de construcción documentado del proyecto:
+// Core → Contabilidad → Tesorería) sobre la MISMA fuente de verdad de
+// tasas (`core/fx.getLatestRate`), nunca una segunda rutina de FX. La
+// tasa se busca en el registro de la propia MATRIZ (mismo sentido que
+// ya usa `revalueAccount`: "cuántas unidades de mi moneda base equivale
+// 1 unidad de esta moneda extranjera") — si no hay tasa registrada,
+// nunca se inventa una: esa empresa se excluye del total y se reporta
+// en `currenciesWithoutRate`, igual que ya hace `missingRates` en la
+// posición de caja consolidada.
+// Devuelve el factor de conversión (un Decimal) de `currency` a
+// `parentCurrency`, o `null` si no hay tasa registrada — se resuelve
+// UNA sola vez por empresa (nunca por línea) para no repetir la misma
+// consulta decenas de veces sobre el mismo balance de comprobación.
+async function resolveConversionFactor(parentCompanyId, parentCurrency, currency, asOfDate) {
+  if (currency === parentCurrency) return new Decimal(1);
+  try {
+    const rate = await fxService.getLatestRate(parentCompanyId, currency, asOfDate);
+    return new Decimal(rate.rate);
+  } catch {
+    return null;
+  }
+}
+
 // Suma el balance de comprobación de una empresa matriz y sus
 // subsidiarias directas, código de cuenta por código de cuenta, y
 // excluye automáticamente las cuentas marcadas como inter-compañía
 // (para no duplicar un saldo que ya está contado en la otra empresa).
 // Simplificación consciente: asume que las empresas del grupo comparten
 // la misma estructura de códigos de cuenta (ej: aplicaron la misma
-// plantilla de plan de cuentas).
+// plantilla de plan de cuentas) y solo consolida subsidiarias directas
+// (un nivel) — documentado como límite consciente, sin caso de uso
+// real de grupos multinivel todavía.
 async function getConsolidatedTrialBalance(parentCompanyId, asOfDate) {
   const parent = await prisma.company.findUnique({ where: { id: parentCompanyId } });
   if (!parent) {
@@ -99,6 +134,7 @@ async function getConsolidatedTrialBalance(parentCompanyId, asOfDate) {
   const combined = new Map();
   let intercompanyEliminated = new Decimal(0);
   const eliminatedDetail = [];
+  const currenciesWithoutRate = [];
 
   for (const company of companies) {
     const [report, accounts] = await Promise.all([
@@ -107,14 +143,22 @@ async function getConsolidatedTrialBalance(parentCompanyId, asOfDate) {
     ]);
     const isIntercompanyById = new Map(accounts.map((a) => [a.id, a.isIntercompany]));
 
+    const conversionFactor = await resolveConversionFactor(parentCompanyId, parent.baseCurrency, company.baseCurrency, asOfDate);
+    if (conversionFactor === null) {
+      currenciesWithoutRate.push({ companyId: company.id, companyName: company.name, currency: company.baseCurrency });
+      continue;
+    }
+
     for (const row of report.rows) {
+      const balance = new Decimal(row.balance).times(conversionFactor);
+
       if (isIntercompanyById.get(row.accountId)) {
-        intercompanyEliminated = intercompanyEliminated.plus(row.balance);
-        eliminatedDetail.push({ companyId: company.id, companyName: company.name, code: row.code, name: row.name, balance: row.balance });
+        intercompanyEliminated = intercompanyEliminated.plus(balance);
+        eliminatedDetail.push({ companyId: company.id, companyName: company.name, code: row.code, name: row.name, balance: balance.toFixed(2) });
         continue;
       }
       const existing = combined.get(row.code) || { code: row.code, name: row.name, balance: new Decimal(0) };
-      existing.balance = existing.balance.plus(row.balance);
+      existing.balance = existing.balance.plus(balance);
       combined.set(row.code, existing);
     }
   }
@@ -124,8 +168,10 @@ async function getConsolidatedTrialBalance(parentCompanyId, asOfDate) {
     .map((row) => ({ code: row.code, name: row.name, balance: row.balance.toFixed(2) }));
 
   return {
-    parentCompany: { id: parent.id, name: parent.name },
-    companiesIncluded: companies.map((company) => ({ id: company.id, name: company.name })),
+    parentCompany: { id: parent.id, name: parent.name, baseCurrency: parent.baseCurrency },
+    companiesIncluded: companies
+      .filter((company) => !currenciesWithoutRate.some((c) => c.companyId === company.id))
+      .map((company) => ({ id: company.id, name: company.name })),
     asOfDate,
     rows,
     intercompanyEliminated: intercompanyEliminated.toFixed(2),
@@ -134,6 +180,10 @@ async function getConsolidatedTrialBalance(parentCompanyId, asOfDate) {
     // agregado para el punto 5 de Reportes, que necesita mostrar el
     // detalle de eliminaciones, no solo el total.
     eliminatedDetail: eliminatedDetail.sort((a, b) => a.code.localeCompare(b.code)),
+    // F14-E8: empresas del grupo cuya moneda no pudo convertirse a la
+    // de la matriz por falta de una tasa registrada — quedaron
+    // excluidas del total en vez de mezclar unidades distintas.
+    currenciesWithoutRate,
   };
 }
 

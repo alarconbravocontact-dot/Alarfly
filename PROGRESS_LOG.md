@@ -5507,3 +5507,152 @@ creado; idempotencia, auditoría, RBAC y multiempresa verificados con
 evidencia real, no solo tests. No se implementó IA generativa. No se
 avanza a F12-B (arquitectura de IA) ni a F12-C ni a F13 — se espera
 autorización explícita del usuario.
+
+## F12-B — Arquitectura Preparada para IA
+
+A pedido explícito del usuario. Objetivo: dejar a Alarfly lista para
+incorporar IA de forma segura **sin construir IA todavía** — ni
+proveedor, ni chatbot, ni agente, ni embeddings, ni RAG, ni vector
+database. Se avisó de esto en la propia entrega: esta fase es
+"terreno seguro", no "la IA".
+
+### Decisión de alcance (tomada antes de escribir nada)
+
+Se verificó primero si ya existía un documento equivalente —
+`docs/ARQUITECTURA_MAESTRA.md` no cubre IA, no había ningún
+`AI_ARCHITECTURE.md` ni similar. Dado que **no existe hoy ningún
+consumidor real** de una capa de contexto de IA ni de un catálogo de
+herramientas, se decidió explícitamente que construir ese código ahora
+sería "código especulativo" — la advertencia más repetida de todo el
+pedido de esta fase. **F12-B se resolvió casi en su totalidad como
+documentación** (`AI_ARCHITECTURA.md`, nuevo), grounded en nombres de
+función/servicio reales (no inventados) para que, cuando exista un
+primer consumidor real en F12-C, construirlo sea mecánico y de bajo
+riesgo.
+
+### Auditoría (resumen — el detalle completo vive en AI_ARCHITECTURE.md)
+
+Reutilizando y extendiendo la auditoría ya hecha en Fase 11 (bis)/su
+control independiente y F12-A, se verificaron contra código real (no
+solo memoria de fases anteriores) las piezas que le faltaban a esta
+fase: `core/rbac` completo (`roles.js` — 4 roles fijos, cupos,
+`DELEGATABLE_PERMISSIONS`; `delegated-permissions.service.js`),
+`core/period-lock` (`assertOpenForDate`/`closePeriod`/`reopenPeriod`),
+`core/dimensions`, `core/fx` (`getAllLatestRates`/`revalueCompany`/
+etc.), `core/account/services` (contexto de usuario: `companies.
+service`, `notifications.service`, `preferences.service`,
+`profile.service`, `role.service`), `reports/services/dashboard.
+service.getDashboard` (confirmado como el precedente real más cercano
+a una "herramienta de lectura ya filtrada por rol en el servidor"),
+`finance/services/finance-summary.service.getFinanceSummary`, y
+`core/audit` (`log`/`listForEntity`/`listForEntities`/
+`listForCompany`). **Conclusión**: Alarfly ya tiene, en producción y
+probado, casi todo lo que una capa de IA necesitaría — servicios de
+dominio limpiamente separados en lectura/escritura, RBAC centralizado,
+auditoría centralizada, multiempresa aislado por `companyId` desde la
+capa de índices hacia arriba (ya confirmado en Fase 11 bis). Lo único
+que no existía era la especificación de cómo exponerlo con seguridad —
+eso es lo que entrega este documento.
+
+### Contenido de `AI_ARCHITECTURA.md` (25 secciones)
+
+Mapa de Fuentes de Verdad (por dominio, con el servicio real exacto);
+diseño del AI Context Layer (contrato de qué llevaría, derivado
+siempre del servidor — nunca del cliente, exactamente como ya funciona
+`req.auth` hoy); catálogo de Read Tools (14 filas, cada una apuntando
+a una función real que **ya existe**, con su riesgo y permiso RBAC
+real); catálogo de Action Tools (5 filas, todas Nivel 1-2, ninguna
+implementada); separación Read/Action (ya garantizada por el propio
+estilo de código del proyecto); modelo de permisos (`AI permissions ⊆
+USER permissions`, reutilizando `core/rbac`/`core/workflow` sin
+excepción); modelo de riesgo (BAJO/MEDIO/ALTO/CRÍTICO, con ejemplos
+reales de cada uno); Approval Gate conceptual (reutilizando los 3
+workflows de maker-checker que ya existen, sin una plataforma nueva);
+modelo de auditoría (`core/audit` sin extensión — con 2 campos
+identificados como pendientes para cuando exista un consumidor real:
+`source`/`correlationId`); modelo multiempresa (`companyId` desde el
+JWT, nunca declarado); minimización de datos; trazabilidad (con
+ejemplo real de la Previsión de Liquidez); clasificación de datos
+sensibles; contratos de herramienta en Zod (misma librería del
+proyecto, sin introducir una segunda); manejo de errores (mapeado a
+`AppError`, ya existente); regla de "sin acceso directo a base de
+datos" (verificada por construcción, no por promesa); qué aislar de un
+futuro proveedor de IA; evaluación (y descarte, por falta de
+implementación real) de una interfaz `AIProvider`; observabilidad;
+riesgos de seguridad futuros (prompt injection, cross-company leakage,
+etc.) con el control real que los mitigaría; política de niveles de
+autonomía (0-5, con 3+ explícitamente no implementados); catálogo de
+7 futuros asistentes (documental); y el principio de no duplicar
+inteligencia existente.
+
+### Código nuevo
+
+**Ninguno.** Decisión explícita y ya justificada arriba.
+
+### Documentación nueva
+
+`AI_ARCHITECTURA.md` (raíz del proyecto).
+
+### Tests
+
+No aplica — no se escribió código ejecutable nuevo. Se corrió la
+regresión completa de todas formas para confirmar que agregar un
+archivo de documentación no tocó nada: **672/672 tests de backend**
+(sin cambios desde F12-A). Durante la corrida se detectó que Postgres/
+backend/frontend se habían detenido otra vez por el entorno (mismo
+patrón intermitente ya visto varias veces en esta sesión, ajeno al
+código) — confirmado con el mensaje de error real (`Can't reach
+database server`), no una regresión: se reinició Postgres y los 3
+servicios, y la segunda corrida dio 672/672 limpio.
+
+### Validación real
+
+`npm run build`/`npm run lint` del frontend limpios, mismo baseline de
+8 warnings preexistentes (no se tocó ningún archivo de frontend). No
+aplica Playwright/API/RBAC en vivo/multiempresa en vivo para esta
+pieza — no hay ninguna superficie ejecutable nueva que probar; la
+validación real de esta fase es que el documento describe
+correctamente el código que ya existe, verificado leyendo ese código
+directamente (no memoria ni suposición) para cada tabla del documento.
+
+### Riesgos
+
+Ninguno nuevo — no se tocó ningún archivo de `src/`/`frontend/src/`.
+
+### Deuda técnica (documentada explícitamente en el propio archivo)
+
+1. `AuditLog` sin `source`/`correlationId` para distinguir actor
+   humano de actor-IA — migración aditiva simple, pendiente hasta que
+   exista un primer consumidor real.
+2. Política de privacidad/jurisdicción para datos que saldrían hacia
+   un proveedor externo de IA — decisión de negocio, no técnica,
+   pendiente.
+3. Ningún nivel de autonomía 3+ tiene un caso real evaluado.
+4. Los Action Tools son puramente conceptuales — el primer candidato
+   real para F12-C sería `preparePaymentOrder`, por apoyarse
+   íntegramente en mecanismos de aprobación ya existentes.
+
+### Qué queda para F12-C
+
+Elegir un primer caso real (probablemente una sola Read Tool simple,
+ej. `getFinancialSummary`) y construirlo end-to-end contra este
+documento — ahí se sabrá si el contrato de herramienta necesita
+ajustes antes de generalizarlo. F12-C también deberá elegir el
+proveedor de IA y resolver las decisiones pendientes de la sección de
+deuda técnica que ese primer caso toque.
+
+### Estado final de F12-B
+
+**Completada.** Los 22 criterios de éxito de la sección 37 del pedido
+se cumplen por diseño documental: Alarfly sigue siendo la única fuente
+de verdad, no hay acceso directo de IA a la base de datos (por
+construcción — cada herramienta propuesta envuelve un servicio
+existente, nunca Prisma), Read y Action están separados, RBAC/company
+scope/maker-checker/approval gates/audit/risk levels/data
+minimization/traceability están todos definidos apoyándose en
+mecanismos que ya existen y ya están probados — no se duplicó ningún
+motor (Ledger, RBAC, auditoría, workflow, alertas, jobs), no se
+integró ningún LLM ni proveedor, no se creó chatbot, 672/672 tests
+pasan, build/lint pasan, `PROGRESS_LOG.md` actualizado. Por la regla
+final de esta fase: **no se ejecuta F12-C ni F13** — se espera
+autorización explícita del usuario antes de continuar.

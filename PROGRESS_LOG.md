@@ -7268,3 +7268,99 @@ reconfirmado exitoso.
 **F15 — CERRADA CON DEUDA** (CRITICAL=0, HIGH=0 — condición de cierre
 cumplida; deuda restante exclusivamente LOW/dependencias normales de
 un despliegue real, todas documentadas en `F15_PRODUCTION_CLOSURE.md`).
+
+## F16 — Bloque 1 (E1-E5): Fundamentos Comerciales
+
+**Resultado: sin cambios de código.** Este bloque fue estrictamente de
+auditoría y documentación — se avisó explícitamente al usuario que no
+se construiría landing/registro público/trial/billing/onboarding
+comercial todavía, siguiendo la instrucción de auditar primero.
+
+> **Nota de fuente**: el `Markdown.md` ("Cuestionario Maestro de
+> Landing Page") mencionado por el usuario como fuente de verdad
+> comercial **no existe** en el repositorio ni en el sistema de
+> archivos de esta sesión — se buscó explícitamente y no apareció. Se
+> usó en su lugar el resumen de ese cuestionario que el propio usuario
+> incluyó dentro del pedido de esta fase. Se avisó de esto en los dos
+> documentos nuevos, no se ocultó ni se inventó contenido.
+
+### F16-E1 — Inventario de capacidades reales vs. comerciales
+Tabla de ~16 filas con evidencia de `grep` para cada una: **no existe**
+ninguna ruta pública de registro (`signup`), ninguna ruta de creación
+de empresa fuera de `prisma/seed.js`, ningún campo `trial*` en todo el
+schema, ningún modelo de plan/pago/suscripción, ninguna ruta pública
+(`frontend/src/App.jsx` no tiene ninguna ruta sin `ProtectedRoute`).
+Confirmado que sí existen y son reutilizables: `setup-status.service.js`
+(4 señales reales de activación, ya construido en F-Frontend) y
+`ROLE_QUOTAS` (cupos de RBAC — control de acceso, no un límite
+comercial de plan). Cero analítica/tracking de comportamiento en todo
+el proyecto.
+
+### F16-E2 — Posicionamiento y landing (análisis, sin construir)
+Tabla comparando cada afirmación del cuestionario contra la capacidad
+real del sistema. **Hallazgo de mayor riesgo, marcado explícitamente**:
+cualquier copy comercial que sugiera "IA" es sobreventa — F12-C (IA
+real) nunca se construyó a propósito (solo existe arquitectura
+"IA-ready" de F12-B, que no es una capacidad, es una preparación
+técnica). También se marcó la ambigüedad de la palabra "Integración"
+en el cuestionario, dado que F13 concluyó que cero integraciones
+externas reales están justificadas hoy.
+
+### F16-E3 — Auditoría técnica de viabilidad de pricing
+Checklist de 10 preguntas técnicas sobre el plan único de $25/mes +
+7 días de prueba **ya decidido por el usuario y preservado sin
+alterar**: sin excepción, todas responden "No" salvo la dependencia de
+despliegue — no existe ningún campo/modelo de trial, plan, pago,
+suscripción, ni lógica de bloqueo por vencimiento. Documentado como
+brecha de construcción, no como objeción a la decisión comercial ya
+tomada.
+
+### F16-E4 — Flujo de registro y activación (actual vs. ideal)
+Flujo actual: un ADMIN ya existente invita → el invitado acepta
+(`core/auth.acceptInvitation`) → entra a un panel funcional. No existe
+ningún camino de "una persona llega sola, se registra y crea su propia
+empresa". Flujo ideal (conceptual, sin implementar): registro público
+mínimo (correo + contraseña + nombre de empresa) que cree un `User` y
+una `Company` nuevos a la vez — ninguno de los dos flujos existe hoy
+fuera del seed.
+
+### F16-E5 — Auditoría del embudo comercial
+`F16_COMMERCIAL_FUNNEL_AUDIT.md` (entregable obligatorio de esta
+etapa): embudo actual vs. ideal, tabla de eventos ya medibles
+reutilizando `AuditLog`/`UserSession`/`setup-status.service` sin
+construir nada nuevo, y tabla de eventos **NOT TRACKED** (visita a
+landing, click en CTA, registro iniciado, inicio/vencimiento de trial,
+pago/suscripción) — ninguno inventado ni simulado. Candidato a
+"activación" definido con evidencia real (completar 1 de los 4 pasos
+de `setup-status.service`); candidato a "conversión" declarado
+explícitamente como **no definible todavía** (no existe concepto de
+pago en el sistema).
+
+### Hallazgos
+CRITICAL=0, HIGH=0, MEDIUM=0, LOW=0. **DEBT=6** (todas capacidades
+comerciales ausentes, no bugs): registro público, creación de empresa
+fuera del seed, campos/lógica de trial, modelos de plan/pago/
+suscripción, landing pública, y tracking de eventos comerciales.
+Ningún hallazgo de seguridad ni de arquitectura — es, en su totalidad,
+superficie de producto todavía no construida por decisión consciente
+(las fases anteriores nunca la necesitaron: el producto siempre se
+usó vía invitación directa).
+
+### Código modificado
+Ninguno — bloque estrictamente de auditoría y documentación.
+
+### Documentación
+`F16_COMMERCIAL_FOUNDATION_AUDIT.md` (nuevo, E1-E5 completo) y
+`F16_COMMERCIAL_FUNNEL_AUDIT.md` (nuevo, entregable específico de E5).
+
+### Validación de cierre
+707/707 tests (sin cambios — este bloque no tocó código), lint
+limpio (`eslint src`: 0 errores, 0 warnings), `prisma validate` sin
+errores.
+
+**F16 — BLOQUE E1–E5 CERRADO CON DEUDA** (CRITICAL=0, HIGH=0 —
+condición de cierre cumplida; la deuda es la superficie comercial
+completa aún no construida, documentada en detalle en
+`F16_COMMERCIAL_FOUNDATION_AUDIT.md`/`F16_COMMERCIAL_FUNNEL_AUDIT.md`,
+pendiente de decisión del usuario antes de construir nada de E6 en
+adelante).

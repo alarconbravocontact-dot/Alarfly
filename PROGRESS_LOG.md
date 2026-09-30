@@ -7516,3 +7516,148 @@ MEDIUM=0 tras corrección — condición de cierre cumplida; la deuda
 restante son capacidades de producto de mayor alcance, todas
 documentadas y ninguna bloqueante, pendientes de decisión del usuario
 antes de construir nada de E11 en adelante).
+
+## F16 — Bloque 3 (E11-E15): Métricas, Experimentación, Referidos, Afiliados y Growth Loops
+
+**Resultado: sin cambios de código — la conclusión correcta según la
+evidencia.** Se leyó todo el contexto obligatorio pedido (`CLAUDE.md`,
+`frontend/DESIGN_SYSTEM.md`, `F16_COMMERCIAL_FUNNEL_AUDIT.md`,
+`F16_ACTIVATION_CONVERSION_AUDIT.md`, `F14_ENTERPRISE_CLOSURE.md`,
+`F15_PRODUCTION_CLOSURE.md`, `AI_ARCHITECTURE.md`) y se verificó cada
+afirmación contra el código real, nunca asumida. `Markdown.md`,
+`ALARFLY_MASTER_UX_UI_REDESIGN.md` y `AI_ARQUITECTURA.md` (nombre
+exacto) no existen en el sistema de archivos — confirmado con
+búsqueda exhaustiva, mismo criterio de transparencia ya usado en los
+2 bloques anteriores de F16.
+
+### F16-E11 — Métricas comerciales
+Mapeadas las 4 categorías pedidas sin mezclarlas: operativas
+(`core/jobs`), de producto (`AuditLog`, `UserSession`,
+`setup-status.service`), comerciales (**ninguna existe**) y
+financieras (EBITDA/KPIs — del negocio del CLIENTE, no de Alarfly, sin
+relación). Confirmado en código que `UserSession.lastSeenAt` se
+actualiza en cada petición autenticada (`auth.middleware.js:38`) —
+fuente fiable de actividad real. **Hallazgo real**: no existe ninguna
+forma de ver métricas comerciales cruzando empresas (cuántas empresas
+se crearon, cuántos usuarios activos) sin consultar la base de datos
+directamente — es consecuencia correcta del aislamiento estricto por
+`companyId`, no un defecto. Conjunto mínimo de 4 métricas documentado
+(reutilizando fuentes ya existentes, sin ninguna tabla nueva) pero
+**no implementado**: construir el panel hoy sería mayormente vacío,
+sin registro público que lo alimente (misma raíz que E1-E5/E8).
+
+### F16-E12 — Experimentación / A-B
+Búsqueda exhaustiva con límites de palabra (`\bfeatureFlag`,
+`\bexperiment\b`, etc.): cero resultados reales — la primera pasada,
+más amplia, arrojó ~40 falsos positivos, todos coincidencias de
+`ProductVariant` (catálogo de Inventario, sin relación). Determinado
+que no existe necesidad real: sin volumen ni flujo público, cualquier
+experimento sería ruido. Documentadas las condiciones mínimas para
+justificarlo en el futuro (landing + registro real, asignación
+determinística, evento de conversión reutilizando E11). **Nada
+implementado.**
+
+### F16-E13 — Referidos
+Cero resultados en `\breferral|\breferredBy|\breferrer\b` en todo el
+proyecto. Distinguido explícitamente de `access-levels.inviteUser`
+(invita DENTRO de la misma empresa, expansión de equipo, no
+adquisición externa) — no se confundieron ni fusionaron los dos
+conceptos. Sin registro público, no hay dónde atribuir un referido.
+Modelo conceptual mínimo documentado (código de referido por persona,
+atribución inmutable, solo cuenta tras activación real). **Nada
+implementado.**
+
+### F16-E14 — Afiliados
+Cero resultados reales en `\baffiliate\b|\baliado\b|\bcomisi[oó]n\b`
+— las 4 coincidencias de la búsqueda amplia son datos de prueba de
+otro dominio (una línea de presupuesto de ejemplo en un test de FP&A,
+"Comisión bancaria" en fixtures de conciliación de Tesorería) sin
+ninguna relación con un programa de afiliados de Alarfly. Por
+instrucción explícita del bloque, no se implementó nada de pagos/
+payout/integración bancaria o fiscal. Arquitectura mínima
+documentada (reutiliza la atribución de E13 + depende de billing
+real de E8, comisión $5 pendiente de aprobación manual, nunca pago
+automático). **Nada implementado.**
+
+### F16-E15 — Growth Loops
+Auditados los 5 mecanismos reales compartibles del producto
+(invitar usuario, vistas guardadas, reportes anclados, exportar
+PDF/Excel/CSV, Junta) — **ninguno cruza el límite de una empresa**
+(confirmado: cero rutas públicas fuera de `/acceso`, todo lo demás
+exige sesión). Hallazgo honesto: Alarfly no tiene hoy ningún growth
+loop de Product-Led Growth, y es en gran parte consecuencia CORRECTA
+de su propio aislamiento multiempresa (la regla de seguridad más
+defendida del proyecto, F14), no un defecto a corregir aislado. Los 5
+tipos de growth (Product-Led/Sales-Led/Affiliate/Content/Referral)
+evaluados sin asumir que Alarfly deba usarlos todos.
+
+### Auditoría transversal
+Sin superficie nueva que auditar (cero endpoints/rutas nuevas). Se
+reconfirmó (sin repetir la auditoría completa de F14) que ningún
+endpoint acepta `companyId` de URL/body sin autorización. RBAC/
+UserCompanyAccess sin cambios. `core/audit` confirmado como única
+fuente de eventos con actor — la creación de empresa por seed no
+genera auditoría por no tener actor humano, comportamiento esperado,
+no un bug.
+
+### Hallazgos
+CRITICAL=0, HIGH=0, MEDIUM=0, LOW=0. **DEBT=5** (panel de métricas
+comerciales, experimentación, referidos, afiliados, growth loops —
+los 5 comparten la misma raíz ya documentada: sin registro público ni
+billing real, no hay volumen ni conversión real que medir/atribuir
+todavía).
+
+### Código modificado
+Ninguno.
+
+### Qué se descartó y por qué
+Cualquier pieza de las 5 etapas — construir infraestructura de
+Growth sin registro público/trial/billing real detrás habría sido,
+por definición, especulativa (instrucción explícita del bloque,
+repetida varias veces en el pedido).
+
+### Tests
+708/708 antes → 708/708 después (sin cambios — este bloque no tocó
+código). 1 test de integración flaky por contención transitoria de
+Postgres bajo workers paralelos, reconfirmado limpio en aislado y en
+la suite completa (mismo patrón ya documentado varias veces en este
+proyecto).
+
+### Validación
+`npm test` (708/708), `npm run lint` backend (0 errores/warnings),
+`npx prisma validate` (sin errores), `npm run lint` frontend (mismo
+baseline de 8 warnings preexistentes, 0 nuevos) — reconfirmados sin
+cambios porque no se tocó ningún archivo de código. No se corrió
+Playwright en este bloque: no hay ningún cambio funcional que
+justificarlo (regla explícita del proyecto: no crear tests/
+validaciones artificiales cuando no hubo cambio de código).
+
+### Decisiones
+
+**DECISIÓN ACTUAL** (preservada sin alterar): plan único $25/mes, 7
+días de prueba; comisión de afiliado $5 (documentada, no
+implementada).
+
+**RECOMENDACIÓN**: secuencia de dependencia real, no por número de
+etapa — 1) registro público + empresa (E1-E5), 2) trial + billing
+(E8), 3) panel de métricas comerciales (E11, ya hay algo real que
+medir), 4) referidos simples (E13, más barato que afiliados), 5)
+afiliados (E14, reutiliza E13 + billing), 6) A/B testing (E12, solo
+si el volumen de (1) lo justifica).
+
+**PENDIENTE DE DECISIÓN DEL USUARIO**: si el panel de métricas
+comerciales de la plataforma amerita un nuevo tipo de acceso
+(`PLATFORM_ADMIN`, distinto del RBAC por empresa existente) y cuándo
+priorizar registro público/trial/billing, precondición de todo lo
+demás.
+
+### Documentación
+`F16_GROWTH_AUDIT.md` (nuevo, E11-E15 completo, con evidencia de cada
+búsqueda y la cadena ¿Existe?→...→¿Hace falta crear? aplicada a las 5
+etapas).
+
+**F16 — BLOQUE E11–E15 CERRADO CON DEUDA** (CRITICAL=0, HIGH=0,
+MEDIUM=0 — condición de cierre cumplida sin necesitar ninguna
+corrección; la deuda es, en su totalidad, infraestructura de Growth
+que depende de precondiciones ya documentadas en bloques anteriores,
+ninguna bloqueante, ninguna construida sin justificación real).

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { productsApi, productCategoriesApi, unitsOfMeasureApi } from '../../api/inventory';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -57,6 +57,18 @@ export default function CatalogPage() {
   const [unitName, setUnitName] = useState('');
   const [setupError, setSetupError] = useState('');
 
+  // F17-E2: bug real encontrado con una empresa recién creada — el
+  // formulario de "Nuevo producto" siempre estaba visible, pero el
+  // selector de "Unidad de medida base" quedaba sin ninguna opción
+  // real (solo el placeholder) mientras el panel donde se crea una
+  // unidad seguía colapsado ("Mostrar") arriba, sin ninguna pista de
+  // que había que abrirlo primero — un callejón sin salida para el
+  // primer producto. Se abre solo una vez, automáticamente, la
+  // primera vez que la carga inicial confirma que no existe ninguna
+  // unidad de medida — nunca se vuelve a forzar después (el usuario
+  // puede cerrarlo y no reabrirse solo en cada refresco posterior).
+  const hasAutoOpenedSetup = useRef(false);
+
   const loadAll = useCallback(async () => {
     setIsLoading(true);
     setLoadError('');
@@ -69,6 +81,10 @@ export default function CatalogPage() {
       setProducts(productsData);
       setCategories(categoriesData);
       setUnits(unitsData);
+      if (!hasAutoOpenedSetup.current && unitsData.length === 0) {
+        hasAutoOpenedSetup.current = true;
+        setIsSetupOpen(true);
+      }
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'No se pudo cargar el catálogo.');
     } finally {

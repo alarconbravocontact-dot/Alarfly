@@ -20,7 +20,14 @@ const quickSalePaymentSchema = z.object({
 
 const quickSaleSchema = z.object({
   customerId: z.string().optional(),
-  jurisdictionId: z.string().min(1),
+  // F17-E3: bug real de severidad alta encontrado con una empresa
+  // nueva de verdad — sin este mensaje, enviar la venta sin ninguna
+  // jurisdicción fiscal configurada (que es exactamente lo que le pasa
+  // a una empresa que nunca configuró Fiscal) mostraba el mensaje
+  // crudo de Zod en inglés ("String must contain at least 1
+  // character(s)") directamente en la pantalla — viola la regla del
+  // proyecto de nunca mostrar un error técnico sin traducir.
+  jurisdictionId: z.string().min(1, 'Selecciona una jurisdicción fiscal antes de registrar la venta.'),
   incomeAccountId: z.string().min(1),
   issueDate: z.coerce.date(),
   taxRateId: z.string().optional(),

@@ -68,10 +68,27 @@
   font-size: 14px;
 }
 
+.app-sidebar-brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .app-sidebar-name {
   font-family: var(--font-family-serif);
   font-weight: 600;
   letter-spacing: 0.01em;
+}
+
+/* F17-E1: nombre de la empresa activa — antes no se veía en ningún
+   lugar de la navegación principal, solo en Mi Cuenta > Preferencias. */
+.app-sidebar-company-name {
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
 }
 
 .app-nav {

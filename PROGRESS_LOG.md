@@ -7780,3 +7780,249 @@ bloque, con validación real en 5 anchos; la deuda restante es, en su
 totalidad, infraestructura comercial que depende de una precondición
 explícitamente fuera de alcance de F16, sin ningún hallazgo de
 seguridad/RBAC/multiempresa/UX pendiente sin documentar).
+
+## F17 — Bloque 1 (E1-E5): Product Readiness — Experiencia real de usuario desde cero
+
+**Metodología**: a diferencia de F0 (auditoría arquitectónica), este
+bloque simuló de punta a punta, con una empresa nueva real creada
+fuera del seed (`F17 Empresa Nueva`, un `ADMIN` recién invitado, sin
+ningún dato previo), el recorrido completo que haría un cliente real
+el primer día: entrar, entender qué hacer, configurar su empresa, y
+completar su primera venta, primera compra, primer cobro y primer
+pago — usando Playwright contra los dos servidores reales y Postgres
+real en cada paso, nunca inferencia de código. Cada bloqueo encontrado
+se resolvió en el momento (no se documentó y se siguió de largo),
+siguiendo la cadena real tal como la encontraría un usuario.
+
+### F17-E1 — Primer Acceso
+Login → Panel principal → primera acción recorridos con Playwright.
+**Hallazgo real**: el nombre de la empresa activa no aparecía en
+ningún lugar de la navegación principal — solo en Mi Cuenta ›
+Preferencias, una pantalla que un usuario nuevo no tiene motivo para
+visitar el primer día. Con una sola empresa por usuario (documentado
+como estado actual en "Decisiones tomadas"), esto no es un blocker
+funcional pero sí una fricción de confianza ("¿estoy en la empresa
+correcta?"). Corregido reutilizando la llamada a `getCompanyProfile()`
+que `CurrencyContext` ya hacía (sin API nueva): el nombre de la
+empresa ahora se muestra bajo "Alarfly" en el sidebar, siempre
+visible, y como `title` del logo cuando el menú está colapsado.
+
+### F17-E2 — Configuración de Empresa
+Simulado el llenado real de los "pasos" que el propio
+`SetupProgressBar` (F-Frontend) ya promete. **3 bloqueos reales
+encontrados y corregidos, en cadena** (cada uno desbloqueaba al
+siguiente):
+1. **Catálogo sin unidad de medida**: `CatalogPage` mostraba el
+   formulario de "Nuevo producto" con el selector de Unidad de Medida
+   vacío y sin ninguna pista — el panel de "Categorías y unidades de
+   medida" (que sí permite crear una) estaba colapsado por defecto.
+   Corregido: el panel se auto-abre la primera vez que la pantalla
+   detecta que no hay ninguna unidad de medida creada (una sola vez
+   por montaje, nunca se vuelve a forzar si el usuario lo cierra).
+2. **Sin Plan de Cuentas ni Periodo Contable**: una empresa nueva
+   arranca con 0 cuentas — sin eso, nada que dependa de una cuenta
+   contable (inventario, ventas, compras) puede funcionar. El backend
+   ya tenía `account-templates.service.applyTemplate` completo y
+   probado (usado internamente por `prisma/seed.js` desde Fase 1) pero
+   **nunca tuvo ninguna interfaz** — el único hallazgo de mayor
+   impacto de todo el bloque. Corregido agregando "Aplicar plantilla"
+   a `ChartOfAccountsPage` (visible solo cuando el árbol está vacío):
+   selecciona una plantilla y crea las ~30 cuentas de una vez.
+   Verificado en vivo: aplicado "Plan de Cuentas Estándar" a la
+   empresa de prueba, árbol completo (Activo/Pasivo/Patrimonio/
+   Ingreso/Gasto) confirmado por captura de pantalla. El periodo
+   contable (formulario ya existente, funcional, sin bloqueo) se creó
+   sin problema una vez que había al menos una cuenta.
+3. **`Ajustes de Cuentas por Cobrar y por Pagar` no existía en ningún
+   lugar del producto**: el propio mensaje de error del backend al
+   intentar facturar decía literalmente "Configúrala en Ajustes antes
+   de facturar", pero esa pantalla no existía — un callejón sin salida
+   real, encontrado porque se intentó facturar de verdad, no porque se
+   leyera el código. El servicio de backend (`core/ar-ap-settings`)
+   estaba completo desde Fase 3. Corregido: `ArApSettingsPage.jsx`
+   nuevo (cuenta de Cuentas por Cobrar / cuenta de Cuentas por Pagar /
+   cliente "Consumidor Final" opcional), 9na pestaña de `ArApLayout`,
+   solo editable por `ADMIN` (coincide con el `requireRole('ADMIN')`
+   del backend). Verificado en vivo: PATCH 200, valores correctos
+   persistidos y releídos tras recargar.
+
+### F17-E3 — Primera Venta
+Simulada una venta completa por Venta Rápida, siguiendo la cadena de
+bloqueos real (cada uno con su propio hallazgo):
+- **Sin almacén**: `QuickSalePage` no avisaba que hacía falta un
+  almacén antes de intentar guardar. Corregido: enlace inline "Crea tu
+  primer almacén →" junto al selector, visible solo si la lista está
+  vacía (mismo patrón que ya usa la pantalla para Fiscal).
+- **Sin jurisdicción fiscal + error técnico crudo**: sin jurisdicción,
+  el envío fallaba con el mensaje de Zod sin traducir ("String must
+  contain at least 1 character(s)") — viola la regla explícita del
+  proyecto ("nunca un error técnico crudo"), confirmado en vivo, no
+  solo leído en el código. Corregido: mensaje en español en
+  `quick-sale.validator.js` (`jurisdictionId`) + aviso inline con
+  enlace a Fiscal (mismo patrón que el de almacén). Se dejó
+  documentado, a propósito, que otros campos `.min(1)` del proyecto
+  siguen sin mensaje propio — solo se corrigió el que se demostró
+  alcanzable en vivo, no se barrió el resto por precaución.
+- **Producto sin cuenta de costo de venta**: mensaje ya humano
+  ("...tampoco hay una configurada por defecto en Ajustes de
+  Inventario"), pero sin enlace — agregado un enlace condicional en el
+  mismo `alert-box-error` cuando el mensaje lo menciona.
+- **Bug real en `StockPage` (Ajustes de Inventario), encontrado
+  guardando la configuración con un campo opcional en blanco**: las 3
+  cuentas son opcionales (una empresa puede no tener/querer una cuenta
+  de merma todavía), pero el formulario enviaba las 3 siempre,
+  incluidas las vacías como `""` — el validador del backend
+  (`z.string().min(1).optional()`) rechazaba **todo** el guardado con
+  un mensaje técnico crudo, incluso cuando las otras 2 cuentas sí
+  estaban bien elegidas. Corregido en `StockPage.handleSaveSettings`:
+  solo se envían las cuentas con valor real. Verificado en vivo: PATCH
+  200 guardando 2 de 3 cuentas, la tercera `null` como se esperaba.
+- Con todo resuelto: venta registrada de punta a punta ("Factura N.º 1
+  registrada por 50,00 US$, cobrada por 50,00 US$"), coherencia
+  confirmada Panel principal ↔ Finanzas › Resumen (Caja 50,00 US$,
+  EBITDA 40,00 US$ en ambas pantallas, cifra idéntica).
+- **Venta Normal (Pedidos → Entregas) revisada aparte**, tal como pide
+  el prompt: Pedido creado → Confirmado → Entrega creada desde el
+  pedido confirmado (con la cantidad pendiente correctamente acotada
+  por línea) → Entrega confirmada (con la advertencia de
+  irreversibilidad esperada de `ConfirmContext` antes de descontar
+  inventario real). **Hallazgo documentado, no corregido**: facturar
+  una entrega ya confirmada no tiene ningún selector "desde pedido" en
+  `ArInvoicesPage` — el backend sí soporta `salesOrderId`/
+  `salesOrderLineId` para trazabilidad, pero el usuario tendría que
+  re-escribir la factura a mano sin ninguna ayuda. No es un callejón
+  sin salida (Venta Rápida, el flujo del día a día ya documentado como
+  tal, cubre el caso principal de punta a punta) — es una
+  conveniencia ausente, registrada como MEDIUM/DEUDA, no corregida
+  para no introducir una pantalla nueva fuera del alcance de "corregir
+  lo que ya existe".
+
+### F17-E4 — Primera Compra
+Cadena completa simulada sin necesitar ningún fix adicional (los 3
+fixes de E2/E3 ya habían despejado el camino): proveedor ya existente
+→ Orden de Compra creada (Proveedor Demo, Almacén Principal, 20
+unidades a $8) → Enviada → Recibida completa (0 discrepancia,
+inventario subió a 120 unidades) → Factura de Compra creada **desde
+la orden recibida** (`ApBillsPage` sí tiene el selector "Facturar
+desde una orden de compra ya recibida", a diferencia de AR — con su
+propio paso intermedio "Agregar estas líneas a la factura", verificado
+funcionando) → Pago parcial de $50 registrado (saldo insuficiente para
+pagar el total $160 de una sola vez con los $50 de caja disponibles —
+un pago parcial es un caso real y válido, no un límite del sistema).
+Coherencia confirmada: Panel principal y Finanzas › Resumen mostraron
+exactamente los mismos números (Caja 0,00 US$, CxP 110,00 US$) en las
+dos pantallas.
+
+### F17-E5 — Primer Cobro / Primer Pago
+Simulados como flujos **independientes** del resto (a propósito
+distinto de Venta Rápida, que junta factura+cobro en un solo paso):
+factura de venta a crédito registrada manualmente (sin pago, quedó
+`OPEN`) → cobrada después, por separado, desde `Cobros` (repartido
+contra esa factura, $80 exactos). Del lado de compras, el pago
+parcial de E4 ya demostró el mismo patrón AP de forma independiente.
+Coherencia final confirmada tras las 3 transacciones de E3-E5: Panel
+principal y Finanzas › Resumen exactamente iguales (Caja 80,00 US$,
+CxC 0,00 US$, CxP 110,00 US$) en ambas pantallas.
+
+### Consistencia entre pantallas
+Verificada en cada paso, nunca al final solamente: Panel principal ↔
+Finanzas › Resumen coincidieron exacto en los 3 puntos de control
+(después de E3, después de E4, después de E5) — mismas cifras, mismas
+fuentes de verdad, sin ninguna pantalla mostrando un número distinto
+para el mismo concepto.
+
+### Responsive
+25 combinaciones verificadas (1440/1280/1024/768/390px × Panel
+principal/Plan de Cuentas/Venta Rápida/Ajustes AR-AP/Ajustes de
+Inventario) — **cero desborde horizontal** (`scrollWidth === clientWidth`
+exacto en las 25), incluida la pantalla de 390px que corresponde al
+bug CRITICAL ya corregido en F16-E19. Sin regresión.
+
+### Seguridad / Multiempresa / RBAC
+Las 3 superficies nuevas (`ArApSettingsPage`, el selector de plantilla
+en `ChartOfAccountsPage`, los 2 endpoints ya existentes que ganaron
+frontend) reutilizan el mismo patrón de aislamiento por `companyId`
+(`req.auth.companyId`) y el mismo gate de rol (`requireRole('ADMIN')`
+en el backend para `ArApSettingsPage`, replicado en el frontend con
+`canManage`) que ya usa el resto del proyecto — no se introdujo
+ninguna ruta ni consulta nueva sin ese patrón. No se tocó
+`core/rbac`, `core/auth` ni ningún middleware de acceso.
+
+### Hallazgos
+CRITICAL=0, HIGH=3 (los 3 callejones sin salida de configuración
+inicial — plantilla de cuentas, Ajustes AR/AP, guardado roto de
+Ajustes de Inventario —, los 3 corregidos), MEDIUM=2 (mensaje técnico
+crudo de jurisdicción fiscal, corregido; falta de enlaces de ayuda en
+2 puntos, corregidos), LOW=0. **DEUDA=1** (facturar una entrega desde
+`ArInvoicesPage` sin selector "desde pedido" — documentado, no
+corregido, no bloquea el flujo principal). Ninguna funcionalidad
+comercial nueva introducida (no Landing/Billing/Trial/Afiliados,
+fuera de alcance de F17 igual que de F16).
+
+### Código modificado
+`frontend/src/context/CurrencyContext.jsx` (+`companyName`),
+`frontend/src/components/AppLayout.jsx`/`.css` (nombre de empresa en
+sidebar), `frontend/src/pages/inventory/CatalogPage.jsx` (auto-abrir
+panel de unidades si está vacío), `frontend/src/api/accounting.js`
+(+`accountTemplatesApi`), `frontend/src/pages/accounting/
+ChartOfAccountsPage.jsx` (+aplicar plantilla), `frontend/src/pages/
+sales/QuickSalePage.jsx` (+aviso de almacén, +enlace en error de
+cuenta de costo), `src/modules/sales/validators/quick-sale.validator.js`
+(mensaje de `jurisdictionId`), `frontend/src/api/ar.js`
+(+`arApSettingsApi`), `frontend/src/pages/ar-ap/ArApSettingsPage.jsx`
+(nuevo), `frontend/src/config/moduleTabs.js` (+pestaña "Ajustes"),
+`frontend/src/App.jsx` (+ruta `/cuentas/ajustes`), `frontend/src/
+pages/inventory/StockPage.jsx` (bug real: no enviar cuentas opcionales
+vacías).
+
+### Tests
+708/708 antes → 707/708 en la corrida completa después (1 test de
+integración de Ventas — `sales-orders-deliveries.integration.test.js`
+— falló por una colisión de `email` único en un fixture compartido al
+correr en paralelo con el resto de la suite; **confirmado no
+relacionado con ningún cambio de este bloque**: 10/10 pasa limpio al
+correrlo aislado, y el archivo de fixtures/test no fue tocado en este
+bloque). 0 tests unitarios nuevos — todos los fixes de este bloque son
+UI/mensajes/payload, sin lógica pura nueva que amerite un test
+dedicado, validados en su lugar con Playwright contra Postgres real en
+cada paso.
+
+### Validación real
+Playwright contra los dos servidores reales y Postgres real, con una
+empresa nueva creada fuera del seed (`F17 Empresa Nueva`) para no
+contaminar los datos de demostración de sesiones anteriores: E1-E5
+recorridos de punta a punta con capturas de pantalla en cada paso
+clave, cada fix re-verificado con una llamada real (POST/PATCH con
+status y body confirmados, nunca solo "se ve bien"). `npm test`
+(707/708, ver arriba), `npm run lint` backend (0 errores), `npm run
+lint` frontend (mismo baseline de 8 warnings preexistentes, 0 nuevos),
+`npm run build` frontend (868 módulos, sin errores). Responsive: 25/25
+combinaciones sin desborde horizontal.
+
+### Decisiones
+**Venta normal sin selector "desde pedido" en Facturas de Venta**:
+documentado como DEUDA explícita, no corregido en este bloque — agregar
+un selector nuevo en `ArInvoicesPage` sería construir una pantalla más
+compleja, fuera del criterio de "corregir bloqueos reales, no agregar
+funcionalidad nueva" que rige este bloque. Venta Rápida (el flujo
+recomendado del día a día) no tiene esta limitación.
+
+**Empresa de prueba dejada activa, no borrada**: el intento de limpieza
+automática (mismo patrón ya usado en F16) chocó con relaciones sin
+cascada completa en el grafo de claves foráneas (`JournalEntryLineFpaDimension`,
+`ArPaymentApplication`, y probablemente más en cadena) — borrar
+`Company` a mano exigiría resolver el orden de borrado de decenas de
+tablas relacionadas, un trabajo de limpieza de datos fuera del alcance
+de E1-E5. La empresa `F17 Empresa Nueva` queda documentada acá,
+identificable por su nombre, para que el usuario decida si la borra a
+mano o la conserva como entorno de prueba.
+
+### Documentación
+`F17_PRODUCT_READINESS_E1_E5.md` (nuevo, las 17 secciones pedidas
+explícitamente).
+
+**F17 — BLOQUE E1–E5 CERRADO** (CRITICAL=0, HIGH=0 tras esta sesión —
+los 3 HIGH encontrados se corrigieron en el mismo bloque con
+validación real; la única deuda es una conveniencia de UX no
+bloqueante, documentada explícitamente. Detenido aquí por instrucción
+explícita del prompt — no se avanza a E6 sin autorización nueva).

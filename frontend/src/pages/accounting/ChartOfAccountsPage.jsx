@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { accountsApi } from '../../api/accounting';
+import { accountsApi, accountTemplatesApi } from '../../api/accounting';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -139,6 +139,19 @@ export default function ChartOfAccountsPage() {
   const [formError, setFormError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
+  // F17-E2: bug real de severidad alta encontrado con una empresa
+  // nueva de verdad — el servicio de plantillas ya existía completo
+  // (es lo que usa `prisma/seed.js`), pero nunca tuvo ninguna
+  // pantalla. Sin esto, una empresa nueva no tenía NINGUNA forma de
+  // conseguir un plan de cuentas salvo crear cada cuenta a mano, una
+  // por una — y sin plan de cuentas no se puede crear ni una cuenta
+  // bancaria, ni una venta, ni nada que dependa de una cuenta
+  // contable real.
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [isApplyingTemplate, setIsApplyingTemplate] = useState(false);
+  const [templateError, setTemplateError] = useState('');
+
   const loadTree = useCallback(async () => {
     setIsLoading(true);
     setLoadError('');
@@ -155,6 +168,39 @@ export default function ChartOfAccountsPage() {
   useEffect(() => {
     loadTree();
   }, [loadTree]);
+
+  useEffect(() => {
+    if (!canManage) return;
+    accountTemplatesApi
+      .list()
+      .then((data) => {
+        setTemplates(data);
+        if (data.length > 0) setSelectedTemplateId(data[0].id);
+      })
+      .catch(() => {});
+  }, [canManage]);
+
+  async function handleApplyTemplate() {
+    if (!selectedTemplateId) return;
+    const template = templates.find((t) => t.id === selectedTemplateId);
+    const ok = await confirm({
+      title: 'Aplicar plantilla de cuentas',
+      message: `Se van a crear todas las cuentas de "${template?.name || 'esta plantilla'}" en tu plan de cuentas. Las cuentas que ya tengas no se tocan ni se duplican.`,
+      confirmLabel: 'Aplicar plantilla',
+    });
+    if (!ok) return;
+
+    setTemplateError('');
+    setIsApplyingTemplate(true);
+    try {
+      await accountTemplatesApi.apply(selectedTemplateId);
+      await loadTree();
+    } catch (err) {
+      setTemplateError(err instanceof ApiError ? err.message : 'No se pudo aplicar la plantilla.');
+    } finally {
+      setIsApplyingTemplate(false);
+    }
+  }
 
   const flatAccounts = useMemo(() => flattenTree(tree), [tree]);
   const sectionsByType = useMemo(() => {
@@ -330,10 +376,37 @@ export default function ChartOfAccountsPage() {
         {isLoading && <p className="text-muted">Cargando…</p>}
         {!isLoading && loadError && <p className="alert-box alert-box-error">{loadError}</p>}
         {!isLoading && !loadError && flatAccounts.length === 0 && (
-          <EmptyState
-            icon="◆"
-            message="Todavía no registraste ninguna cuenta — crea la primera con “+ Nueva cuenta”, arriba."
-          />
+          <>
+            <EmptyState
+              icon="◆"
+              message="Todavía no registraste ninguna cuenta — crea la primera con “+ Nueva cuenta”, arriba."
+            />
+            {canManage && templates.length > 0 && (
+              <div className="panel" style={{ marginTop: 16 }}>
+                <p className="field-label">
+                  O empieza más rápido con una plantilla
+                  <HelpTooltip text="Una plantilla crea de una vez un plan de cuentas completo y ya organizado (activos, pasivos, patrimonio, ingresos y gastos), para que no tengas que crear cada cuenta a mano. Se puede editar después." />
+                </p>
+                <div className="btn-row" style={{ marginTop: 8 }}>
+                  <select value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)}>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="btn btn-primary" onClick={handleApplyTemplate} disabled={isApplyingTemplate}>
+                    {isApplyingTemplate ? 'Aplicando…' : 'Aplicar plantilla'}
+                  </button>
+                </div>
+                {templateError && (
+                  <p className="alert-box alert-box-error" style={{ marginTop: 12 }}>
+                    {templateError}
+                  </p>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         {!isLoading && !loadError && flatAccounts.length > 0 && focusedNode && (

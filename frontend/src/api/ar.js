@@ -1,6 +1,17 @@
 import { api } from './client';
 import { withProgress } from '../utils/progressBarBus';
 
+// F17-E2/E3: el backend ya existía completo desde Fase 3 (es lo que
+// exige `createInvoice`/`createBill` antes de postear el asiento de
+// cualquier factura) pero nunca había tenido ninguna pantalla — el
+// propio mensaje de error de la venta decía literalmente "Configúrala
+// en Ajustes", una pantalla que no existía en ningún lugar del
+// producto.
+export const arApSettingsApi = {
+  get: () => api.get('/ar-ap-settings'),
+  update: (data) => api.patch('/ar-ap-settings', data),
+};
+
 export const customersApi = {
   list: (query) => api.get('/accounts-receivable/customers', query),
   getOne: (id) => api.get(`/accounts-receivable/customers/${id}`),

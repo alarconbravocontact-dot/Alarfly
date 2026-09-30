@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useCurrency } from '../context/CurrencyContext';
 import { usePinnedItems } from '../context/PinnedItemsContext';
 import { accessLevelsApi } from '../api/access-levels';
 import { panelPreferencesApi } from '../api/panel-preferences';
@@ -102,6 +103,7 @@ function initials(name) {
 
 export default function AppLayout() {
   const { user, roleLabel, logout } = useAuth();
+  const { companyName } = useCurrency();
   const { items: pinnedItems, unpin } = usePinnedItems();
   const [hasAccessLevelsAccess, setHasAccessLevelsAccess] = useState(user?.role === 'ADMIN');
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -252,9 +254,14 @@ export default function AppLayout() {
     <div className="app-shell">
       <GlobalProgressBar />
       <aside className={`app-sidebar${effectiveCollapsed ? ' is-collapsed' : ''}`}>
-        <div className="app-sidebar-brand">
+        <div className="app-sidebar-brand" title={effectiveCollapsed && companyName ? companyName : undefined}>
           <span className="app-sidebar-mark">A</span>
-          {!effectiveCollapsed && <span className="app-sidebar-name">Alarfly</span>}
+          {!effectiveCollapsed && (
+            <div className="app-sidebar-brand-text">
+              <span className="app-sidebar-name">Alarfly</span>
+              {companyName && <span className="app-sidebar-company-name">{companyName}</span>}
+            </div>
+          )}
         </div>
 
         {pinnedItems.length > 0 && (

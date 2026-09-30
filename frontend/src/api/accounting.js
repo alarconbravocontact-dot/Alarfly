@@ -9,6 +9,17 @@ export const accountsApi = {
   remove: (id) => api.delete(`/accounting/accounts/${id}`),
 };
 
+// F17-E2: el servicio ya existía completo desde el primer día del
+// proyecto (es lo que usa `prisma/seed.js` para armar el plan de
+// cuentas de la empresa demo) pero nunca había tenido ninguna
+// pantalla — una empresa nueva real, creada fuera del seed, no tenía
+// ninguna forma de conseguir un plan de cuentas sin crear cada cuenta
+// a mano, una por una.
+export const accountTemplatesApi = {
+  list: () => api.get('/accounting/account-templates'),
+  apply: (templateId) => api.post(`/accounting/account-templates/${templateId}/apply`),
+};
+
 export const journalEntriesApi = {
   list: (query) => api.get('/accounting/journal-entries', query),
   getOne: (id) => api.get(`/accounting/journal-entries/${id}`),

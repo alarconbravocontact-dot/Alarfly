@@ -19,6 +19,12 @@ function cacheKey(userId) {
 export function CurrencyProvider({ children }) {
   const { user } = useAuth();
   const [baseCurrency, setBaseCurrency] = useState('USD');
+  // F17-E1: un usuario nuevo nunca veía en ningún lugar de la
+  // navegación principal a qué empresa pertenecían los datos que
+  // estaba mirando (solo aparecía escondido en Mi Cuenta >
+  // Preferencias) — reutiliza la misma llamada que este contexto ya
+  // hacía para la moneda base, sin pedir nada nuevo al servidor.
+  const [companyName, setCompanyName] = useState('');
   const [displayCurrency, setDisplayCurrencyState] = useState('');
   const [rates, setRates] = useState([]);
 
@@ -26,6 +32,7 @@ export function CurrencyProvider({ children }) {
     if (!user) {
       setDisplayCurrencyState('');
       setRates([]);
+      setCompanyName('');
       return;
     }
     const cached = localStorage.getItem(cacheKey(user.id));
@@ -33,7 +40,10 @@ export function CurrencyProvider({ children }) {
 
     accountApi
       .getCompanyProfile()
-      .then((company) => setBaseCurrency(company.baseCurrency || 'USD'))
+      .then((company) => {
+        setBaseCurrency(company.baseCurrency || 'USD');
+        setCompanyName(company.name || '');
+      })
       .catch(() => {});
 
     accountApi
@@ -99,8 +109,8 @@ export function CurrencyProvider({ children }) {
   }, [rates, baseCurrency]);
 
   const value = useMemo(
-    () => ({ baseCurrency, displayCurrency, setDisplayCurrency, availableCurrencies, convert }),
-    [baseCurrency, displayCurrency, setDisplayCurrency, availableCurrencies, convert]
+    () => ({ baseCurrency, companyName, displayCurrency, setDisplayCurrency, availableCurrencies, convert }),
+    [baseCurrency, companyName, displayCurrency, setDisplayCurrency, availableCurrencies, convert]
   );
 
   return <CurrencyContext.Provider value={value}>{children}</CurrencyContext.Provider>;

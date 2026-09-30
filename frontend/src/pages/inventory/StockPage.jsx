@@ -66,7 +66,17 @@ export default function StockPage() {
     setSettingsError('');
     setIsSavingSettings(true);
     try {
-      await inventorySettingsApi.update(settingsForm);
+      // F17-E3: bug real encontrado en vivo — las 3 cuentas son opcionales
+      // (una empresa puede no tener/querer una cuenta de merma todavía),
+      // pero enviarlas como "" (en vez de omitirlas) hacía que el
+      // validador del backend (`z.string().min(1).optional()`) rechazara
+      // TODO el guardado con un mensaje técnico crudo, incluso cuando las
+      // otras 2 cuentas sí estaban bien elegidas — nada se guardaba.
+      const payload = { defaultValuationMethod: settingsForm.defaultValuationMethod };
+      if (settingsForm.defaultInventoryAssetAccountId) payload.defaultInventoryAssetAccountId = settingsForm.defaultInventoryAssetAccountId;
+      if (settingsForm.defaultCogsExpenseAccountId) payload.defaultCogsExpenseAccountId = settingsForm.defaultCogsExpenseAccountId;
+      if (settingsForm.defaultShrinkageExpenseAccountId) payload.defaultShrinkageExpenseAccountId = settingsForm.defaultShrinkageExpenseAccountId;
+      await inventorySettingsApi.update(payload);
       await loadAll(warehouseId);
     } catch (err) {
       setSettingsError(err instanceof ApiError ? err.message : 'No se pudo guardar la configuración.');

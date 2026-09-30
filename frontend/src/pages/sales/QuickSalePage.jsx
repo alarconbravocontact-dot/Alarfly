@@ -207,6 +207,16 @@ export default function QuickSalePage() {
                         </option>
                       ))}
                     </select>
+                    {/* F17-E3: bug real encontrado con una empresa nueva —
+                        sin ningún almacén creado, este selector queda sin
+                        ninguna opción real y no hay ninguna pista de a
+                        dónde ir a crear uno (la pantalla de Almacenes está
+                        en otro módulo, Inventario, no en Ventas). */}
+                    {warehouses.length === 0 && (
+                      <Link to="/inventario/almacenes" style={{ fontSize: 11 }}>
+                        Crea tu primer almacén →
+                      </Link>
+                    )}
                   </label>
                 )}
                 <label className="field" style={{ width: 90 }}>
@@ -310,9 +320,28 @@ export default function QuickSalePage() {
           Total: <strong>{formatCurrency(total)}</strong>
         </p>
 
+        {/* F17-E3: bug real encontrado con una empresa nueva — sin
+            ninguna jurisdicción fiscal configurada, la venta no se
+            podía registrar (el motor fiscal siempre necesita resolver
+            una para calcular el impuesto), pero nada lo avisaba antes
+            de intentar guardar — el campo vive dentro de "Opciones
+            avanzadas", colapsado por defecto. */}
+        {jurisdictions.length === 0 && (
+          <p className="alert-box alert-box-warning" style={{ gridColumn: '1 / -1' }}>
+            Todavía no configuraste ninguna jurisdicción fiscal — la necesitas para poder registrar una venta.{' '}
+            <Link to="/fiscal/impuestos">Configúrala en Fiscal →</Link>
+          </p>
+        )}
+
         {formError && (
           <p className="alert-box alert-box-error" style={{ gridColumn: '1 / -1' }}>
             {formError}
+            {formError.includes('Ajustes de Inventario') && (
+              <>
+                {' '}
+                <Link to="/inventario/stock">Configúrala ahí →</Link>
+              </>
+            )}
           </p>
         )}
 

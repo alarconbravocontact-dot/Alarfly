@@ -471,3 +471,23 @@
     width: 160px;
   }
 }
+
+/* F16-E18: bug real encontrado con `scrollWidth` en un teléfono real
+   (390px) — incluso con el sidebar forzado a modo "solo íconos" (ver
+   AppLayout.jsx, `isNarrowViewport`), el topbar por sí solo seguía
+   necesitando ~468px (buscador 156px + moneda/incógnito/notificaciones/
+   avatar/cerrar sesión 280px) contra los ~322px reales disponibles —
+   arrastraba a toda la página a un ancho mayor que la pantalla,
+   cortando a la mitad cifras de dinero en el Panel principal. El
+   buscador de pantallas ("Buscar una pantalla…") es el elemento más
+   grande y menos esencial en un teléfono — el mismo destino ya es
+   alcanzable navegando el menú lateral — así que se oculta por
+   completo en vez de seguir angostándolo (ya se había angostado a
+   160px arriba, sin ser suficiente). El atajo de teclado "/" que lo
+   abre tampoco aplica en un teléfono (sin teclado físico), así que no
+   se pierde ninguna función real, solo una comodidad de escritorio. */
+@media (max-width: 480px) {
+  .nav-search {
+    display: none;
+  }
+}

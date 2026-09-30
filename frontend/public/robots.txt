@@ -1,0 +1,9 @@
+# F16-E17: Alarfly todavía no tiene ninguna página pública/landing —
+# todo lo que existe hoy detrás de "/" es la pantalla de acceso o
+# contenido que exige sesión. Sin este archivo, los buscadores
+# rastrean/indexan por defecto ("Iniciar sesión" como único resultado,
+# más cientos de rutas de la SPA sin contenido real que mostrar) —
+# se bloquea todo hasta que exista una landing real que sí deba
+# indexarse.
+User-agent: *
+Disallow: /

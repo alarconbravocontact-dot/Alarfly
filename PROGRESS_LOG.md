@@ -7661,3 +7661,122 @@ MEDIUM=0 — condición de cierre cumplida sin necesitar ninguna
 corrección; la deuda es, en su totalidad, infraestructura de Growth
 que depende de precondiciones ya documentadas en bloques anteriores,
 ninguna bloqueante, ninguna construida sin justificación real).
+
+## F16 — Bloque Final (E16-E20): Adquisición, SEO, Conversión, Auditoría Final y Cierre
+
+Este bloque cierra F16 completo. Se leyó todo el contexto obligatorio
+(los 3 documentos previos de F16, `F14_ENTERPRISE_CLOSURE.md`,
+`F15_PRODUCTION_CLOSURE.md`, `AI_ARCHITECTURE.md`) y se verificó cada
+afirmación contra el código y, en la mayor parte de este bloque,
+contra el navegador real — no solo revisión estática.
+
+### F16-E16 — Sistema de Adquisición
+Reconfirmado (sin novedad): el único canal real de entrada es la
+invitación interna (`access-levels.inviteUser`), sin atribución
+externa posible. Cero mecanismo de contacto en todo el frontend
+(confirmado con `grep`). Sin ningún canal que medir todavía — no se
+implementó nada.
+
+### F16-E17 — SEO / Contenido Comercial
+`index.html` solo tenía `<title>`, sin metadata, sin `robots.txt`, sin
+`sitemap.xml` — esperado, sin landing pública que optimizar.
+**Hallazgo real, corregido**: sin `robots.txt` ni `noindex`, un
+buscador indexa por defecto la pantalla de login y rutas de SPA sin
+contenido real. Se agregó `frontend/public/robots.txt` (`Disallow: /`)
++ `<meta name="robots" content="noindex, nofollow">` en `index.html`
+— confirmados en el build de producción y servidos en vivo. No se
+agregó meta description/Open Graph (no tiene sentido en una página
+marcada `noindex`) ni ningún blog/CMS/contenido automático.
+
+### F16-E18 — Optimización de Conversión (hallazgo más importante de F16)
+Validación visual real con Playwright en 5 anchos (los 4 pedidos —
+1440/1280/1024/768 — más 390px, un teléfono real, agregado porque
+768 es tablet, no teléfono). **Hallazgo CRITICAL real**: a 390px,
+`document.documentElement.scrollWidth` medía 668px contra un viewport
+de 390px — la aplicación completa quedaba con las cifras de dinero
+del Panel principal cortadas a la mitad. Diagnosticado elemento por
+elemento (no supuesto): el sidebar expandido (200-240px) + el
+contenido del topbar (468px: buscador + moneda + incógnito +
+notificaciones + usuario + cerrar sesión) juntos necesitaban 668px.
+**Corregido en `AppLayout.jsx`/`.css`**: el sidebar se fuerza al modo
+"solo íconos" (ya existente, ya probado en escritorio) en viewports de
+teléfono (`isNarrowViewport`, ≤640px) sin tocar la preferencia real
+del usuario — se computa `effectiveCollapsed = isCollapsed ||
+isNarrowViewport` y se usa en todo el render del sidebar; el botón de
+alternar se oculta en teléfono (no hay nada que alternar); el buscador
+de pantallas se oculta por debajo de 480px (alcanzable igual navegando
+el menú). Revalidado: `scrollWidth === 390` exacto, cero desborde.
+Reconfirmados los 4 anchos originales sin regresión, y el toggle
+manual de escritorio (expandir/contraer/persistencia tras recargar)
+sin cambios. Revalidado también con un rol restringido
+(`COLLABORATOR`) a 390px: mismo subconjunto de módulos que en
+escritorio, sin afectar RBAC. Trial/Pricing reconfirmados sin
+comunicarse en ningún lugar del producto (no hay dónde, sin
+landing) — sin cambios.
+
+### F16-E19 — Auditoría Comercial Final
+Sweep completo con matriz de 15 áreas (posicionamiento, adquisición,
+SEO, registro/onboarding, first value/activación, trial, pricing,
+conversión, retención, referidos, afiliados, growth loops, métricas
+comerciales, UX/responsive, seguridad/RBAC/multiempresa, dark
+patterns) — un solo CRITICAL (el desborde móvil, corregido), un
+MEDIUM (SEO técnico, corregido), el resto DEBT ya documentado en
+bloques anteriores, ninguno nuevo. Dark patterns: ninguno encontrado
+(no hay nada que manipular sin pricing/trial visible en el producto).
+
+### Hallazgos
+CRITICAL=1 (corregido), HIGH=0, MEDIUM=1 (corregido), LOW=0. DEBT: la
+misma raíz ya documentada en los 3 bloques anteriores de F16 (registro
+público/trial/billing ausentes), sin piezas nuevas más allá de lo ya
+registrado.
+
+### Código modificado
+`frontend/index.html` (+meta robots noindex), `frontend/public/robots.txt`
+(nuevo), `frontend/src/components/AppLayout.jsx` (+`isNarrowViewport`
++ `effectiveCollapsed`, sidebar forzado a modo íconos en teléfono),
+`frontend/src/components/AppLayout.css` (+regla `@media (max-width:
+480px)` ocultando el buscador de pantallas).
+
+### Tests
+708/708 antes → 708/708 después (backend sin cambios, el fix es 100%
+frontend). 0 regresiones. Sin tests unitarios nuevos: el cambio es de
+presentación/layout responsivo, sin lógica de negocio pura que probar
+con Jest — validado con Playwright contra navegador real en su lugar.
+
+### Validación real
+`npm test` (708/708), `npm run lint` backend (0 errores), `npm run lint`
+frontend (mismo baseline de 8 warnings preexistentes), `npm run build`
+frontend (867 módulos, `robots.txt`/meta `noindex` confirmados en
+`dist/`). Playwright contra los dos servidores reales y Postgres real:
+`scrollWidth` medido elemento por elemento antes y después del fix en
+5 anchos, toggle de escritorio revalidado, rol restringido revalidado
+a 390px sin afectar RBAC, `robots.txt` confirmado servido en vivo.
+
+### Decisiones
+
+**DECISIÓN ACTUAL** (preservada en los 4 bloques de F16, sin alterar):
+plan único $25/mes, 7 días de prueba, comisión de afiliado $5
+(documentada, no implementada).
+
+**RECOMENDACIÓN**: el `robots.txt`/`noindex` agregado en este bloque
+debe relajarse (quitar noindex, agregar metadata real) el día que
+exista una landing pública real — es una medida defensiva temporal,
+no permanente.
+
+**PENDIENTE DE DECISIÓN DEL USUARIO**: cuándo priorizar registro
+público/trial/billing (la precondición de toda la deuda restante de
+F16), y si el panel de métricas comerciales de la plataforma amerita
+un nuevo tipo de acceso (`PLATFORM_ADMIN`).
+
+### Documentación
+`F16_COMMERCIAL_CLOSURE.md` (nuevo, 32 secciones, documento maestro
+único de cierre de F16 — no duplica el contenido de
+`F16_COMMERCIAL_FUNNEL_AUDIT.md`/`F16_ACTIVATION_CONVERSION_AUDIT.md`/
+`F16_GROWTH_AUDIT.md`, los referencia).
+
+**F16 — CERRADA CON DEUDA** (CRITICAL=0, HIGH=0 tras esta sesión — el
+único CRITICAL de toda la fase se encontró y se corrigió en este mismo
+bloque, con validación real en 5 anchos; la deuda restante es, en su
+totalidad, infraestructura comercial que depende de una precondición
+explícitamente fuera de alcance de F16, sin ningún hallazgo de
+seguridad/RBAC/multiempresa/UX pendiente sin documentar).

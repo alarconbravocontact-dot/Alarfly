@@ -106,6 +106,32 @@ export default function AppLayout() {
   const [hasAccessLevelsAccess, setHasAccessLevelsAccess] = useState(user?.role === 'ADMIN');
   const [isCollapsed, setIsCollapsed] = useState(false);
 
+  // Bug real encontrado en la validación visual de F16 (E18): medido
+  // con `scrollWidth` real (no solo una captura a ancho fijo, mismo
+  // rigor que ya exigió el bug del Rediseño UX/UI Etapa 3, arriba) —
+  // en un teléfono real (390px) el sidebar EXPANDIDO (200-240px) deja
+  // menos de 190px para el resto de la pantalla, y el topbar por sí
+  // solo ya necesita más de eso — el desborde arrastraba a TODA la
+  // página, dejando cifras de dinero cortadas a la mitad. Ningún
+  // ancho de topbar por sí solo lo resuelve: un sidebar de 200px+
+  // simplemente no cabe en un teléfono, sin importar la preferencia
+  // de escritorio del usuario (`isCollapsed`, persistida en el
+  // servidor). Se fuerza el modo contraído (mismas clases/JSX ya
+  // probadas del modo "solo íconos") en viewports angostos, sin tocar
+  // la preferencia real del usuario — al volver a un ancho normal,
+  // el sidebar vuelve exactamente a como el usuario lo dejó.
+  const [isNarrowViewport, setIsNarrowViewport] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth <= 640
+  );
+  useEffect(() => {
+    function handleResize() {
+      setIsNarrowViewport(window.innerWidth <= 640);
+    }
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  const effectiveCollapsed = isCollapsed || isNarrowViewport;
+
   // Rediseño UX/UI (Etapa 1) — bug real encontrado y corregido: el
   // flyout de un módulo (`.app-nav-flyout`, `position: absolute; left:
   // 100%`) nunca se veía, ni con el sidebar expandido NI colapsado —
@@ -225,21 +251,21 @@ export default function AppLayout() {
   return (
     <div className="app-shell">
       <GlobalProgressBar />
-      <aside className={`app-sidebar${isCollapsed ? ' is-collapsed' : ''}`}>
+      <aside className={`app-sidebar${effectiveCollapsed ? ' is-collapsed' : ''}`}>
         <div className="app-sidebar-brand">
           <span className="app-sidebar-mark">A</span>
-          {!isCollapsed && <span className="app-sidebar-name">Alarfly</span>}
+          {!effectiveCollapsed && <span className="app-sidebar-name">Alarfly</span>}
         </div>
 
         {pinnedItems.length > 0 && (
           <nav className="app-nav app-nav-pinned">
-            {!isCollapsed && <p className="app-nav-section-title">Anclados</p>}
+            {!effectiveCollapsed && <p className="app-nav-section-title">Anclados</p>}
             {pinnedItems.map((item) => (
               <div
                 key={item.id}
                 className="app-nav-item-wrap app-nav-pinned-row"
                 onMouseEnter={(e) =>
-                  isCollapsed &&
+                  effectiveCollapsed &&
                   openFlyout(`pin-${item.id}`, e.currentTarget, () => (
                     <>
                       <p className="app-nav-flyout-title">{item.label}</p>
@@ -260,21 +286,21 @@ export default function AppLayout() {
               >
                 <NavLink
                   to={item.path}
-                  title={isCollapsed ? item.label : undefined}
-                  aria-label={isCollapsed ? item.label : undefined}
+                  title={effectiveCollapsed ? item.label : undefined}
+                  aria-label={effectiveCollapsed ? item.label : undefined}
                   className={({ isActive }) => `app-nav-link app-nav-pinned-link${isActive ? ' is-active' : ''}`}
                 >
                   <span className="app-nav-icon" aria-hidden="true">
                     ◈
                   </span>
-                  {!isCollapsed && <span className="app-nav-pinned-label">{item.label}</span>}
+                  {!effectiveCollapsed && <span className="app-nav-pinned-label">{item.label}</span>}
                 </NavLink>
-                {!isCollapsed && item.suggestUnpin && (
+                {!effectiveCollapsed && item.suggestUnpin && (
                   <span className="app-nav-pinned-suggest" title="No lo has visitado en un tiempo — considera desanclarlo">
                     ●
                   </span>
                 )}
-                {!isCollapsed && (
+                {!effectiveCollapsed && (
                   <button
                     type="button"
                     className="app-nav-pinned-unpin"
@@ -295,7 +321,7 @@ export default function AppLayout() {
         <nav className="app-nav app-nav-main">
           {navAreas.map((group) => (
             <div key={group.area || 'inicio'} className="app-nav-area">
-              {group.area && !isCollapsed && <p className="app-nav-section-title">{group.area}</p>}
+              {group.area && !effectiveCollapsed && <p className="app-nav-section-title">{group.area}</p>}
               {group.items.map((item) => {
                 const hasSubItems = item.subItems && item.subItems.length > 0;
                 const renderFlyout = () => (
@@ -304,7 +330,7 @@ export default function AppLayout() {
                         se ve en la fila — repetirlo en el flyout sería
                         ruido; solo hace falta cuando el sidebar está
                         contraído a solo íconos. */}
-                    {isCollapsed && <p className="app-nav-flyout-title">{item.label}</p>}
+                    {effectiveCollapsed && <p className="app-nav-flyout-title">{item.label}</p>}
                     <div className="app-nav-flyout-links">
                       {item.subItems.map((sub) => (
                         <NavLink key={sub.to} to={sub.to} className="app-nav-flyout-link" onClick={closeFlyoutNow}>
@@ -326,14 +352,14 @@ export default function AppLayout() {
                     <NavLink
                       to={item.to}
                       end={item.end}
-                      title={isCollapsed ? item.label : undefined}
-                      aria-label={isCollapsed ? item.label : undefined}
+                      title={effectiveCollapsed ? item.label : undefined}
+                      aria-label={effectiveCollapsed ? item.label : undefined}
                       className={({ isActive }) => `app-nav-link${isActive ? ' is-active' : ''}`}
                     >
                       <span className="app-nav-icon" aria-hidden="true">
                         {item.icon}
                       </span>
-                      {!isCollapsed && item.label}
+                      {!effectiveCollapsed && item.label}
                     </NavLink>
                   </div>
                 );
@@ -346,7 +372,7 @@ export default function AppLayout() {
           <div
             className="app-nav-item-wrap"
             onMouseEnter={(e) =>
-              isCollapsed && openFlyout('logout', e.currentTarget, () => <p className="app-nav-flyout-title">Cerrar sesión</p>)
+              effectiveCollapsed && openFlyout('logout', e.currentTarget, () => <p className="app-nav-flyout-title">Cerrar sesión</p>)
             }
             onMouseLeave={scheduleCloseFlyout}
           >
@@ -354,26 +380,32 @@ export default function AppLayout() {
               type="button"
               className="app-nav-link app-nav-logout"
               onClick={logout}
-              title={isCollapsed ? 'Cerrar sesión' : undefined}
-              aria-label={isCollapsed ? 'Cerrar sesión' : undefined}
+              title={effectiveCollapsed ? 'Cerrar sesión' : undefined}
+              aria-label={effectiveCollapsed ? 'Cerrar sesión' : undefined}
             >
               <Icon name="logout" size={18} />
-              {!isCollapsed && 'Cerrar sesión'}
+              {!effectiveCollapsed && 'Cerrar sesión'}
             </button>
           </div>
         </nav>
 
         <div className="app-sidebar-footer">
-          {!isCollapsed && <p className="app-sidebar-hint">Alarfly · Plataforma financiera</p>}
-          <button
-            type="button"
-            className="app-sidebar-collapse-toggle"
-            onClick={toggleCollapsed}
-            title={isCollapsed ? 'Expandir menú' : 'Contraer menú'}
-            aria-label={isCollapsed ? 'Expandir menú' : 'Contraer menú'}
-          >
-            {isCollapsed ? '»' : '«'}
-          </button>
+          {!effectiveCollapsed && <p className="app-sidebar-hint">Alarfly · Plataforma financiera</p>}
+          {/* En un teléfono real no hay nada que expandir (el sidebar
+              se fuerza contraído por falta de espacio, ver arriba) —
+              mostrar el botón ahí lo dejaría pareciendo roto (clic sin
+              ningún efecto visible), así que se oculta solo en ese caso. */}
+          {!isNarrowViewport && (
+            <button
+              type="button"
+              className="app-sidebar-collapse-toggle"
+              onClick={toggleCollapsed}
+              title={isCollapsed ? 'Expandir menú' : 'Contraer menú'}
+              aria-label={isCollapsed ? 'Expandir menú' : 'Contraer menú'}
+            >
+              {isCollapsed ? '»' : '«'}
+            </button>
+          )}
         </div>
       </aside>
 

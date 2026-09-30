@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { accountApi } from '../api/account';
 import { useAuth } from '../context/AuthContext';
 import './SetupProgressBar.css';
@@ -15,6 +16,7 @@ const REFRESH_MS = 20000;
 
 export default function SetupProgressBar() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [status, setStatus] = useState(null);
   const [isDismissed, setIsDismissed] = useState(
     () => user && sessionStorage.getItem(dismissKey(user.id)) === '1'
@@ -70,10 +72,15 @@ export default function SetupProgressBar() {
             <span className="setup-progress-bar-check" aria-hidden="true">
               {step.done ? '✓' : ''}
             </span>
-            <div>
+            <div className="setup-progress-bar-step-body">
               <span className="setup-progress-bar-step-label">{step.label}</span>
               {!step.done && <span className="setup-progress-bar-step-description">{step.description}</span>}
             </div>
+            {!step.done && step.path && (
+              <button type="button" className="setup-progress-bar-step-go" onClick={() => navigate(step.path)}>
+                Ir →
+              </button>
+            )}
           </li>
         ))}
       </ol>

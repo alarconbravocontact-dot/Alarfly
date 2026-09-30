@@ -57,6 +57,26 @@
   gap: var(--space-2);
 }
 
+.setup-progress-bar-step-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.setup-progress-bar-step-go {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-brand-strong);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+  padding: 2px 0;
+  white-space: nowrap;
+}
+
+.setup-progress-bar-step-go:hover {
+  text-decoration: underline;
+}
+
 .setup-progress-bar-check {
   flex-shrink: 0;
   width: 20px;

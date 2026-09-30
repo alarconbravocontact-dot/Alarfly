@@ -24,6 +24,7 @@ describe('getSetupStatus', () => {
     const step = result.steps.find((s) => s.key === 'PRODUCT_OR_CLIENT');
     expect(step.label).toBe('Carga tu primer producto');
     expect(step.done).toBe(false);
+    expect(step.path).toBe('/inventario/catalogo');
     expect(result.allDone).toBe(false);
     expect(result.completedCount).toBe(0);
   });
@@ -40,6 +41,23 @@ describe('getSetupStatus', () => {
     const step = result.steps.find((s) => s.key === 'PRODUCT_OR_CLIENT');
     expect(step.label).toBe('Registra tu primer cliente');
     expect(step.done).toBe(true);
+    expect(step.path).toBe('/cuentas/clientes');
+  });
+
+  // F16-E6: cada paso pendiente necesita una ruta real a la que
+  // navegar — sin esto, el usuario tenía que adivinar en qué pantalla
+  // completar cada paso solo por su descripción en texto.
+  test('cada paso trae la ruta real de la pantalla donde se completa', async () => {
+    prisma.company.findUnique.mockResolvedValue({ rif: null, usesInventory: true });
+    prisma.treasuryAccount.count.mockResolvedValue(0);
+    prisma.product.count.mockResolvedValue(0);
+    prisma.user.count.mockResolvedValue(1);
+
+    const result = await getSetupStatus('c1');
+
+    expect(result.steps.find((s) => s.key === 'FISCAL_DATA').path).toBe('/mi-cuenta/perfil');
+    expect(result.steps.find((s) => s.key === 'BANK_ACCOUNT').path).toBe('/tesoreria/cuentas');
+    expect(result.steps.find((s) => s.key === 'INVITE_USER').path).toBe('/niveles-de-acceso');
   });
 
   test('marca datos fiscales como hechos solo si el RIF no está vacío', async () => {

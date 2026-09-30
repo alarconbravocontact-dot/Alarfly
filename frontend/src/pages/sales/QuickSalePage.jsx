@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { quickSaleApi, paymentMethodsApi } from '../../api/sales';
 import { customersApi } from '../../api/ar';
 import { productsApi, warehousesApi } from '../../api/inventory';
@@ -323,7 +324,8 @@ export default function QuickSalePage() {
       {lastResult && (
         <p className="alert-box alert-box-success" style={{ marginTop: 16 }}>
           Factura N.º {lastResult.invoice.invoiceNumber} registrada por {formatCurrency(lastResult.invoice.totalAmount)}
-          {lastResult.payment ? `, cobrada por ${formatCurrency(lastResult.payment.amount)}.` : '.'}
+          {lastResult.payment ? `, cobrada por ${formatCurrency(lastResult.payment.amount)}.` : '.'}{' '}
+          <Link to="/finanzas/resumen">Ver cómo afectó tu situación financiera →</Link>
         </p>
       )}
     </div>

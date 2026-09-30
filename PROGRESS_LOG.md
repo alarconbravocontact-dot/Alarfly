@@ -7364,3 +7364,155 @@ completa aún no construida, documentada en detalle en
 `F16_COMMERCIAL_FOUNDATION_AUDIT.md`/`F16_COMMERCIAL_FUNNEL_AUDIT.md`,
 pendiente de decisión del usuario antes de construir nada de E6 en
 adelante).
+
+## F16 — Bloque 2 (E6-E10): Experiencia, Activación, Conversión y Retención Inicial
+
+Tomó como fuente de verdad el informe final de F16 Bloque 1 (E1-E5),
+sin repetir esa auditoría — solo se re-referenció donde una etapa
+dependía directamente de ella (E8, sobre la ausencia de trial/billing).
+
+### F16-E6 — Onboarding
+Auditado el mecanismo ya existente (`setup-status.service.js` +
+`SetupProgressBar.jsx`, ambos de una pieza anterior) — no se creó un
+segundo sistema. **Hallazgo real (MEDIUM, corregido)**: cada paso del
+checklist mostraba su descripción en texto plano, sin ningún enlace a
+la pantalla donde se completa — el usuario tenía que adivinar en qué
+módulo hacerlo. `setup-status.service.js` ganó un campo `path` por
+paso (`/mi-cuenta/perfil`, `/tesoreria/cuentas`,
+`/inventario/catalogo`/`/cuentas/clientes`, `/niveles-de-acceso`) y
+`SetupProgressBar.jsx` ganó un botón "Ir →" por paso pendiente que
+navega directo. Documentado como DEBT (no implementado): un onboarding
+activo/guiado (wizard) — hoy todo es pasivo, no existe ninguna
+pantalla de bienvenida (confirmado: cero resultados de "bienvenid" en
+todo el frontend).
+
+### F16-E7 — Activación / First Value
+Se auditó el Dashboard (mucho más rico de lo que documentaba la
+última entrada de `CLAUDE.md` — evolucionó en F9/F12, no reflejado
+ahí) y `Finanzas > Resumen`. Dos candidatos identificados con
+evidencia real (no asumidos): Venta Rápida (acción más corta) y
+Resumen financiero (traducción más directa del valor a lenguaje
+simple). **Hallazgo real (MEDIUM, corregido)**: el mensaje de éxito de
+Venta Rápida confirmaba la venta pero no conectaba con su impacto
+financiero (First Action ≠ First Value, exactamente el ejemplo del
+propio pedido). `QuickSalePage.jsx` ganó el enlace "Ver cómo afectó tu
+situación financiera →" hacia `/finanzas/resumen` — validado en vivo
+de punta a punta con Playwright + Postgres real (venta de 10,00 US$
+registrada, cobrada, navegación confirmada al Resumen con datos
+reales). Activation Event propuesto con evidencia (1 paso de
+`setup-status` + 1 movimiento de dinero real) — documentado, sin
+implementar como score visible (el prompt pide explícitamente no
+construirlo todavía).
+
+### F16-E8 — Conversión Trial → Paid
+Sin cambios de código. Reconfirmado con `grep` sobre todo el proyecto:
+cero campos/modelos de trial/plan/billing/pago comercial (los únicos
+`payment`/`plan` que existen son del propio negocio del usuario —
+`ArPayment`/`Budget`/etc., sin relación). Tabla de los 8 momentos
+pedidos (empieza/pasa 1 día/pocos días/termina/continuar/no
+paga/cancela) documentada — ninguno existe. Pricing preservado sin
+alterar ($25/mes, 7 días, plan único). Arquitectura conceptual
+necesaria documentada (campos de trial en `Company`, modelo de
+plan/suscripción, gate server-side) — nada implementado, tal como
+exige el bloque.
+
+### F16-E9 — Retención inicial
+Mapeados los mecanismos reales de recurrencia ya existentes:
+`core/alerts` (9 tipos, la señal más fuerte), `NotificationCenter`
+(recarga cada 60s dentro de la sesión), Previsión de Liquidez
+(semanal), KPIs/Presupuesto vs. Real (mensual) — ninguno nuevo, F12
+reutilizado sin duplicar motor de inteligencia. **Hallazgo real
+(DEBT, no corregido — requiere elegir proveedor)**: `notifyAlert()`
+sigue vacía (documentado desde hace varias fases) — toda la
+recurrencia depende de que el usuario abra la app por su cuenta, sin
+ningún "pull" externo (email/push). Retention Event propuesto con
+evidencia: "volver porque hay una decisión financiera pendiente"
+(cobranza/pago por vencer), no una frecuencia artificial.
+
+### F16-E10 — UX Comercial Transversal
+Continuidad de marca confirmada contra el código real (no contra
+`CLAUDE.md`, desactualizado en este punto): `theme.css` ya usa
+wine red (`--color-brand: #9c2740`) + charcoal (`--color-bg:
+#0b0d10`) — coincide exactamente con lo pedido, sin ninguna
+inconsistencia que resolver. Sin landing pública, el riesgo de
+"marketing vs. software" no puede materializarse todavía — documentado
+como requisito futuro, no hallazgo de hoy. **Hallazgo real (MEDIUM,
+corregido parcialmente)**: de ~40+ usos de `EmptyState` en todo el
+frontend, la enorme mayoría son solo descriptivos (sin explicar por
+qué importa ni ofrecer acción) — la capacidad `actionLabel`/`onAction`
+del propio componente nunca se había usado en ninguna pantalla.
+Corregidos los 2 casos en la ruta crítica de onboarding/primer valor
+(`CustomersPage.jsx`, `CatalogPage.jsx` — literalmente el destino del
+paso 3 del checklist), con mensaje explicando el "por qué importa" +
+botón de acción directa. El resto (~38 pantallas secundarias) queda
+documentado como DEBT — reescribirlas todas es un trabajo de
+contenido desproporcionado para este bloque. Errores/ayuda contextual
+reconfirmados sin cambios (ya cumplían el estándar).
+
+### Hallazgos
+CRITICAL=0, HIGH=0. **MEDIUM=3, los 3 corregidos** (checklist sin
+enlaces, First Action sin First Value, estados vacíos críticos sin
+acción). **DEBT=5 nuevos** (onboarding activo, Activation Score,
+retención sin canal externo, ~38 estados vacíos secundarios,
+`CLAUDE.md` desactualizado en Sistema de Diseño) + los ya conocidos de
+E1-E5 (registro/trial/billing).
+
+### Código modificado
+`src/core/account/services/setup-status.service.js` (+path por paso),
+`src/core/account/services/setup-status.service.test.js` (+3
+aserciones nuevas), `frontend/src/components/SetupProgressBar.jsx`
+(+botón "Ir →"), `frontend/src/components/SetupProgressBar.css`
+(+estilos), `frontend/src/pages/ar-ap/CustomersPage.jsx` (EmptyState
+mejorado), `frontend/src/pages/inventory/CatalogPage.jsx` (EmptyState
+mejorado), `frontend/src/pages/sales/QuickSalePage.jsx` (enlace a
+Resumen financiero).
+
+### Tests
+707/707 antes → 708/708 después (1 nuevo: aserciones de `path` en
+`setup-status.service.test.js`, extendiendo tests ya existentes en
+vez de duplicar). 0 regresiones (1 test de integración flaky por
+contención transitoria de Postgres bajo workers paralelos —
+reconfirmado limpio al reejecutar en aislado y en la suite completa,
+mismo patrón ya documentado varias veces en este proyecto).
+
+### Validación real
+`npm test` (708/708), `npm run lint` backend (0 errores/warnings),
+`npm run lint` frontend (mismo baseline de 8 warnings preexistentes,
+0 nuevos), `npm run build` frontend (867 módulos, sin errores).
+Validado con Playwright + Postgres real (no solo revisión de código):
+empresa nueva creada a propósito (y borrada al terminar, mismo
+criterio que la verificación original de `SetupProgressBar`) — los 4
+botones "Ir →" confirmados presentes, clic en el del paso de producto
+navegó correctamente a `/inventario/catalogo`; estado vacío de
+Catálogo mostró el mensaje mejorado + botón "+ Nuevo producto", clic
+abrió el formulario de creación; mismo patrón confirmado en Clientes
+(mensaje mejorado + "+ Nuevo cliente"). Venta Rápida completa de
+punta a punta contra la empresa demo real (cliente + producto +
+cobro): mensaje de éxito con el enlace nuevo, clic navegó
+correctamente a `/finanzas/resumen` con datos reales cargados.
+
+### Decisiones
+
+**DECISIÓN ACTUAL** (preservada sin alterar): plan único $25/mes, 7
+días de prueba (E1-E5).
+
+**RECOMENDACIÓN**: priorizar, en este orden, Activation Score simple
+(reutiliza datos ya existentes, bajo costo) → conectar
+`notifyAlert()` a un proveedor de correo (cierra el hueco de
+retención más grande) → onboarding activo guiado (mayor esfuerzo de
+diseño, mayor impacto en el primer login).
+
+**PENDIENTE DE DECISIÓN DEL USUARIO**: forma exacta del onboarding
+guiado (¿modal al primer login? ¿cuántos pasos se pueden omitir?),
+proveedor de correo/push para alertas, si vale la pena invertir en
+reescribir los ~38 estados vacíos secundarios o dejarlos como están.
+
+### Documentación
+`F16_ACTIVATION_CONVERSION_AUDIT.md` (nuevo, E6-E10 completo, con
+tabla de fricciones por severidad y funnel actualizado).
+
+**F16 — BLOQUE E6–E10 CERRADO CON DEUDA** (CRITICAL=0, HIGH=0,
+MEDIUM=0 tras corrección — condición de cierre cumplida; la deuda
+restante son capacidades de producto de mayor alcance, todas
+documentadas y ninguna bloqueante, pendientes de decisión del usuario
+antes de construir nada de E11 en adelante).

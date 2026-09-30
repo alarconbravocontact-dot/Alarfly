@@ -320,7 +320,12 @@ export default function CustomersPage() {
         {isLoading && <p className="text-muted">Cargando…</p>}
         {!isLoading && loadError && <p className="alert-box alert-box-error">{loadError}</p>}
         {!isLoading && !loadError && customers.length === 0 && (
-          <EmptyState icon="●" message="Todavía no registraste ningún cliente." />
+          <EmptyState
+            icon="●"
+            message="Todavía no registraste ningún cliente — sin al menos uno, no puedes emitir una factura de venta."
+            actionLabel={canManage ? '+ Nuevo cliente' : undefined}
+            onAction={canManage ? () => setIsFormOpen(true) : undefined}
+          />
         )}
         {!isLoading && !loadError && customers.length > 0 && (
           <table className="data-table">

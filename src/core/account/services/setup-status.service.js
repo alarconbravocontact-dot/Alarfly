@@ -24,12 +24,14 @@ async function getSetupStatus(companyId) {
       label: 'Completa los datos fiscales de tu empresa',
       description: 'Guarda el RIF o NIT de tu empresa en el Perfil de la Empresa (Mi Cuenta).',
       done: !!(company.rif && company.rif.trim()),
+      path: '/mi-cuenta/perfil',
     },
     {
       key: 'BANK_ACCOUNT',
       label: 'Registra tu primera cuenta bancaria',
       description: 'Crea una cuenta bancaria en Tesorería para poder registrar tus movimientos de dinero.',
       done: bankAccountCount > 0,
+      path: '/tesoreria/cuentas',
     },
     {
       key: 'PRODUCT_OR_CLIENT',
@@ -38,6 +40,7 @@ async function getSetupStatus(companyId) {
         ? 'Agrega un producto en el catálogo de Inventario.'
         : 'Agrega un cliente en Cuentas por Cobrar.',
       done: productOrClientCount > 0,
+      path: company.usesInventory ? '/inventario/catalogo' : '/cuentas/clientes',
     },
     {
       key: 'INVITE_USER',
@@ -46,6 +49,7 @@ async function getSetupStatus(companyId) {
       // El propio Administrador que crea la empresa ya cuenta como el
       // primer usuario — este paso pide que exista alguien más.
       done: otherUsersCount > 1,
+      path: '/niveles-de-acceso',
     },
   ];
 

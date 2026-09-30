@@ -337,7 +337,12 @@ export default function CatalogPage() {
         {isLoading && <p className="text-muted">Cargando…</p>}
         {!isLoading && loadError && <p className="alert-box alert-box-error">{loadError}</p>}
         {!isLoading && !loadError && products.length === 0 && (
-          <EmptyState icon="●" message="Todavía no creaste ningún producto." />
+          <EmptyState
+            icon="●"
+            message="Todavía no creaste ningún producto — sin al menos uno, no puedes registrar una venta ni controlar tu stock."
+            actionLabel={canManage ? '+ Nuevo producto' : undefined}
+            onAction={canManage ? () => setIsFormOpen(true) : undefined}
+          />
         )}
         {!isLoading && !loadError && products.length > 0 && (
           <table className="data-table">

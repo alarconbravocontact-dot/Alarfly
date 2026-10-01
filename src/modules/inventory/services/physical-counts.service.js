@@ -106,7 +106,18 @@ async function approveCount(companyId, userId, countId) {
   }
   assertCanApproveCount(count, userId);
 
-  const today = new Date();
+  // F17-E6: bug real encontrado en vivo — `new Date()` trae la hora
+  // exacta del momento (ej. 21:51), pero `AccountingPeriod.endDate` se
+  // guarda como la medianoche del último día del periodo (ej. 30-sept
+  // 00:00). Comparar esa hora contra `endDate >= date` (core/period-lock)
+  // hacía que aprobar un conteo el ÚLTIMO día calendario del periodo,
+  // después de la medianoche, fallara con "No hay un periodo contable
+  // creado que cubra esa fecha" — un periodo que, para cualquier
+  // persona real, sigue abierto todo ese día. Se normaliza a medianoche
+  // UTC, el mismo criterio de "fecha sin hora" que ya usan los
+  // `AccountingPeriod.startDate`/`endDate` y los formularios de fecha
+  // del resto del proyecto (`toIsoDate`).
+  const today = new Date(new Date().toISOString().slice(0, 10));
 
   for (const line of count.lines) {
     const difference = calculateCountDifference(line.systemQuantity, line.countedQuantity);

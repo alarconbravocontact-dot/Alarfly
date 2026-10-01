@@ -43,6 +43,18 @@ export function AuthProvider({ children }) {
     [applySession]
   );
 
+  // F17-E8: el backend ya devolvía una sesión completa al aceptar una
+  // invitación (igual que login), pero no existía ningún punto del
+  // frontend que la consumiera — se agrega acá con el mismo patrón que
+  // el resto de `AuthContext`.
+  const acceptInvitation = useCallback(
+    async (token, password) => {
+      const result = await api.post('/auth/accept-invitation', { token, password });
+      return applySession(result);
+    },
+    [applySession]
+  );
+
   const logout = useCallback(() => {
     // La barra de progreso de configuración inicial (Panel principal)
     // se puede descartar por la sesión actual — al cerrar sesión, ese
@@ -72,10 +84,11 @@ export function AuthProvider({ children }) {
       roleLabel: user ? ROLE_LABELS[user.role] || user.role : null,
       login,
       completeTwoFactorLogin,
+      acceptInvitation,
       logout,
       refreshUser,
     }),
-    [user, login, completeTwoFactorLogin, logout, refreshUser]
+    [user, login, completeTwoFactorLogin, acceptInvitation, logout, refreshUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

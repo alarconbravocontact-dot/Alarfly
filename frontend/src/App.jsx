@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
+import AcceptInvitationPage from './pages/AcceptInvitationPage';
 import DashboardPage from './pages/DashboardPage';
 import AppLayout from './components/AppLayout';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -88,6 +89,7 @@ function App() {
   return (
     <Routes>
       <Route path="/acceso" element={<LoginPage />} />
+      <Route path="/aceptar-invitacion" element={<AcceptInvitationPage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { physicalCountsApi, warehousesApi, productsApi } from '../../api/inventory';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -267,6 +268,12 @@ export default function PhysicalCountsPage() {
             {actionError[expandedCount.id] && (
               <p className="alert-box alert-box-error" style={{ marginTop: 12 }}>
                 {actionError[expandedCount.id]}
+                {actionError[expandedCount.id].includes('Ajustes de Inventario') && (
+                  <>
+                    {' '}
+                    <Link to="/inventario/stock">Configúrala ahí →</Link>
+                  </>
+                )}
               </p>
             )}
 
@@ -276,7 +283,12 @@ export default function PhysicalCountsPage() {
                   Enviar conteo
                 </button>
               )}
-              {expandedCount.status === 'PENDING_APPROVAL' && canApprove && (
+              {expandedCount.status === 'PENDING_APPROVAL' && canApprove && expandedCount.countedByUserId === user.id && (
+                <p className="text-muted" style={{ marginTop: 12 }}>
+                  Tú registraste este conteo — otra persona distinta debe aprobarlo (maker-checker).
+                </p>
+              )}
+              {expandedCount.status === 'PENDING_APPROVAL' && canApprove && expandedCount.countedByUserId !== user.id && (
                 <>
                   <button type="button" className="btn btn-primary btn-small" onClick={() => handleApprove(expandedCount)}>
                     Aprobar

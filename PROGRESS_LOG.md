@@ -8026,3 +8026,150 @@ los 3 HIGH encontrados se corrigieron en el mismo bloque con
 validación real; la única deuda es una conveniencia de UX no
 bloqueante, documentada explícitamente. Detenido aquí por instrucción
 explícita del prompt — no se avanza a E6 sin autorización nueva).
+
+## F17 — Bloque 2 (E6-E10): Inventario en curso, Cierre de Periodo, Gestión de Equipo, Fiscal en curso, Tesorería y Liquidez
+
+**F17 Bloque 1 (E1–E5) = CERRADO** (ver sección arriba) — no se volvió
+a auditar ni a repetir. Este bloque definió su propio alcance (E6-E10
+no venían nombrados en el prompt, a diferencia de F16): Gestión de
+Inventario en curso, Cierre de Periodo y Reportes Financieros, Gestión
+de Equipo, Cumplimiento Fiscal en curso, Tesorería y Liquidez —
+continuación natural de la narrativa de "primeras semanas de operación
+real" del Bloque 1. Se reutilizó la misma empresa de prueba
+(`F17 Empresa Nueva`), ya operando con datos reales del Bloque 1, en
+vez de crear una empresa nueva — más realista para experiencias que
+asumen una empresa ya en marcha.
+
+### F17-E6 — Gestión de Inventario en curso
+Transferencia entre almacenes (sin asiento contable, correcto) y
+conteo físico con maker-checker real probados de punta a punta. 2
+hallazgos reales corregidos:
+1. **MEDIUM**: el botón "Aprobar" de un conteo se mostraba incluso a
+   quien registró ese mismo conteo (el backend ya lo bloqueaba, 403,
+   pero invitaba a un clic condenado a fallar) — corregido replicando
+   el mismo patrón que ya usa `PettyCashPage.jsx`
+   (`registeredByUserId !== user.id`), ahora también en
+   `PhysicalCountsPage.jsx`.
+2. **HIGH, bug real de límite de fecha**: aprobar un conteo fallaba con
+   "No hay un periodo contable creado que cubra esa fecha" cualquier
+   día después de medianoche en el ÚLTIMO día calendario de un periodo
+   abierto — `physical-counts.service.approveCount` usaba
+   `new Date()` (hora exacta) contra `AccountingPeriod.endDate`
+   (guardado como medianoche), y `core/period-lock` compara con
+   `endDate >= date`. Corregido normalizando la fecha a medianoche UTC
+   en el único call site afectado — **sin tocar**
+   `core/period-lock.service.js` (el comparador compartido por Ledger/
+   cierre de periodo/FX/depreciación) ni los cron jobs con el mismo
+   patrón (`fx.cron.js`/`fixed-assets.cron.js`, corren a las 2-3am del
+   día 1, sin la misma exposición).
+
+### F17-E7 — Cierre de Periodo y Reportes Financieros
+Sin bloqueos nuevos (el único prerrequisito que hacía falta, la cuenta
+de merma, ya se resolvió en E6). Estado de Resultados y Balance General
+generados con datos reales y cuadrando exacto
+(`totalAssets === totalLiabilitiesAndEquity`); periodo de Septiembre
+2026 cerrado; confirmado que una venta nueva fechada en Septiembre se
+rechaza (409, mensaje claro); periodo de Octubre 2026 creado sin
+problema.
+
+### F17-E8 — Gestión de Equipo
+**El hallazgo más importante del bloque, mismo patrón que los 2 más
+importantes del Bloque 1**: el backend de aceptar invitación
+(`POST /auth/accept-invitation`) estaba completo y probado desde que se
+construyó Niveles de Acceso, pero **no existía ninguna pantalla** para
+que la persona invitada lo usara — el token se mostraba como texto
+crudo "para copiar y compartir a mano", sin ningún lugar donde pegarlo.
+Corregido: `AcceptInvitationPage.jsx` nueva (ruta pública
+`/aceptar-invitacion`, consistente con `LoginPage`), `AuthContext`
+ganó `acceptInvitation` (reutiliza el mismo mecanismo de sesión que
+login), y el token crudo en Niveles de Acceso se reemplazó por un
+enlace copiable real. Verificado de punta a punta con 2 sesiones de
+navegador separadas (invitación creada → aceptada → sesión real
+iniciada). Segundo hallazgo, MEDIUM: el menú lateral mostraba módulos
+(Contabilidad/Fiscal/FP&A/Reportes/Métricas del Negocio/Análisis
+Avanzados) a un Colaborador sin acceso a ninguno — **confirmado que
+nunca fue un hueco de seguridad** (backend bloqueaba 403 siempre, en
+Reportes el bloqueo solo aparecía después de rellenar el formulario y
+enviar, por no cargar datos al abrir). Corregido filtrando `NAV_AREAS`
+con un nuevo `frontend/src/config/moduleAccess.js` (copia fiel de
+`core/rbac/module-access.js`, mismo patrón ya aceptado en
+`DashboardPage.jsx`).
+
+### F17-E9 — Cumplimiento Fiscal en curso
+Sin bloqueos. Obligación fiscal creada, escaneo de vencimientos
+corrido, Libro de Ventas revisado mostrando las 2 facturas reales del
+Bloque 1 ($130 total) sin ningún dato simulado.
+
+### F17-E10 — Tesorería y Liquidez
+Sin bloqueos. Extracto CSV importado, conciliación iniciada,
+emparejamiento automático corrido, intento de generar asiento nuevo
+correctamente bloqueado por el periodo ya cerrado en E7 (confirma que
+el bloqueo de periodo también protege a Tesorería), conciliación
+completada con 2 excepciones sin resolver (diferencia real reportada,
+-154,50 US$, sin bloquear el cierre). Previsión de Liquidez revisada:
+una aparente discrepancia de saldo inicial se investigó a fondo y se
+confirmó que es la arquitectura documentada a propósito del proyecto
+(importar un extracto nunca toca el saldo real por sí solo), no un bug
+— documentada como observación, no corregida.
+
+### Observación documentada (no corregida, no es un hallazgo)
+El Balance General mostró "Bancos" muy negativo frente al saldo real
+de Tesorería — investigado y confirmado que es consecuencia de que las
+pruebas del Bloque 1/2 eligieron "Bancos" como contrapartida de una
+entrada de inventario que nunca pasó por Tesorería (regla de diseño ya
+documentada: "no se asume ninguna cuenta contrapartida por defecto").
+El Balance sigue siendo matemáticamente correcto en todo momento; no se
+tocó nada.
+
+### Hallazgos
+CRITICAL=0, HIGH=2 (los 2 corregidos), MEDIUM=2 (los 2 corregidos),
+LOW=0 bloqueante (1 LOW de deuda documentada: la plantilla "Plan de
+Cuentas Estándar" no trae una cuenta de Merma — cualquier empresa
+nueva que use Conteos Físicos con diferencia real topará con el mismo
+prerrequisito ya resuelto acá). Ninguna funcionalidad comercial nueva
+introducida.
+
+### Código modificado
+`frontend/src/pages/inventory/PhysicalCountsPage.jsx` (bloqueo de
+auto-aprobación + enlace de ayuda en el error de cuenta de merma),
+`src/modules/inventory/services/physical-counts.service.js` (bug de
+fecha), `frontend/src/pages/AcceptInvitationPage.jsx` (nuevo),
+`frontend/src/context/AuthContext.jsx` (+`acceptInvitation`),
+`frontend/src/App.jsx` (+ruta pública), `frontend/src/modules/
+niveles-acceso/NivelesAccesoPage.jsx` (enlace copiable real),
+`frontend/src/config/moduleAccess.js` (nuevo),
+`frontend/src/components/AppLayout.jsx` (menú filtrado por rol).
+
+### Tests
+708/708 antes → 708/708 después (0 regresiones). Incidente de entorno
+no relacionado con el código: Postgres y ambos servidores estaban
+caídos al reanudar la sesión tras un corte — reiniciados los 3 antes de
+cualquier verificación; la primera corrida de `npm test` tuvo 2 fallos
+transitorios por una colisión de conexión justo después de reiniciar
+Postgres, resueltos solos en la segunda corrida sin tocar código.
+`npx jest src/modules/inventory`: 37/37. 0 tests unitarios nuevos — los
+2 fixes de código son correcciones mecánicas pequeñas, verificadas con
+evidencia real en vivo (Playwright + Postgres real + 2 usuarios reales),
+mismo criterio ya usado en otros fixes de este tamaño en el proyecto.
+
+### Validación real
+Playwright contra los dos servidores reales y Postgres real, con la
+misma empresa de prueba del Bloque 1 ya operando: las 5 experiencias
+recorridas de punta a punta con capturas de pantalla en cada paso
+clave, cada fix re-verificado con una llamada real (status + body).
+`npm test` (708/708), `npm run lint` backend (0 errores), `npm run
+lint` frontend (mismo baseline de 8 warnings preexistentes, 0 nuevos),
+`npm run build` frontend (870 módulos, sin errores). Responsive: 41/41
+combinaciones sin desborde horizontal (8 pantallas × 5 anchos, más la
+pantalla pública nueva a 390px).
+
+### Documentación
+`F17_PRODUCT_READINESS_E6_E10.md` (nuevo, las 12 secciones pedidas
+explícitamente).
+
+**F17 — BLOQUE E6–E10 CERRADO** (CRITICAL=0, HIGH=0 tras esta sesión —
+los 2 HIGH encontrados se corrigieron en el mismo bloque con
+validación real; la única deuda es que la plantilla de cuentas no trae
+una cuenta de Merma, no bloqueante, documentada explícitamente.
+Detenido aquí por instrucción explícita del prompt — no se avanza a
+E11 sin autorización nueva).

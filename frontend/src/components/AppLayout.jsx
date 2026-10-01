@@ -17,7 +17,9 @@ import {
   FPA_TABS,
   REPORTS_TABS,
   ADVANCED_ANALYTICS_TABS,
+  moduleKeyForPath,
 } from '../config/moduleTabs';
+import { canAccessModule } from '../config/moduleAccess';
 import QuickCreateFab from './QuickCreateFab';
 import NotificationCenter from './NotificationCenter';
 import GlobalProgressBar from './GlobalProgressBar';
@@ -239,7 +241,24 @@ export default function AppLayout() {
       return { ...group, items: [...group.items, { to: '/auditoria', label: 'Auditoría', icon: '▤' }] };
     }
     return group;
-  });
+  })
+    // F17-E8: bug real encontrado probando con un usuario Colaborador
+    // real — el menú mostraba Contabilidad/Fiscal/FP&A/Reportes/
+    // Análisis Avanzados/Métricas del Negocio aunque el backend
+    // (`core/rbac/module-access.js`) nunca le permitiera entrar a
+    // ninguno de esos módulos; en el mejor caso (páginas que cargan
+    // datos al abrir) el usuario veía de inmediato "No tienes acceso a
+    // este módulo con tu rol actual.", pero en Reportes (que no carga
+    // nada hasta pulsar "Generar") el formulario completo se veía
+    // usable y el bloqueo real solo aparecía después de rellenar todo
+    // y enviar — confirmado en vivo (403 real del backend, nunca fue
+    // un hueco de seguridad, solo una navegación engañosa). Se filtra
+    // acá el menú por el mismo mapa que ya usa el backend.
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => canAccessModule(user?.role, moduleKeyForPath(item.to))),
+    }))
+    .filter((group) => group.items.length > 0);
   if (configItems.length > 0) navAreas.push({ area: 'Configuración', items: configItems });
 
   // Lista aplanada de todo lo que ya aparece en el menú (módulos +

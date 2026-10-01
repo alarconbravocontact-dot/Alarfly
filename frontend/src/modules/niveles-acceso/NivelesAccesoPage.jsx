@@ -111,6 +111,7 @@ export default function NivelesAccesoPage() {
   const [inviteForm, setInviteForm] = useState(EMPTY_INVITE_FORM);
   const [inviteError, setInviteError] = useState('');
   const [inviteResult, setInviteResult] = useState(null);
+  const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
   const [isInviting, setIsInviting] = useState(false);
 
   const [expandedUserId, setExpandedUserId] = useState(null);
@@ -346,7 +347,24 @@ export default function NivelesAccesoPage() {
             {inviteResult && (
               <p className="alert-box alert-box-success" style={{ marginTop: 12 }}>
                 Invitación creada para {inviteResult.user.email}. Por ahora el enlace no se envía por correo
-                automáticamente — cópialo y compártelo a mano: <code>{inviteResult.invitationToken}</code>
+                automáticamente — cópialo y compártelo a mano para que esa persona pueda crear su contraseña
+                y entrar.{' '}
+                <button
+                  type="button"
+                  className="btn btn-small"
+                  onClick={async () => {
+                    const url = `${window.location.origin}/aceptar-invitacion?token=${inviteResult.invitationToken}`;
+                    try {
+                      await navigator.clipboard.writeText(url);
+                      setInviteLinkCopied(true);
+                      setTimeout(() => setInviteLinkCopied(false), 2500);
+                    } catch {
+                      window.prompt('Copia este enlace de invitación:', url);
+                    }
+                  }}
+                >
+                  {inviteLinkCopied ? 'Copiado ✓' : 'Copiar enlace de invitación'}
+                </button>
               </p>
             )}
             <div className="btn-row" style={{ marginTop: 12 }}>

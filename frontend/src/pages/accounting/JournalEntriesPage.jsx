@@ -11,6 +11,7 @@ import EntityAutocomplete from '../../core/ui/EntityAutocomplete';
 import QuickCreateModal from '../../core/ui/QuickCreateModal';
 import { recentlyUsedApi } from '../../api/recently-used';
 import GlossaryTerm from '../../core/ui/GlossaryTerm';
+import { fpaDimensionsApi } from '../../api/fpa';
 
 const STATUS_LABELS = {
   DRAFT: 'Borrador',
@@ -57,6 +58,12 @@ export default function JournalEntriesPage() {
   const confirm = useConfirm();
   const canRecord = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT';
   const canApprove = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT';
+  // F17-E11: el backend de /fpa/dimensions/tags exige ADMIN/FINANCE
+  // (fpa-dimensions.routes.js `canManage`), un rol distinto al que
+  // puede registrar asientos (`canRecord`, ADMIN/ACCOUNTANT) — un
+  // Contador real vería el botón "Etiquetar" y recibiría un 403
+  // confuso si el gate de esta UI reutilizara `canRecord`.
+  const canTagDimension = user?.role === 'ADMIN' || user?.role === 'FINANCE';
 
   const [accounts, setAccounts] = useState([]);
   const [entries, setEntries] = useState([]);
@@ -65,6 +72,13 @@ export default function JournalEntriesPage() {
   const [expandedId, setExpandedId] = useState(null);
   const [expandedEntry, setExpandedEntry] = useState(null);
   const [actionError, setActionError] = useState({});
+  // F17-E11: dimensiones de FP&A disponibles para etiquetar una línea —
+  // necesarias para que el reporte de Desviaciones de FP&A pueda
+  // comparar algo real contra el presupuesto (ver CLAUDE.md).
+  const [fpaDimensions, setFpaDimensions] = useState([]);
+  const [tagSelection, setTagSelection] = useState({});
+  const [tagError, setTagError] = useState({});
+  const [isTagging, setIsTagging] = useState({});
 
   const [date, setDate] = useState(toIsoDate(new Date()));
   const [description, setDescription] = useState('');
@@ -78,12 +92,14 @@ export default function JournalEntriesPage() {
     setIsLoading(true);
     setLoadError('');
     try {
-      const [accountsData, entriesData] = await Promise.all([
+      const [accountsData, entriesData, fpaDimensionsData] = await Promise.all([
         accountsApi.list({ isActive: true }),
         journalEntriesApi.list(),
+        fpaDimensionsApi.list().catch(() => []),
       ]);
       setAccounts(accountsData.filter((a) => a.isPostable));
       setEntries(entriesData);
+      setFpaDimensions(fpaDimensionsData);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'No se pudieron cargar los asientos.');
     } finally {
@@ -154,6 +170,51 @@ export default function JournalEntriesPage() {
       setExpandedEntry(full);
     } catch {
       setExpandedEntry(null);
+    }
+  }
+
+  async function refreshExpandedEntry() {
+    if (!expandedId) return;
+    try {
+      const full = await journalEntriesApi.getOne(expandedId);
+      setExpandedEntry(full);
+    } catch {
+      // deja el detalle como estaba si falla el refresco
+    }
+  }
+
+  async function handleTagLine(lineId) {
+    const fpaDimensionId = tagSelection[lineId];
+    if (!fpaDimensionId) return;
+    setIsTagging((prev) => ({ ...prev, [lineId]: true }));
+    setTagError((prev) => ({ ...prev, [lineId]: '' }));
+    try {
+      await fpaDimensionsApi.tagLine(lineId, fpaDimensionId);
+      setTagSelection((prev) => ({ ...prev, [lineId]: '' }));
+      await refreshExpandedEntry();
+    } catch (err) {
+      setTagError((prev) => ({
+        ...prev,
+        [lineId]: err instanceof ApiError ? err.message : 'No se pudo etiquetar la línea.',
+      }));
+    } finally {
+      setIsTagging((prev) => ({ ...prev, [lineId]: false }));
+    }
+  }
+
+  async function handleUntagLine(lineId, tagId) {
+    setIsTagging((prev) => ({ ...prev, [lineId]: true }));
+    setTagError((prev) => ({ ...prev, [lineId]: '' }));
+    try {
+      await fpaDimensionsApi.untagLine(tagId);
+      await refreshExpandedEntry();
+    } catch (err) {
+      setTagError((prev) => ({
+        ...prev,
+        [lineId]: err instanceof ApiError ? err.message : 'No se pudo quitar la etiqueta.',
+      }));
+    } finally {
+      setIsTagging((prev) => ({ ...prev, [lineId]: false }));
     }
   }
 
@@ -388,19 +449,80 @@ export default function JournalEntriesPage() {
                                 <th className="num">Débito</th>
                                 <th className="num">Crédito</th>
                                 <th>Descripción</th>
+                                <th>
+                                  <span className="field-label">
+                                    Dimensión FP&amp;A
+                                    <HelpTooltip text="Etiqueta esta línea con una dimensión (ej. 'Ventas Generales') para que el reporte de Desviaciones de FP&A pueda comparar este movimiento real contra lo presupuestado." />
+                                  </span>
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
-                              {expandedEntry.lines.map((line) => (
-                                <tr key={line.id}>
-                                  <td>
-                                    {line.account.code} · {line.account.name}
-                                  </td>
-                                  <td className="num">{formatCurrency(line.debit)}</td>
-                                  <td className="num">{formatCurrency(line.credit)}</td>
-                                  <td>{line.description || '—'}</td>
-                                </tr>
-                              ))}
+                              {expandedEntry.lines.map((line) => {
+                                const tags = line.fpaDimensionTags || [];
+                                return (
+                                  <tr key={line.id}>
+                                    <td>
+                                      {line.account.code} · {line.account.name}
+                                    </td>
+                                    <td className="num">{formatCurrency(line.debit)}</td>
+                                    <td className="num">{formatCurrency(line.credit)}</td>
+                                    <td>{line.description || '—'}</td>
+                                    <td>
+                                      {tags.length > 0 ? (
+                                        <div className="btn-row" style={{ flexWrap: 'wrap', gap: 4 }}>
+                                          {tags.map((tag) => (
+                                            <span key={tag.id} className="btn-row" style={{ gap: 4 }}>
+                                              <StatusSeal tone="neutral" label={tag.fpaDimension?.name || '—'} />
+                                              {canTagDimension && (
+                                                <button
+                                                  type="button"
+                                                  className="btn btn-small btn-danger"
+                                                  disabled={isTagging[line.id]}
+                                                  onClick={() => handleUntagLine(line.id, tag.id)}
+                                                >
+                                                  Quitar
+                                                </button>
+                                              )}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : canTagDimension ? (
+                                        <div className="btn-row" style={{ gap: 4 }}>
+                                          <select
+                                            value={tagSelection[line.id] || ''}
+                                            onChange={(e) =>
+                                              setTagSelection((prev) => ({ ...prev, [line.id]: e.target.value }))
+                                            }
+                                          >
+                                            <option value="">Elegir dimensión…</option>
+                                            {fpaDimensions.map((dim) => (
+                                              <option key={dim.id} value={dim.id}>
+                                                {dim.name}
+                                              </option>
+                                            ))}
+                                          </select>
+                                          <button
+                                            type="button"
+                                            className="btn btn-small"
+                                            disabled={!tagSelection[line.id] || isTagging[line.id]}
+                                            onClick={() => handleTagLine(line.id)}
+                                          >
+                                            Etiquetar
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <span className="text-muted">Sin etiqueta</span>
+                                      )}
+                                      {tagError[line.id] && (
+                                        <p className="alert-box alert-box-error" style={{ marginTop: 4 }}>
+                                          {tagError[line.id]}
+                                        </p>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </td>

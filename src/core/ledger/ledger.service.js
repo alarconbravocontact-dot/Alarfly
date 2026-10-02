@@ -316,7 +316,19 @@ async function getEntry(companyId, entryId) {
     where: { id: entryId, companyId },
     include: {
       lines: {
-        include: { account: true, dimensionTags: { include: { dimension: true } } },
+        include: {
+          account: true,
+          dimensionTags: { include: { dimension: true } },
+          // F17-E11: el reporte de Desviaciones de FP&A compara cada
+          // línea de presupuesto contra el movimiento real etiquetado
+          // con la misma FpaDimension — pero `getEntry` nunca incluía
+          // esa etiqueta, así que el detalle de un asiento no podía
+          // mostrar (ni, para el frontend nuevo de esta pieza,
+          // gestionar) con qué dimensión ya está etiquetada una línea.
+          // Cambio puramente de lectura, no toca ninguna escritura del
+          // motor de asientos.
+          fpaDimensionTags: { include: { fpaDimension: true } },
+        },
         orderBy: { order: 'asc' },
       },
       createdByUser: { select: { id: true, name: true } },

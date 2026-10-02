@@ -8173,3 +8173,142 @@ validación real; la única deuda es que la plantilla de cuentas no trae
 una cuenta de Merma, no bloqueante, documentada explícitamente.
 Detenido aquí por instrucción explícita del prompt — no se avanza a
 E11 sin autorización nueva).
+
+## F17 — Bloque 3 (E11-E15): Presupuesto/Desviaciones, Mi Cuenta,
+Notificaciones, Análisis Avanzados, Exportación
+
+### Definición de E11–E15 (regla explícita del prompt: no inventar sin
+buscar primero)
+Búsqueda exhaustiva previa a tocar código (`grep` de "E11".."E15" en
+todo el repositorio, lectura completa de `PROGRESS_LOG.md` y de los 2
+reportes F17 ya entregados, búsqueda de cualquier Mapa/Plan Maestro):
+**no existe ninguna definición previa de E11-E15 para F17** — las
+únicas apariciones de esos nombres en todo el proyecto pertenecen a
+F14 (Enterprise) y F16 (Growth), temas no relacionados. Documentado
+explícitamente al usuario antes de definir nada. Definición adoptada,
+continuando la narrativa de los Bloques 1-2 ("empresa que ya opera y
+madura sus procesos"): **E11** Presupuesto y Desviaciones (FP&A),
+**E12** Mi Cuenta y Seguridad, **E13** Centro de Notificaciones y
+Alertas, **E14** Análisis Avanzados, **E15** Exportación y Reportes
+Programados.
+
+### Empresa de prueba
+Se reutilizó `F17 Empresa Nueva` (confirmada intacta al retomar:
+periodo Septiembre 2026 cerrado, Octubre 2026 abierto, 2 usuarios
+previos activos). Datos nuevos: `FpaDimension` "Ventas Generales",
+`Budget` 2026 con una línea presupuestal real, una línea de asiento
+real etiquetada con esa dimensión, 2FA activado/desactivado de punta a
+punta sobre el Administrador, una regla de saldo bajo configurada y
+escaneada, un análisis Vertical real archivado, un `ScheduledReport`
+real corrido a mano, y un tercer usuario real (`Contador F17`, rol
+`ACCOUNTANT`) invitado y activado de punta a punta para verificar un
+permiso.
+
+### F17-E11 — Presupuesto y Desviaciones
+**El hallazgo más importante del bloque**: el reporte de Desviaciones
+de FP&A (documentado como "completo y probado") nunca podía mostrar un
+dato real porque **no existía ninguna pantalla en todo el frontend**
+para etiquetar una línea de asiento con una `FpaDimension` — el mismo
+backend (`POST/DELETE /fpa/dimensions/tags`) existía completo desde el
+punto 1 de FP&A, sin consumidor. Cuarta vez que se encuentra este
+patrón exacto ("backend completo, cero interfaz") en este proyecto.
+Construida la pieza faltante en `JournalEntriesPage.jsx` (Contabilidad,
+no FP&A — es donde vive la línea que se etiqueta). En el camino se
+encontró y corrigió un bug real de Prisma en
+`core/ledger/ledger.service.js` (`getEntry`): el include nuevo de
+`fpaDimensionTags` usaba el nombre de relación `dimension` en vez del
+real, `fpaDimension` — producía un 500 real al abrir el detalle de
+CUALQUIER asiento, no solo uno etiquetado, detectado con `curl` antes
+de dar el fix por bueno. Verificado de punta a punta: línea real
+etiquetada (201), persistida, "Quitar" (204) y re-etiquetar (201)
+confirmados, presupuesto aprobado, reporte de Desviaciones mostrando
+25% de desviación real (presupuestado $40 vs. real $50) tanto por API
+como en `/fpa/desviaciones`.
+
+Al verificar el fix se encontró un segundo hallazgo real: el botón
+nuevo se mostraba a cualquier `ACCOUNTANT` (reutilizando `canRecord`),
+pero el endpoint real exige `ADMIN`/`FINANCE`
+(`core/rbac/module-access.js`, el módulo `fpa` completo está cerrado a
+`ACCOUNTANT`) — un Contador real habría visto el botón y recibido un
+403 confuso. Corregido con una variable nueva, `canTagDimension =
+ADMIN || FINANCE`, sin tocar `canRecord`/`canApprove`. Verificado con
+un tercer usuario real invitado y activado (`f17-contador@example.com`,
+rol `ACCOUNTANT`): la etiqueta ya puesta se ve en modo solo lectura,
+sin el botón "Quitar".
+
+### F17-E12 — Mi Cuenta y Seguridad
+Sin bloqueos. Perfil y Seguridad cargados con datos reales; ciclo
+completo de 2FA verificado contra el backend real con códigos TOTP
+generados de verdad (`otplib`, la misma librería del servidor): setup
+→ verify → login exige 2FA → código incorrecto rechazado (401) →
+código correcto acepta → disable con contraseña+código → login vuelve
+a ser directo.
+
+### F17-E13 — Centro de Notificaciones y Alertas
+Sin bloqueos. Regla de saldo bajo configurada sobre la cuenta bancaria
+real ($80 de saldo, umbral $1000), escaneo real generó la alerta,
+campana con insignia "1" y mensaje real, navegación desde la
+notificación a `/tesoreria/cuentas` confirmada, "marcar como atendida"
+confirmado (200, desaparece de la lista).
+
+### F17-E14 — Análisis Avanzados
+Sin bloqueos. Análisis Vertical corrido sobre el Balance General real
+— las 6 partes obligatorias presentes y no vacías (`numericResult`,
+`chartType`, `causeExplanation`, `simpleInterpretation`, `methodology`,
+`recommendations` con un ítem cuantificado real), confirmado tanto por
+API como visualmente en `/analisis-avanzados/repositorio` (gráfico de
+pastel, tabla, las 4 secciones de texto, sugerencia con insignia
+"483.1%").
+
+### F17-E15 — Exportación y Reportes Programados
+Sin bloqueos. Exportación PDF (2491 bytes, válido) y Excel (7247
+bytes, válido) del análisis recién generado; `ScheduledReport` real
+(`cash-flow`, mensual) creado y corrido a mano (`lastRunAt`
+actualizado, PDF real de 1866 bytes), visible en `/reportes/exportar`.
+
+### Hallazgos
+CRITICAL=0, HIGH=1 (corregido: F17-E11-01, sin UI de etiquetado de
+dimensiones), MEDIUM=1 (corregido: F17-E11-02, permiso del frontend
+desalineado del backend real), LOW=0 bloqueante (1 LOW de deuda
+documentada: etiquetar/quitar una dimensión no deja rastro en
+`core/audit`, no bloqueante). Ninguna funcionalidad comercial nueva
+introducida fuera de lo necesario para destrabar E11.
+
+### Código modificado
+`src/core/ledger/ledger.service.js` (`getEntry` incluye
+`fpaDimensionTags` con el nombre de relación correcto),
+`frontend/src/api/fpa.js` (+`tagLine`/`untagLine`),
+`frontend/src/pages/accounting/JournalEntriesPage.jsx` (columna nueva
+"Dimensión FP&A" en el detalle expandido, con `canTagDimension`
+separado de `canRecord`).
+
+### Tests
+708/708 antes → 708/708 después (0 regresiones), corrido 3 veces. 0
+tests unitarios nuevos — los 2 hallazgos son correcciones puntuales de
+superficie, verificadas con evidencia real en vivo (Playwright + `curl`
++ Postgres real), mismo criterio ya usado en los Bloques 1-2.
+`npm run lint` backend (0 errores), `npm run lint` frontend (mismo
+baseline de 8 warnings, 0 nuevos), `npm run build` frontend (870
+módulos, sin errores).
+
+### Validación real
+Playwright + `curl` contra los dos servidores reales y Postgres real,
+con la misma empresa de prueba de los Bloques 1-2: las 5 experiencias
+recorridas de punta a punta con evidencia real (respuestas HTTP reales,
+capturas de pantalla, un tercer usuario real invitado y activado).
+Responsive: 18/18 combinaciones (390/768/1440px × 6 pantallas) sin
+desborde horizontal, 0 errores de consola nuevos.
+
+### Documentación
+`F17_PRODUCT_READINESS_E11_E15.md` (nuevo, las 13 secciones pedidas
+explícitamente, incluida la sección 2 de Definición de E11-E15 que
+exigía esta vez el prompt).
+
+**F17 — BLOQUE E11–E15 CERRADO** (CRITICAL=0, HIGH=0 tras esta sesión
+— el único HIGH encontrado se corrigió en el mismo bloque con
+validación real, igual que el MEDIUM asociado encontrado al verificar
+ese mismo fix; sin deuda bloqueante. Detenido aquí por instrucción
+explícita del prompt — no se avanza a E16 sin autorización nueva).
+
+**Estado consolidado de F17**: Bloque 1 (E1-E5) CERRADO, Bloque 2
+(E6-E10) CERRADO, Bloque 3 (E11-E15) CERRADO.

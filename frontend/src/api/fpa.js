@@ -6,6 +6,15 @@ export const fpaDimensionsApi = {
   create: (data) => api.post('/fpa/dimensions', data),
   update: (id, data) => api.patch(`/fpa/dimensions/${id}`, data),
   remove: (id) => api.delete(`/fpa/dimensions/${id}`),
+  // F17-E11: el backend ya tenía estos dos endpoints completos y
+  // probados desde que se construyó el punto 1 de FP&A — nunca
+  // tuvieron ningún consumidor en el frontend, así que una línea de
+  // asiento real nunca podía etiquetarse con una dimensión desde
+  // ninguna pantalla, y el reporte de Desviaciones (que depende
+  // exactamente de esa etiqueta) nunca podía mostrar un real distinto
+  // de cero.
+  tagLine: (lineId, fpaDimensionId) => api.post('/fpa/dimensions/tags', { lineId, fpaDimensionId }),
+  untagLine: (tagId) => api.delete(`/fpa/dimensions/tags/${tagId}`),
 };
 
 export const budgetsApi = {

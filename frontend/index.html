@@ -3,12 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0b0d10" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- F16-E17: sin landing pública todavía, todo lo que hay detrás de
-         esta página es la pantalla de acceso o contenido que exige
-         sesión — nunca debe indexarse (ver también /robots.txt). -->
-    <meta name="robots" content="noindex, nofollow" />
-    <title>Alarfly</title>
+    <!-- Cierre Web/SEO: Alarfly ya tiene Landing pública real — el
+         bloqueo global de indexación (dejado desde F16-E17, cuando
+         todavía no existía ninguna página pública real) se retiró.
+         Las páginas internas del ERP siguen sin valor de indexación
+         real porque exigen sesión (un rastreador sin sesión solo ve la
+         Landing o una redirección a /acceso, nunca datos de ninguna
+         empresa) — no hace falta bloquearlas a mano acá; `robots.txt`
+         ya las excluye explícitamente por prefijo de ruta, y la propia
+         página 404 se marca `noindex` por separado (ver
+         `core/seo/Seo.jsx`). -->
+    <meta name="description" content="Alarfly — gestión financiera integral para pymes: ventas, compras, inventario, contabilidad y flujo de caja conectados en un solo lugar, explicado en lenguaje simple. 7 días de prueba gratis." />
+    <meta name="og:type" content="website" />
+    <meta property="og:site_name" content="Alarfly" />
+    <meta property="og:title" content="Alarfly — El dinero de tu negocio, bajo control" />
+    <meta property="og:description" content="Ventas, compras, inventario y finanzas conectados en un solo lugar. Cada término técnico, explicado en una frase. 7 días de prueba gratis." />
+    <meta property="og:image" content="/icon-512.png" />
+    <meta name="twitter:card" content="summary" />
+    <title>Alarfly — Gestión financiera integral para pymes</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Cierre Web/SEO: solo páginas reales con contenido propio — nunca se
+  inventó una URL para "verse mejor" en SEO (blog, casos de éxito,
+  documentación, etc. — ninguna de esas páginas existe en el
+  proyecto). El dominio usado en <loc> (alarfly.com) se tomó del
+  nombre de marca ya confirmado en todo el proyecto (package.json,
+  demo.alarfly.com en los correos de prueba) — PENDIENTE: confirmar
+  con el propietario cuál es el dominio de producción real antes de
+  publicar este archivo, y actualizar <loc> si es distinto. Documentado
+  también en WEB_SEO_PERFORMANCE_FINAL.md.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://alarfly.com/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://alarfly.com/privacidad</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://alarfly.com/terminos</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://alarfly.com/contacto</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.4</priority>
+  </url>
+</urlset>

@@ -9099,3 +9099,117 @@ probado con Postgres real y Playwright, y guardado contra regresión
 con un test de integración dedicado. No queda ningún hallazgo CRÍTICO
 ni IMPORTANTE abierto. No se avanza a ninguna fase funcional nueva
 después de este cierre.
+
+## Web + Legales + SEO + Rendimiento + Estructura — Prompt 1/2 (2026-10-03)
+
+Pedido explícito del usuario, exclusivamente sobre la capa web
+pública/legal/SEO/rendimiento — sin tocar lógica de negocio del ERP
+salvo lo estrictamente necesario (el formulario de contacto). Documento
+completo: `WEB_SEO_PERFORMANCE_FINAL.md`.
+
+### Páginas nuevas
+`/privacidad` (Política de Privacidad), `/terminos` (Términos y
+Condiciones, con sección de IA y de arbitraje), `/contacto`
+(formulario real), y una página 404 real (antes, cualquier ruta
+inexistente redirigía en silencio a "/" — nunca existió un estado de
+error). Las 3 primeras comparten `pages/legal/LegalLayout.jsx`, mismo
+nav/pie de página que la Landing.
+
+### Honestidad de los legales (regla explícita del prompt, aplicada de punta a punta)
+Cada afirmación de la Política de Privacidad y los Términos se
+verificó contra el código real antes de escribirse — sin cookies
+inventadas (auditoría confirmó cero cookies reales en todo el
+proyecto, solo `localStorage`), sin proveedores externos inventados
+(ninguno integrado hoy), sin capacidades de IA inventadas (confirmado
+por `AI_ARCHITECTURE.md`: Alarfly no usa IA en ningún punto del
+producto), sin cobro automatizado inventado (no existe ningún motor de
+pago/suscripción real, solo el período de prueba de 7 días). Las
+secciones de arbitraje y ley aplicable de los Términos se dejaron
+**explícitamente marcadas como pendientes** porque el proyecto no
+tiene definida ninguna entidad legal operadora ni jurisdicción — se
+listó con precisión qué dato debe confirmar el propietario, en vez de
+inventarlo.
+
+### Backend nuevo (único cambio de lógica de negocio de esta fase)
+`src/core/contact/` (modelo `ContactMessage`, migración puramente
+aditiva): `POST /contact` público, sin `requireAuth`. Guarda el
+mensaje para revisión — **no envía correo real**, porque el proyecto
+no tiene ningún servicio de email configurado (confirmado por
+auditoría antes de construir, documentado honestamente en el estado de
+éxito del formulario). Protección contra spam: honeypot + ventana de
+enfriamiento de 1 minuto por IP, sin ningún servicio externo.
+
+### Bugs reales encontrados y corregidos
+1. **Honeypot rechazado con error visible**: la primera versión del
+   validador Zod rechazaba con 400 cualquier honeypot con contenido —
+   justo lo opuesto de lo necesario (nunca se le debe avisar a un bot
+   que fue detectado). Corregido: la validación de forma siempre
+   acepta el campo; el descarte en silencio vive en el servicio.
+2. **Desborde horizontal de 21px a 390px** en la Landing y en las 3
+   páginas legales nuevas: al agregar 3 enlaces nuevos al pie de
+   página compartido, `.landing-footer-links` no tenía `flex-wrap`.
+   Corregido agregando `flex-wrap: wrap` + `justify-content: center`
+   — 15/15 combinaciones de ancho verificadas en 0px de desborde tras
+   el fix.
+
+### SEO
+`index.html`/`robots.txt` ya no bloquean la indexación global (bloqueo
+dejado desde antes de que existiera la Landing pública, F16-E17).
+`sitemap.xml` nuevo, solo con páginas reales (nunca se inventó una URL
+para SEO — sin blog, sin FAQ separada, sin "Sobre nosotros").
+`core/ui/Seo.jsx` (nuevo, genérico): título/descripción/robots/
+canonical/Open Graph/JSON-LD por ruta — lo más honesto posible sin un
+servidor de render, que Google/Bing sí reflejan porque ejecutan
+JavaScript al indexar. JSON-LD de la Landing usa únicamente hechos ya
+mostrados en la página (nombre, precio, prueba gratis), sin
+calificaciones inventadas.
+
+### Rendimiento (optimización real, medida antes y después)
+Todas las ~70 pantallas que solo existen detrás de sesión (el ERP
+completo) se migraron de `import` estático a `React.lazy` en
+`App.jsx` — un visitante de la Landing antes descargaba el bundle
+entero de la aplicación. Medido con el build real: el chunk de entrada
+bajó de 1 364,85 kB (gzip 346,50 kB) a **365,50 kB (gzip 110,23 kB)**
+— 68% menos con gzip. Medido en vivo con Playwright+CDP contra el
+build de producción: **LCP 400 ms, CLS 0,0000**. Sin optimizaciones
+cosméticas ni métricas inventadas.
+
+### Favicon e imágenes
+Generados `favicon-16x16/32x32.png`, `apple-touch-icon.png` (180×180),
+`icon-192/512.png` y `manifest.webmanifest` — todos renderizados del
+mismo `favicon.svg` real ya existente, nunca un logo nuevo. Auditoría
+de imágenes públicas: cero imágenes raster en toda la capa pública
+(todo es SVG/CSS) — no había nada que optimizar.
+
+### Cookies
+No se construyó ningún banner — auditoría confirmó que el proyecto no
+usa ninguna cookie real hoy (solo `localStorage`, que no es una
+cookie). Documentado explícitamente en vez de inventar categorías
+ficticias.
+
+### Tests y verificación
+752/752 tests (747 anteriores + 5 nuevos de `contact.service.test.js`:
+mensaje real guardado, honeypot descartado en silencio, límite por IP,
+envío permitido tras la ventana de enfriamiento, sin límite sin IP).
+Lint backend 0 errores, lint frontend mismo baseline de 9 warnings,
+build limpio (899 módulos). Playwright real: Landing (título/
+descripción/robots/canonical/JSON-LD/enlaces de pie de página),
+Privacidad/Términos (título, `h1`, robots, bloques de pendiente,
+sección de IA), 404 (título exacto, `noindex`, captura revisada),
+Contacto (errores de campo en envío vacío, guardado real confirmado
+contra Postgres, estado de éxito con captura revisada), responsive
+390/768/1440px (15/15 sin desborde tras el fix), ERP autenticado
+re-verificado sin regresión tras el cambio a `React.lazy`.
+
+### Pendientes reales (no bloquean esta fase)
+Confirmar entidad legal operadora y jurisdicción (para completar
+arbitraje/ley aplicable en los Términos); confirmar un correo de
+contacto dedicado para solicitudes de privacidad; confirmar el dominio
+de producción real si es distinto de `alarfly.com` (usado en
+sitemap/robots, tomado del nombre de marca ya confirmado en el
+proyecto); si se integra email/analítica/IA en el futuro, actualizar
+los legales correspondientes y, si aplica, construir un banner de
+cookies real en ese momento.
+
+**Web + Legales + SEO + Rendimiento: CERRADO.** No se avanza al
+Prompt 2 hasta que el usuario lo pida explícitamente.

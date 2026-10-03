@@ -4291,3 +4291,28 @@ model AffiliateProgramSettings {
   currency        String   @default("USD")
   updatedAt       DateTime @updatedAt
 }
+
+// ---- Web pública: formulario de contacto (Cierre Web/SEO) ----
+// No hay ningún servicio de envío de correo real en el proyecto (ver
+// INTEGRATIONS_ARCHITECTURE.md/CLAUDE.md — confirmado por auditoría
+// antes de construir esto): el formulario de contacto NO envía un
+// email, GUARDA el mensaje real para revisión — mismo patrón ya usado
+// por `JuntaMessage` (reportes internos) y por los documentos
+// guardados de Fiscal/Caja Chica. Público/de plataforma, no de una
+// Company — mismo criterio que `Affiliate`/`ContactMessage` no cuelga
+// de ninguna empresa porque quien escribe puede no tener cuenta
+// todavía.
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  subject   String
+  message   String
+  // IP de quien envió, solo para la protección básica contra spam
+  // (ventana de enfriamiento por IP) — nunca se expone al usuario.
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([ipAddress, createdAt])
+}

@@ -1,0 +1,50 @@
+.notfound-main {
+  min-height: calc(100vh - 73px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-6) var(--space-5);
+}
+
+.notfound-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-4);
+}
+
+.notfound-code {
+  font-family: var(--font-family-serif);
+  font-size: 3.5rem;
+  font-weight: 700;
+  color: var(--color-brand-strong);
+  margin: 0;
+  line-height: 1;
+}
+
+.notfound-main h1 {
+  font-family: var(--font-family-serif);
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.notfound-body {
+  color: var(--color-text-secondary);
+  max-width: 440px;
+  margin-bottom: var(--space-5);
+  line-height: 1.6;
+}
+
+.notfound-actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: center;
+}

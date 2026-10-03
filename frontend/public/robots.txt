@@ -1,9 +1,32 @@
-# F16-E17: Alarfly todavía no tiene ninguna página pública/landing —
-# todo lo que existe hoy detrás de "/" es la pantalla de acceso o
-# contenido que exige sesión. Sin este archivo, los buscadores
-# rastrean/indexan por defecto ("Iniciar sesión" como único resultado,
-# más cientos de rutas de la SPA sin contenido real que mostrar) —
-# se bloquea todo hasta que exista una landing real que sí deba
-# indexarse.
+# Cierre Web/SEO: Alarfly ya tiene Landing pública real (/), más
+# Política de Privacidad, Términos y Contacto — las únicas páginas con
+# contenido real para indexar. El resto de la aplicación exige sesión
+# (un rastreador sin sesión solo ve la Landing o una redirección a
+# /acceso, nunca datos de ninguna empresa), así que no hay nada útil
+# que rastrear ahí — se excluye por prefijo para no gastar presupuesto
+# de rastreo en rutas sin contenido indexable.
 User-agent: *
-Disallow: /
+Allow: /
+Allow: /privacidad
+Allow: /terminos
+Allow: /contacto
+Allow: /registro
+Allow: /acceso
+Disallow: /mi-cuenta
+Disallow: /admin
+Disallow: /afiliados/panel
+Disallow: /niveles-de-acceso
+Disallow: /auditoria
+Disallow: /contabilidad
+Disallow: /tesoreria
+Disallow: /fpa
+Disallow: /cuentas
+Disallow: /ventas
+Disallow: /inventario
+Disallow: /fiscal
+Disallow: /reportes
+Disallow: /metricas
+Disallow: /analisis-avanzados
+Disallow: /finanzas
+
+Sitemap: https://alarfly.com/sitemap.xml

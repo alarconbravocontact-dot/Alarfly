@@ -1,0 +1,77 @@
+.contact-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+
+.contact-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.contact-field span {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.contact-field input,
+.contact-field textarea {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  padding: var(--space-3);
+  font-family: inherit;
+  font-size: 1rem;
+  resize: vertical;
+}
+
+.contact-field input:focus,
+.contact-field textarea:focus {
+  outline: 2px solid var(--color-brand-strong);
+  outline-offset: 1px;
+}
+
+.contact-field input[aria-invalid='true'],
+.contact-field textarea[aria-invalid='true'] {
+  border-color: var(--color-negative);
+}
+
+.contact-field-error {
+  color: var(--color-negative);
+  font-size: var(--text-sm);
+}
+
+.contact-error {
+  color: var(--color-negative);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+.contact-success {
+  background: rgba(var(--color-positive-rgb), 0.08);
+  border: 1px solid rgba(var(--color-positive-rgb), 0.3);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  margin-top: var(--space-5);
+}
+
+.contact-success h2 {
+  margin-top: 0;
+}
+
+/* Honeypot: fuera de la pantalla visible, pero presente en el DOM y
+   alcanzable solo por un bot que no respeta aria-hidden/tabIndex — a
+   diferencia de display:none, esto evita que algunos lectores de
+   formularios automatizados (no solo scrapers torpes) lo descarten de
+   entrada. */
+.contact-honeypot {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}

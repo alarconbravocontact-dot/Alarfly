@@ -499,7 +499,9 @@
 .landing-footer-links {
   display: flex;
   align-items: center;
-  gap: var(--space-5);
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3) var(--space-5);
 }
 
 /* Responsive */

@@ -1,6 +1,27 @@
 import { Link } from 'react-router-dom';
 import Icon from '../../core/ui/Icon';
+import Seo from '../../core/ui/Seo';
 import './LandingPage.css';
+
+// Cierre Web/SEO: datos estructurados (JSON-LD) usando ÚNICAMENTE
+// hechos que ya se muestran en esta misma página (nombre, descripción,
+// precio, prueba gratis) — sin calificación/reseñas inventadas, sin
+// afirmar una categoría o premio que no existe.
+const LANDING_JSON_LD = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Alarfly',
+  applicationCategory: 'BusinessApplication',
+  operatingSystem: 'Web',
+  description:
+    'Gestión financiera integral para pymes: ventas, compras, inventario, contabilidad y flujo de caja conectados en un solo lugar.',
+  offers: {
+    '@type': 'Offer',
+    price: '25',
+    priceCurrency: 'USD',
+    description: '7 días de prueba gratis, sin tarjeta.',
+  },
+};
 
 // Fase Landing — construida directamente sobre LANDING_MASTER_STRATEGY.md
 // (raíz del repositorio): mismo copy, misma estructura (sección 11),
@@ -91,6 +112,12 @@ const FAQS = [
 export default function LandingPage() {
   return (
     <div className="landing">
+      <Seo
+        title="El dinero de tu negocio, bajo control"
+        description="Ventas, compras, inventario y finanzas conectados en un solo lugar. Cada término técnico, explicado en una frase. 7 días de prueba gratis."
+        path="/"
+        jsonLd={LANDING_JSON_LD}
+      />
       <header className="landing-nav">
         <div className="landing-nav-inner">
           <div className="landing-brand">
@@ -319,6 +346,18 @@ export default function LandingPage() {
           </div>
           <p className="landing-footer-copy">Gestión financiera integral para pymes.</p>
           <div className="landing-footer-links">
+            {/* Cierre Web/SEO: se agregan los 3 enlaces legales/de
+                contacto que faltaban (antes no existía ninguna página
+                a la cual enlazar) — el resto del footer no se tocó. */}
+            <Link to="/privacidad" className="landing-footer-link">
+              Privacidad
+            </Link>
+            <Link to="/terminos" className="landing-footer-link">
+              Términos
+            </Link>
+            <Link to="/contacto" className="landing-footer-link">
+              Contacto
+            </Link>
             {/* Fase Afiliados: único cambio a la Landing — un enlace de
                 footer, sin tocar Hero/propuesta de valor/estructura/CTA
                 existentes (instrucción explícita de no rehacerla). */}

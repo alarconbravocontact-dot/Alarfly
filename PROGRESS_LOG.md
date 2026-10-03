@@ -8448,6 +8448,90 @@ validación real, igual que el MEDIUM asociado; sin deuda bloqueante.
 Detenido aquí por instrucción explícita del prompt — no se avanza a
 E21 sin autorización nueva).
 
+**Estado consolidado de F17 (previo al cierre global)**: Bloque 1
+(E1-E5) CERRADO, Bloque 2 (E6-E10) CERRADO, Bloque 3 (E11-E15)
+CERRADO, Bloque 4 (E16-E20) CERRADO.
+
+## F17 — Cierre Global (Product Readiness Final)
+
+### Hallazgo de preparación (Fase 0, regla explícita del prompt: no
+asumir que un bloque está cerrado solo porque el reporte lo diga)
+Antes de iniciar el cierre global se verificó la evidencia real de los
+4 bloques (no solo sus reportes) y se buscó explícitamente el Bloque 5
+(E21-E27) que el prompt de cierre daba por CERRADO. **No existe
+ningún reporte, código, ni entrada en este archivo sobre Bloque 5 —
+E21-E27 nunca fue definido ni ejecutado en este engagement.** Se
+documentó la contradicción y se consultó al usuario explícitamente
+(regla: "no continúes basándote en una suposición silenciosa") en vez
+de inventar E21-E27 o fingir que estaban cerrados. El usuario confirmó
+cerrar el alcance global sobre **E1-E20 únicamente**, dejando Bloque 5
+documentado como pendiente de definición.
+
+### Auditoría de preparación (Fase 0.1-0.8)
+Releídos los 4 reportes de bloque completos + `PROGRESS_LOG.md`
+completo. Construida la matriz global E1-E20 (20/20 completables, 0
+bloqueos abiertos — ver `F17_PRODUCT_READINESS_FINAL.md` §4).
+Consolidada la matriz de defectos de los 4 bloques: 0 CRITICAL, 10
+HIGH (todos corregidos en su bloque), 9 MEDIUM (todos corregidos), 3
+LOW + 1 DEUDA no bloqueantes. Confirmado con `git log -- prisma/schema.prisma`
+que F17 **no modificó el schema de Prisma en ningún momento** de sus 4
+bloques (último cambio 2 días antes del primer commit de F17).
+Confirmado con `find` que existe un solo `core/ledger` y un solo
+`core/audit` en todo el repositorio — sin duplicación arquitectónica
+introducida por F17.
+
+### Baseline técnico final (Fase 0.6, re-ejecutado en este cierre)
+Postgres/backend/frontend reiniciados desde cero para esta verificación
+(el entorno se había caído entre sesiones, incidente ya documentado
+varias veces en F17, sin relación con código). Backend: 715/715 tests
+(idéntico al número del cierre del Bloque 4 — **0 drift**), `npm run
+lint` 0 errores, `npx prisma validate` sin errores. Frontend: `npm run
+lint` 8 warnings (mismo baseline preexistente, 0 nuevos), `npm run
+build` limpio (870 módulos).
+
+### Regresión global y auditoría transversal (Fase 2)
+Verificado en vivo contra la empresa de prueba real (`F17 Empresa
+Nueva`), tras acumular las operaciones de los 4 bloques:
+- **Integridad financiera**: `GET /accounting/reports/balance-sheet`
+  → `totalAssets === totalLiabilitiesAndEquity` (698.08 = 698.08) — el
+  Ledger sigue íntegro.
+- **Permisos (backend real, no solo UI)**: usuario Contador
+  (`f17-contador@example.com`) obtuvo 200 en Contabilidad, 403 en
+  Niveles de Acceso (sin permiso delegado) y 403 en Inventario (fuera
+  de su matriz de rol) — **sin ningún 500**, confirmando que el bug
+  CRITICAL preexistente de `requireAccessManagement` (corregido antes
+  de F17) no regresó en ningún bloque.
+- **Auditoría**: `GET /audit-log` (ruta movida a neutral en Fase 11,
+  después de que varios reportes de bloque la documentaran bajo
+  `/accounting/audit-log` — detalle corregido en este cierre, no un
+  bug) mostró las operaciones reales más recientes de Compras/
+  Inventario/Contabilidad/Alertas, todas vía `core/audit`, sin ningún
+  sistema paralelo.
+
+Sin regresiones detectadas en ningún módulo tras los 4 bloques de F17.
+
+### Resultado final
+**PRODUCT READY WITH DOCUMENTED DEBT** (alcance E1-E20). 0 CRITICAL, 0
+HIGH/MEDIUM abiertos (los 19 encontrados en los 4 bloques fueron
+corregidos y verificados en su momento), 4 deudas no bloqueantes
+documentadas (selector "desde pedido" en Facturas de Venta, cuenta de
+Merma ausente en la plantilla de Plan de Cuentas, recorte visual menor
+a 390px en Lotes, alerta de vencimiento PMP conservadora-no-exacta).
+Bloque 5 (E21-E27) queda explícitamente fuera de este resultado —
+pendiente de decisión del usuario sobre si forma parte del plan
+original de F17 antes de considerarlo completo en su sentido más
+amplio.
+
+### Documentación
+`F17_PRODUCT_READINESS_FINAL.md` (nuevo, las 22 secciones pedidas
+explícitamente).
+
+**F17 — CIERRE GLOBAL: PRODUCT READY WITH DOCUMENTED DEBT (E1-E20).**
+Bloque 5 (E21-E27) no ejecutado, documentado como pendiente. Detenido
+aquí por instrucción explícita del prompt — no se inicia ninguna fase
+posterior (F18 u otra) sin autorización nueva.
+
 **Estado consolidado de F17**: Bloque 1 (E1-E5) CERRADO, Bloque 2
 (E6-E10) CERRADO, Bloque 3 (E11-E15) CERRADO, Bloque 4 (E16-E20)
-CERRADO.
+CERRADO, Bloque 5 (E21-E27) NO EJECUTADO, Cierre Global: PRODUCT READY
+WITH DOCUMENTED DEBT sobre E1-E20.

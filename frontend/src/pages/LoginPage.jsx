@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ApiError } from '../api/client';
 import './LoginPage.css';
@@ -149,6 +149,10 @@ export default function LoginPage() {
             {isSubmitting ? 'Ingresando…' : 'Ingresar'}
           </button>
         </form>
+
+        <p className="login-subtitle" style={{ marginTop: 16 }}>
+          ¿No tienes cuenta? <Link to="/registro">Crea tu empresa gratis</Link>
+        </p>
       </div>
     </div>
   );

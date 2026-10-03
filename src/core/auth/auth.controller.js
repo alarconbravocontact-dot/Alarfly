@@ -23,4 +23,10 @@ const acceptInvitation = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
-module.exports = { login, verifyTwoFactor, acceptInvitation };
+const signup = asyncHandler(async (req, res) => {
+  const { companyName, name, email, password } = req.body;
+  const result = await authService.signup(companyName, name, email, password, requestContext(req));
+  res.status(201).json(result);
+});
+
+module.exports = { login, verifyTwoFactor, acceptInvitation, signup };

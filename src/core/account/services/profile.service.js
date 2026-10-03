@@ -78,6 +78,12 @@ const companyProfileSelect = {
   defaultLanguage: true,
   defaultDateFormat: true,
   defaultTimeZone: true,
+  // Fase Landing — Registro Público: expuestos de solo lectura (no hay
+  // PATCH para estos dos, se fijan una sola vez al registrarse) para
+  // que el frontend pueda mostrar el aviso de prueba sin pedir un
+  // endpoint nuevo.
+  trialStartedAt: true,
+  trialEndsAt: true,
 };
 
 async function getCompanyProfile(companyId) {

@@ -22,6 +22,7 @@ import {
 import { canAccessModule } from '../config/moduleAccess';
 import QuickCreateFab from './QuickCreateFab';
 import NotificationCenter from './NotificationCenter';
+import TrialBanner from './TrialBanner';
 import GlobalProgressBar from './GlobalProgressBar';
 import ContextualHelpButton from './ContextualHelpButton';
 import NavSearch from './NavSearch';
@@ -436,6 +437,7 @@ export default function AppLayout() {
       </aside>
 
       <div className="app-main">
+        <TrialBanner />
         <header className="app-topbar">
           <NavSearch items={searchableItems} />
           <div className="app-topbar-user">

@@ -19,6 +19,35 @@
 > funnel de conversión visual). Donde este documento amplía o afina una
 > decisión de F16, se marca explícitamente como tal.
 
+> **ACTUALIZACIÓN (2026-10-03) — las 2 hipótesis de mayor prioridad ya
+> se resolvieron, ambas cambian decisiones concretas de este
+> documento**:
+> 1. **Hipótesis #1 (mercado objetivo) — CONFIRMADA: Venezuela.** Todo
+>    lo que en este documento decía "sugiere fuertemente... hipótesis a
+>    validar" sobre BCV/bolívares ya no es hipotético — es la base
+>    confirmada de la mensajería.
+> 2. **Hipótesis #2 (CTA/registro) — RESUELTA: se construyó Opción B.**
+>    `POST /auth/signup` ya existe: cualquier persona puede crear su
+>    propia empresa y entrar directo, sin invitación — con 7 días de
+>    prueba real (`Company.trialStartedAt/trialEndsAt`, verificado en
+>    el servidor, visible en toda la app vía un aviso real). **Registro
+>    público y Trial pasan de PLANIFICADO a EXISTE.** Esto cambia el
+>    CTA recomendado: donde este documento dice "Solicitar acceso"
+>    (secciones 9, 12, 18, 21, 25), ahora corresponde **"Empieza gratis"
+>    / "Prueba 7 días gratis"**, porque ya es una promesa real que el
+>    producto puede cumplir — ya no es necesario intervenir manualmente
+>    para activar cada cuenta. El trial, honestamente, **no bloquea
+>    nada al vencer todavía** (no existe pasarela de pago) — solo
+>    avisa; esto se puede seguir comunicando como "sin tarjeta, sin
+>    compromiso" sin faltar a la verdad.
+>
+> Las secciones de abajo se mantienen con su razonamiento original
+> (útil para entender la decisión), con las correcciones puntuales
+> marcadas donde correspondía. **Nota de corrección propia**: varias
+> referencias internas de este documento decían "sección 24" para
+> apuntar a la lista de hipótesis — esa sección en realidad es la
+> **24** (no existe una sección 24); se corrige en todo el documento.
+
 ---
 
 ## 1. Estado real del producto
@@ -90,7 +119,7 @@ punta a punta. El sistema que llevaría a un visitante desde la landing
 hasta pagar **no existe todavía** (sin registro público, sin trial
 funcional, sin cobro). Esto no es un defecto de la landing — es una
 pieza de infraestructura que la Fase Landing debe construir en una
-etapa posterior a la estrategia (ver sección 29, hipótesis/riesgos).
+etapa posterior a la estrategia (ver sección 24, hipótesis/riesgos).
 **La landing puede y debe construirse ya** mostrando el producto real,
 pero su CTA principal debe ser honesto sobre lo que puede entregar hoy
 mismo (ver sección 12).
@@ -157,17 +186,15 @@ sin volverse contadores.
   y el Financiero (cupo 4) son los usuarios de uso diario más técnico;
   el Colaborador (cupo 8, acceso a Inventario y registro en Ventas/
   Finanzas) cubre al resto del equipo operativo.
-- **Contexto operativo — HIPÓTESIS, requiere validación de mercado**:
-  el motor de cambio (`core/fx`) tiene a **BCV (Banco Central de
-  Venezuela)** como fuente de tasa de cambio por defecto, con soporte
-  nativo para VES (bolívares) junto a USD/EUR, auditado a nivel de
-  cada tasa registrada. Esto es una decisión de diseño real y
-  profunda, no un detalle cosmético — **sugiere fuertemente que el
-  cliente ideal original es una pyme venezolana (o que opera con
-  bolívares/USD a diario)**, pero esto es una inferencia a partir del
-  código, no un dato de mercado confirmado. Se marca explícitamente
-  como **hipótesis a validar** con el usuario antes de construir
-  mensajería que asuma un país específico.
+- **Contexto operativo — CONFIRMADO: Venezuela.** El motor de cambio
+  (`core/fx`) ya tenía a **BCV (Banco Central de Venezuela)** como
+  fuente de tasa de cambio por defecto, con soporte nativo para VES
+  (bolívares) junto a USD/EUR, auditado a nivel de cada tasa
+  registrada — una decisión de diseño real y profunda, no un detalle
+  cosmético. El usuario confirmó que el mercado objetivo es Venezuela:
+  la mensajería, el copy y los ejemplos de moneda pueden escribirse
+  asumiendo directamente una pyme venezolana que opera en bolívares y
+  dólares a diario, sin necesidad de generalizar a "varias monedas".
 - **Capacidad de pago**: sin datos de mercado propios (no hay
   clientes pagos todavía). El pricing ya decidido en F16 ($25/mes) es
   coherente con una pyme formal con cierto volumen de operación, no
@@ -179,7 +206,7 @@ No se fabrican datos demográficos (edad, ubicación exacta, sector
 específico más allá de "pyme con operación comercial/de inventario").
 Si el usuario puede confirmar o corregir el país/sector principal, eso
 debe resolverse **antes** de escribir el copy final de la landing
-(hipótesis #1 de la sección 29).
+(hipótesis #1 de la sección 24).
 
 ---
 
@@ -319,29 +346,37 @@ No se copian diseños, textos ni claims de ningún competidor específico
 
 ## 9. Objetivo de la landing (CTA principal)
 
-### La restricción real que determina esto
-No existe registro público ni trial funcional (sección 1). Un CTA del
-tipo "Regístrate gratis" o "Empieza tu prueba de 7 días" sería **una
-promesa que la landing no puede cumplir hoy** — el visitante haría
-clic y no habría a dónde ir.
+### [RESUELTO 2026-10-03 — ver nota de actualización al inicio del documento]
+Esta sección se escribió originalmente cuando el registro público y el
+trial no existían. **Ya se construyeron** (`POST /auth/signup`, con 7
+días de prueba real verificados en el servidor). Se conserva el
+razonamiento original de abajo porque explica POR QUÉ el CTA cambia de
+uno a otro según el estado real del producto — es la pieza de lógica
+más importante de todo este documento, no solo un dato a actualizar.
 
-### Decisión (no automática, justificada)
-**CTA principal: "Solicitar acceso" / "Agendar una demo"** — una
-acción que SÍ se puede cumplir hoy (puede resolverse con un formulario
-simple que llegue a un correo/WhatsApp del equipo, sin necesitar
-ninguna infraestructura nueva de producto), honesta sobre el estado
-real del embudo comercial (sección 1: "REGISTRO → NO EXISTE").
+### La restricción que determinó la decisión original (ya resuelta)
+Hasta esta sesión, no existía registro público ni trial funcional
+(sección 1, ahora actualizada). Un CTA del tipo "Regístrate gratis" o
+"Empieza tu prueba de 7 días" habría sido **una promesa que la landing
+no podía cumplir** — el visitante haría clic y no habría a dónde ir.
+Por eso se recomendó originalmente "Solicitar acceso" como CTA
+honesto para ese estado del producto.
+
+### Decisión final
+**CTA principal: "Empieza gratis" / "Prueba 7 días gratis"** — ahora
+es una promesa real: el visitante hace clic, crea su empresa en
+segundos (nombre de empresa, su nombre, correo, contraseña), y entra
+directo al producto con 7 días de prueba corriendo de verdad.
 
 **CTA secundario: "Ver cómo funciona"** — ancla a la sección de
 Producto/Capacidades/Product Shots de la misma landing, sin fricción,
-para el visitante que todavía no está listo para dejar sus datos.
+para el visitante que todavía no está listo para registrarse.
 
-Esta decisión está directamente ligada al modelo comercial real
-(sección 1) — no es una preferencia de diseño. **Si el usuario
-confirma que antes de lanzar la landing se construirá el registro
-público + trial** (infraestructura, no parte de esta estrategia), el
-CTA principal cambiaría a "Empieza gratis" / "Prueba 7 días gratis" —
-marcado como **hipótesis #2 en la sección 29**.
+**Honestidad que se mantiene**: el trial vencido hoy no bloquea nada
+(no existe todavía una pasarela de pago) — el copy puede decir "sin
+tarjeta, sin compromiso" sin faltar a la verdad, pero no debe prometer
+"cancela cuando quieras" ni nada que implique un ciclo de facturación
+que todavía no existe.
 
 ---
 
@@ -442,28 +477,28 @@ hacer el visitante — en ese orden de prioridad.
 - **Headline**: "El dinero de tu negocio, bajo control — sin ser contador."
 - **Subheadline**: "Ventas, compras, inventario y finanzas conectados
   en un solo lugar. Cada término técnico, explicado en una frase."
-- **CTA principal**: "Solicitar acceso"
+- **CTA principal**: "Empieza gratis"
 - **CTA secundario**: "Ver cómo funciona"
-- **Mensaje de apoyo** (debajo del CTA): "Sin necesitar un contador de
-  tiempo completo para entenderlo."
+- **Mensaje de apoyo** (debajo del CTA): "7 días de prueba, sin tarjeta.
+  Sin necesitar un contador de tiempo completo para entenderlo."
 
 ### Opción B — directa a la capacidad más fuerte (liquidez)
 - **Headline**: "Sabe hoy si vas a tener problema de caja en 3 semanas."
 - **Subheadline**: "Alarfly conecta tus ventas, compras e inventario
   para mostrarte tu liquidez real — no solo el saldo de hoy."
-- **CTA principal**: "Solicitar acceso"
+- **CTA principal**: "Empieza gratis"
 - **CTA secundario**: "Ver cómo funciona"
-- **Mensaje de apoyo**: "Contabilidad, cobranza e inventario, todo en
-  un mismo sistema."
+- **Mensaje de apoyo**: "7 días de prueba, sin tarjeta. Contabilidad,
+  cobranza e inventario, todo en un mismo sistema."
 
 ### Opción C — directa al perfil de cliente
 - **Headline**: "El sistema financiero de tu pyme, pensado para ti — no para tu contador."
 - **Subheadline**: "Controla ventas, inventario, cuentas por cobrar y
   caja sin perderte en jerga contable."
-- **CTA principal**: "Solicitar acceso"
+- **CTA principal**: "Empieza gratis"
 - **CTA secundario**: "Ver cómo funciona"
-- **Mensaje de apoyo**: "Cada campo técnico, explicado en una frase
-  simple, justo donde lo necesitas."
+- **Mensaje de apoyo**: "7 días de prueba, sin tarjeta. Cada campo
+  técnico, explicado en una frase simple, justo donde lo necesitas."
 
 **Recomendación**: Opción A como headline principal (resume mejor la
 propuesta de valor completa en una sola frase), Opción B como
@@ -650,13 +685,12 @@ vencer un trial. El plan es una decisión comercial válida, **no
 construida**.
 
 ### Cómo debería presentarse en la landing
-Dado que el trial real no existe todavía (sección 1/9), presentar el
-precio como información clara ("$25/mes, un plan único, sin letra
-pequeña") **sin prometer activación automática de un trial que hoy no
-puede dispararse solo** — el CTA sigue siendo "Solicitar acceso"
-(sección 9), y la persona que lo solicite es quien decide manualmente
-activarle el acceso (flujo ya existente: invitación → aceptar
-invitación), mientras no exista registro público real.
+**[RESUELTO]** El trial real ya existe (`POST /auth/signup`, 7 días
+reales desde el registro, verificados en el servidor). Presentar el
+precio como información clara: "$25/mes, un plan único, sin letra
+pequeña, 7 días de prueba gratis sin tarjeta" — el CTA es "Empieza
+gratis" (sección 9), y el registro activa la cuenta al instante, sin
+intervención manual.
 
 ### Lo que esta etapa NO decide (correcto, según su propio alcance)
 El proveedor de pago (Stripe, Paddle, MercadoPago u otro) — pendiente,
@@ -672,17 +706,13 @@ decisión del usuario, no de esta estrategia ni de esta sesión.
 2. **¿Mis datos están seguros?** Sí — autenticación con verificación
    en dos pasos, permisos por rol, y cada acción sensible queda
    registrada con quién la hizo y cuándo.
-3. **¿Puedo probarlo antes de pagar?** Depende del estado real de la
-   infraestructura de registro al momento de publicar la landing —
-   ver hipótesis #2, sección 29. Responder esto con precisión es una
-   decisión pendiente, no se inventa una respuesta aquí.
+3. **¿Puedo probarlo antes de pagar?** Sí — 7 días de prueba gratis,
+   sin tarjeta. Creas tu cuenta y empiezas a usarlo de inmediato.
 4. **¿Sirve si tengo inventario / varias sucursales / varias
    empresas?** Sí — multi-almacén, multi-sucursal y multiempresa
    existen y están probados.
 5. **¿Trabaja con bolívares?** Sí — con tasa oficial BCV y soporte
-   para USD/EUR (sujeto a confirmar si el mercado objetivo real es
-   Venezuela — hipótesis #1, sección 29; si no lo es, esta pregunta se
-   generaliza a "¿trabaja con varias monedas?").
+   para USD/EUR, pensado para el día a día de una pyme venezolana.
 6. **¿Qué pasa si mi negocio crece / necesito más usuarios?** Los
    roles tienen cupos (Administrador sin límite, Contador hasta 3,
    Financiero hasta 4, Colaborador hasta 8) — suficiente para un
@@ -745,27 +775,27 @@ cortados a la mitad) y el CTA deben mantener su jerarquía completa en
 
 ## 21. Conversión
 
-- **CTA principal**: "Solicitar acceso" (sección 9) — en el Hero, tras
+- **CTA principal**: "Empieza gratis" (sección 9) — en el Hero, tras
   la sección de Producto, y en el CTA final.
 - **CTA secundario**: "Ver cómo funciona" — en el Hero, ancla interna.
 - **Ubicación de CTAs**: Hero (ambos), después de Capacidades
   principales (solo el principal), CTA final dedicado.
 - **Sticky CTA**: recomendado en mobile (donde el visitante puede
   tardar en llegar al CTA final por el scroll largo) — un botón fijo
-  "Solicitar acceso" en la parte inferior, consistente con patrones ya
+  "Empieza gratis" en la parte inferior, consistente con patrones ya
   usados en el producto (botón flotante de creación rápida, mismo
   criterio de "acción principal siempre alcanzable").
-- **Fricciones esperadas**: sin registro público real, el formulario
-  de "Solicitar acceso" debe ser mínimo (nombre, correo, nombre de la
-  empresa) — no replicar la fricción que F16 ya identificó como
-  riesgo si se exige de entrada RIF/dirección/moneda (esos datos ya
-  tienen su propia pantalla post-onboarding, `ProfileSection`).
+- **Fricciones esperadas**: el formulario de registro (`SignupPage`,
+  ya construido) pide exactamente lo mínimo — nombre de la empresa, tu
+  nombre, correo, contraseña — sin replicar la fricción que F16 ya
+  identificó como riesgo si se exige de entrada RIF/dirección/moneda
+  (esos datos ya tienen su propia pantalla post-onboarding,
+  `ProfileSection`).
 - **Objeciones principales**: "¿necesito saber de contabilidad?",
   "¿es seguro?", "¿puedo probarlo?" — cubiertas en el FAQ (sección 18).
-- **Microcopy del CTA**: "Solicitar acceso" (nunca "Regístrate
-  gratis", por la razón ya explicada en sección 9) + un texto de apoyo
-  corto debajo ("Te contactamos para activar tu cuenta") — honesto
-  sobre que hoy el acceso se activa manualmente, no automáticamente.
+- **Microcopy del CTA**: "Empieza gratis" + un texto de apoyo corto
+  debajo ("7 días gratis, sin tarjeta") — honesto: la cuenta se activa
+  al instante, no hay intervención manual que esperar.
 
 ---
 
@@ -804,7 +834,7 @@ algo especializado para esos sectores — el producto es horizontal
    si se construye mensajería asumiendo Venezuela y el mercado real es
    otro (o es más amplio, LatAm en general), el copy final necesitaría
    ajustarse. Mitigación: confirmar con el usuario antes de escribir
-   copy final (hipótesis #1, sección 29).
+   copy final (hipótesis #1, sección 24).
 3. **Producto muy amplio, riesgo de abrumar en la landing** — Alarfly
    tiene 8+ módulos reales; mostrar los 8 de una vez en el Hero/
    primera pantalla diluye el mensaje. Mitigación: ya aplicada en la
@@ -824,15 +854,13 @@ algo especializado para esos sectores — el producto es horizontal
 
 ## 24. Hipótesis que deben validarse (antes de escribir copy final)
 
-1. **¿El mercado objetivo real es Venezuela (por el soporte nativo de
-   BCV/VES), o es más amplio (LatAm con cualquier par de monedas)?**
-   Esto cambia mensajería, ejemplos de moneda en el Hero/FAQ, y
-   posiblemente el keyword SEO principal. **Alta prioridad.**
-2. **¿Se construirá registro público + trial real antes de publicar la
-   landing, o la landing se publica primero con "Solicitar acceso"
-   como CTA realista?** Determina si el CTA principal de esta
-   estrategia (sección 9) se mantiene o cambia a un flujo self-service.
-   **Alta prioridad — bloquea la decisión de CTA final.**
+1. ~~¿El mercado objetivo real es Venezuela...?~~ **RESUELTA
+   (2026-10-03): sí, Venezuela.** Ver nota de actualización al inicio
+   del documento y sección 3.
+2. ~~¿Se construirá registro público + trial real...?~~ **RESUELTA
+   (2026-10-03): sí, ya se construyó** (`POST /auth/signup`, trial real
+   de 7 días). El CTA principal de esta estrategia ya es "Empieza
+   gratis" en toda la landing (secciones 9, 12, 18, 21, 25).
 3. **¿Cuál es el presupuesto/capacidad real de pago de las pymes
    objetivo?** El precio de $25/mes ya está decidido (F16), pero nunca
    se validó contra clientes reales — no bloquea la landing (el precio
@@ -858,10 +886,12 @@ se marcan explícitamente y se continúa, tal como pide esta etapa.
 1. **Construir la landing ahora, con el producto real como
    protagonista** — el producto está más que listo para sostenerla
    (F17 lo confirma con evidencia, no solo intención).
-2. **CTA principal: "Solicitar acceso"**, no "Empieza gratis" — hasta
-   que exista registro público real (hipótesis #2). Esta es la pieza
-   de arquitectura más importante de toda la estrategia: determina qué
-   infraestructura hace falta construir en paralelo o antes.
+2. **CTA principal: "Empieza gratis"** — resuelto el 2026-10-03: el
+   registro público + trial real ya se construyó (`POST /auth/signup`,
+   `Company.trialStartedAt/trialEndsAt`). Esta sigue siendo la pieza de
+   arquitectura más importante de toda la estrategia: el CTA debe
+   coincidir siempre con lo que el producto puede cumplir en ese
+   momento — ya puede cumplir un registro inmediato.
 3. **Estructura**: Navbar → Hero → Problema → Propuesta de valor →
    Producto/Capacidades → Cómo funciona → Product shots → Confianza →
    Pricing → FAQ → CTA final → Footer (sección 11).

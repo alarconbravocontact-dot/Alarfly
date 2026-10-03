@@ -8639,3 +8639,109 @@ no se inicia ninguna fase posterior sin autorización nueva y explícita.
 CERRADO, Bloque 5 (E21-E27) NO EJECUTADO (fuera del alcance verificable
 de F17), Auditoría Final: **F17 — CLOSED WITH DOCUMENTED DEBT** sobre
 E1-E20.
+
+## Fase Landing — Registro Público y Trial Real (Opción B)
+
+Tras entregar `LANDING_MASTER_STRATEGY.md`, el usuario confirmó dos
+decisiones que la estrategia dejaba como hipótesis de alta prioridad:
+(1) el mercado objetivo es **Venezuela**, (2) construir **Opción B**
+— registro público + trial real — **antes** de la landing, en vez de
+lanzar primero con "Solicitar acceso" como CTA manual.
+
+### Lo que se construyó
+Hasta esta pieza, la ÚNICA puerta de entrada a Alarfly era que un
+Administrador YA existente invitara a alguien (`access-levels.inviteUser`
+→ `core/auth.acceptInvitation`) — confirmado exhaustivamente por F16
+que no existía ningún signup self-service. Se agregó esa puerta:
+
+- **Schema**: `Company.trialStartedAt`/`trialEndsAt` (ambos nullable
+  — `null` en toda empresa creada antes de esta pieza, por invitación
+  o seed, significa "sin restricción de prueba"; solo una empresa
+  creada por el signup nuevo los trae puestos). Migración
+  `signup_trial_fields_company`, puramente aditiva, sin tocar ninguna
+  fila existente más allá del backfill automático a `NULL`.
+- **`core/auth.signup(companyName, name, email, password)`** (nuevo,
+  junto a `login`/`acceptInvitation`): valida fortaleza de contraseña
+  reutilizando `security.rules.assertStrongPassword` (la misma función
+  que ya usa Mi Cuenta, sin duplicar esa regla), crea `Company`+`User`
+  (rol ADMIN) en una sola transacción `$transaction`, fija
+  `trialEndsAt` a 7 días desde el registro, audita
+  `company.signed_up` vía `core/audit` (sin sistema paralelo), y
+  entrega sesión real de inmediato — activación instantánea, sin
+  verificación por correo, mismo límite ya documentado y aceptado en
+  todo el proyecto (nunca hubo servidor de correo saliente). Ruta
+  pública nueva `POST /auth/signup`.
+- **Deliberadamente NO se auto-provisiona** plan de cuentas, periodo
+  contable, ni ninguna configuración — el checklist de onboarding ya
+  construido (`setup-status.service.js`/`SetupProgressBar`) ya guía
+  ese camino dentro del producto; duplicarlo en el signup habría sido
+  reinventar algo que ya funciona.
+- **Enforcement del trial, decisión explícita y documentada**: al
+  vencer los 7 días, el sistema NO bloquea ninguna operación — no
+  existe todavía una pasarela de pago a la cual mandar a una empresa
+  bloqueada, así que bloquear habría sido un callejón sin salida para
+  el usuario. En su lugar, se expone `trialEndsAt` (ya incluido en
+  `GET /account/company-profile`, sin endpoint nuevo) y el frontend
+  muestra un aviso real, cada vez más urgente según quedan los días,
+  honesto sobre la falta de enforcement — se documenta explícitamente
+  como una decisión a revisar el día que exista un proveedor de pago
+  real (no una limitación oculta).
+- **Frontend**: `SignupPage.jsx` (pantalla pública nueva, mismo patrón
+  visual que `LoginPage`/`AcceptInvitationPage`), `AuthContext.signup`
+  (mismo patrón que `acceptInvitation`), enlaces cruzados entre
+  Login↔Registro, y `TrialBanner.jsx` (montado una sola vez en
+  `AppLayout`, visible en toda la app mientras la empresa esté en
+  prueba — no se muestra en absoluto si `trialEndsAt` es `null`, nunca
+  inventa una fecha para una empresa que no se registró así).
+
+### Tests y verificación
+3 tests de integración nuevos (`signup.integration.test.js`, contra
+Postgres real): crea Company+User atómicos con 7 días exactos de
+prueba y entrega sesión real; rechaza correo duplicado sin dejar
+ningún efecto parcial (ni Company ni User creados); rechaza contraseña
+débil antes de tocar la base de datos. 718/718 tests backend (715 + 3
+nuevos), 0 regresiones. Lint backend 0 errores, lint frontend mismo
+baseline de 8 warnings (0 nuevos), build frontend limpio (873 módulos).
+Verificado en vivo con Playwright de punta a punta contra Postgres
+real: registro público real (`Bodega Doña Carmen`) → aterriza
+logueado en el Panel principal con el checklist de onboarding en
+0/4 (empresa genuinamente nueva, sin datos de prueba) → banner de
+prueba visible ("Te quedan 7 días de tu prueba gratuita.") → cerrar
+sesión → volver a entrar con las mismas credenciales → banner sigue
+ahí (confirma persistencia real, no solo memoria). Responsive
+verificado en 390px y 768px (pantalla de registro + Panel principal
+con el banner nuevo): 0 desbordes horizontales en ambos. 0 errores de
+consola nuevos (aparte del bloqueo ya conocido de Google Fonts). Datos
+de prueba de las 3 corridas de Playwright borrados de Postgres al
+terminar, sin dejar rastro.
+
+### Documentación
+`LANDING_MASTER_STRATEGY.md` actualizado con una nota de actualización
+al inicio marcando las 2 hipótesis resueltas (mercado = Venezuela;
+registro público = EXISTE) y corrigiendo el CTA recomendado en toda la
+estrategia de "Solicitar acceso" a "Empieza gratis" (secciones 9, 12,
+17, 18, 21, 24, 25) — sin reemplazar el razonamiento original, que
+queda preservado para entender por qué cambió. De paso se corrigió un
+error propio de numeración interna del documento ("sección 29" no
+existía; era la 24).
+
+### Código modificado/nuevo
+`prisma/schema.prisma` (+2 campos), `src/core/auth/auth.service.js`
+(+`signup`), `src/core/auth/auth.validator.js` (+`signupSchema`),
+`src/core/auth/auth.controller.js`/`auth.routes.js` (+ruta pública),
+`src/core/account/services/profile.service.js` (expone los 2 campos
+nuevos, solo lectura), `src/core/auth/signup.integration.test.js`
+(nuevo), `frontend/src/pages/SignupPage.jsx` (nuevo),
+`frontend/src/pages/LoginPage.jsx` (+enlace), `frontend/src/App.jsx`
+(+ruta `/registro`), `frontend/src/context/AuthContext.jsx`
+(+`signup`), `frontend/src/components/TrialBanner.jsx`+`.css` (nuevo),
+`frontend/src/components/AppLayout.jsx` (+banner montado).
+
+**Fase Landing — Registro Público y Trial Real: COMPLETO.** El embudo
+comercial real pasa de "VISITA/REGISTRO → NO EXISTE" (F16) a "REGISTRO
+→ EXISTE, self-service, activación instantánea" — el gap más urgente
+que F16 había identificado ("sin registro público, ninguna landing
+tiene a dónde llevar a un visitante real") ya está resuelto. La
+landing en sí todavía no se construye — sigue siendo la siguiente
+pieza de trabajo de esta fase, ahora con un CTA que es una promesa
+real.

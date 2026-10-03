@@ -6,8 +6,10 @@ const AppError = require('../utils/AppError');
 const auditService = require('../audit/audit.service');
 const { assertQuotaAvailable } = require('../rbac/rbac.rules');
 const { decrypt } = require('../utils/crypto');
+const { assertStrongPassword } = require('../account/services/security.rules');
 
 const PENDING_2FA_EXPIRES_IN = '5m';
+const TRIAL_DAYS = 7;
 
 // F15-E3: sin ninguna protección contra fuerza bruta hasta ahora —
 // login() nunca limitaba intentos. 5 fallos consecutivos bloquean la
@@ -126,6 +128,72 @@ async function completeTwoFactorLogin(pendingToken, code, { deviceInfo, ipAddres
   return buildSession(user, session.id);
 }
 
+// Fase Landing — Registro Público: hasta ahora la ÚNICA forma de
+// entrar a Alarfly era que un Administrador ya existente invitara a
+// alguien (inviteUser/acceptInvitation, siempre DENTRO de una empresa
+// que ya existe). Esta función es la primera puerta real para una
+// persona que NUNCA usó Alarfly y no tiene a nadie que la invite:
+// crea un User (rol ADMIN, sin cupo que validar — ROLE_QUOTAS no
+// limita a ADMIN) Y una Company nueva en una sola transacción, mismo
+// patrón `$transaction` que ya usa todo el proyecto para operaciones
+// que deben ser atómicas (ej. inventory-movements). Igual que
+// acceptInvitation, activa la cuenta de inmediato (ACTIVE, sin paso de
+// verificación por correo) porque el proyecto nunca ha tenido
+// servidor de correo saliente — mismo límite ya documentado y
+// aceptado en el resto de Alarfly, no una omisión nueva de esta pieza.
+// NO crea plan de cuentas, periodo contable, ni ningún dato de
+// configuración: el checklist de onboarding ya construido
+// (setup-status.service.js/SetupProgressBar) ya guía ese camino
+// dentro del producto — duplicar eso acá sería reinventar algo que ya
+// funciona.
+async function signup(companyName, name, email, password, { deviceInfo, ipAddress } = {}) {
+  const passwordProblems = assertStrongPassword(password);
+  if (passwordProblems.length > 0) {
+    throw new AppError(`La contraseña debe tener ${passwordProblems.join(', ')}.`, 400, 'WEAK_PASSWORD');
+  }
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    throw new AppError('Ya existe una cuenta con ese correo.', 409, 'EMAIL_ALREADY_REGISTERED');
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const trialStartedAt = new Date();
+  const trialEndsAt = new Date(trialStartedAt.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+
+  const user = await prisma.$transaction(async (tx) => {
+    const company = await tx.company.create({
+      data: { name: companyName, trialStartedAt, trialEndsAt },
+    });
+    const createdUser = await tx.user.create({
+      data: {
+        companyId: company.id,
+        name,
+        email,
+        passwordHash,
+        role: 'ADMIN',
+        status: 'ACTIVE',
+        isActive: true,
+      },
+    });
+    await auditService.log(
+      {
+        companyId: company.id,
+        userId: createdUser.id,
+        action: 'company.signed_up',
+        entityType: 'Company',
+        entityId: company.id,
+        newValue: { name: companyName, trialEndsAt },
+      },
+      tx
+    );
+    return createdUser;
+  });
+
+  const session = await createSession(user.id, { deviceInfo, ipAddress });
+  return buildSession(user, session.id);
+}
+
 // Acepta una invitación del módulo Niveles de Acceso: el usuario todavía
 // no tiene sesión (por eso vive en core/auth, no en access-levels, que
 // exige estar autenticado) — busca por el token de un solo uso, pone la
@@ -175,4 +243,4 @@ async function acceptInvitation(token, password, { deviceInfo, ipAddress } = {})
   return buildSession(updated, session.id);
 }
 
-module.exports = { login, completeTwoFactorLogin, acceptInvitation, buildSession, createSession };
+module.exports = { login, completeTwoFactorLogin, acceptInvitation, signup, buildSession, createSession };

@@ -88,6 +88,19 @@ model Company {
   defaultDateFormat String  @default("DD/MM/YYYY")
   defaultTimeZone   String?
 
+  // Fase Landing — Registro Público: ambos null significa "sin
+  // restricción de prueba" (toda empresa creada por invitación/seed
+  // hasta ahora, nunca retroactiva) — solo una empresa creada por
+  // POST /auth/signup los trae puestos (7 días desde el registro). No
+  // se guarda un estado "vencido" aparte: se calcula siempre al leer
+  // (trialEndsAt < ahora), para no depender de un cron que lo
+  // actualice. Documentado explícitamente que, por ahora, el
+  // vencimiento NO bloquea ninguna operación (no existe todavía un
+  // proveedor de pago al cual mandar a esa empresa) — solo se expone
+  // para que el frontend avise.
+  trialStartedAt DateTime?
+  trialEndsAt    DateTime?
+
   // Grupo empresarial: una empresa matriz puede tener subsidiarias, para
   // poder generar reportes consolidados (ver Consolidación Multi-empresa).
   parentCompanyId String?

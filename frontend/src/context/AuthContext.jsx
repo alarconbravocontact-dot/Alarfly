@@ -55,6 +55,16 @@ export function AuthProvider({ children }) {
     [applySession]
   );
 
+  // Fase Landing — Registro Público: mismo patrón que acceptInvitation
+  // (el backend ya entrega una sesión completa al crear la empresa).
+  const signup = useCallback(
+    async (companyName, name, email, password) => {
+      const result = await api.post('/auth/signup', { companyName, name, email, password });
+      return applySession(result);
+    },
+    [applySession]
+  );
+
   const logout = useCallback(() => {
     // La barra de progreso de configuración inicial (Panel principal)
     // se puede descartar por la sesión actual — al cerrar sesión, ese
@@ -85,10 +95,11 @@ export function AuthProvider({ children }) {
       login,
       completeTwoFactorLogin,
       acceptInvitation,
+      signup,
       logout,
       refreshUser,
     }),
-    [user, login, completeTwoFactorLogin, acceptInvitation, logout, refreshUser]
+    [user, login, completeTwoFactorLogin, acceptInvitation, signup, logout, refreshUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

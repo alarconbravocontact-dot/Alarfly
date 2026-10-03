@@ -26,6 +26,14 @@ const PATHS = {
   logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
   // Rediseño UX/UI (Etapa 1): búsqueda de navegación en el topbar.
   search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM21 21l-4.35-4.35',
+  // Fase Landing: tarjetas de capacidades y sección de Confianza —
+  // mismo criterio de siempre (trazo a mano, sin librería).
+  chart: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+  inventory: 'M3 7l9-4 9 4-9 4-9-4Z M3 7v10l9 4 9-4V7M12 11v10',
+  shield: 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6Z M9.5 12l2 2 3.5-4',
+  clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3.5 2',
+  users: 'M8 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM2 21c0-4 3-6.5 6-6.5s6 2.5 6 6.5M16.5 7a3 3 0 1 1 0 6M18 14.5c2.5.3 4 2.4 4 6.5',
+  'arrow-right': 'M5 12h14M13 6l6 6-6 6',
 };
 
 const BASE_SIZE = 20;

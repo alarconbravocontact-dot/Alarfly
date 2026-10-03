@@ -8745,3 +8745,90 @@ tiene a dónde llevar a un visitante real") ya está resuelto. La
 landing en sí todavía no se construye — sigue siendo la siguiente
 pieza de trabajo de esta fase, ahora con un CTA que es una promesa
 real.
+
+---
+
+## Fase Landing — Construcción de la landing pública (2026-10-03)
+
+### Qué se construyó
+La landing pública en sí (`/`), construida directamente sobre
+`LANDING_MASTER_STRATEGY.md` ya aprobado — mismo copy, misma
+estructura (sección 11), mismo CTA ya resuelto ("Empieza gratis"),
+mismos claims permitidos (nunca se promete IA, nunca se inventa un
+testimonio/cliente/métrica de uso), mismos tokens reales de
+`theme.css` (ningún color/tipografía nuevo).
+
+**Ruteo**: `ProtectedRoute.jsx` ahora muestra `LandingPage` en `/`
+cuando no hay sesión, en vez de redirigir a `/acceso` — es la única
+excepción; cualquier otra ruta protegida sigue redirigiendo al login
+exactamente igual que antes. Verificado por `grep` que solo 2 archivos
+referencian la raíz (`/`) en todo el frontend (el catch-all 404 y un
+botón "volver" solo alcanzable ya logueado) y ninguno choca con este
+cambio.
+
+**`LandingPage.jsx`/`.css`** (nuevo, `frontend/src/pages/landing/`):
+Navbar (ancla a Producto/Precio/Preguntas, "Iniciar sesión" →
+`/acceso`, "Empieza gratis" → `/registro`), Hero (titular Opción A de
+la estrategia, vista previa del producto **estilizada pero honesta**
+— mismas etiquetas/estructura reales del Panel principal, documentado
+explícitamente en el código que no es una captura literal), Problema
+(4 dolores reales), Propuesta de valor, Capacidades (6 tarjetas, cada
+una citando una capacidad ya auditada y real — Previsión de Liquidez,
+cobranza escalonada, trazabilidad de inventario, 16 análisis
+financieros, etc.), Cómo funciona (3 pasos), Confianza (4 ítems,
+citando la auditoría de integridad contable real de F17), Precio
+($25/mes, 7 días gratis, preservado de F16), FAQ (6 preguntas, incluye
+la respuesta sobre bolívares/BCV), CTA final, Footer.
+
+**Componentes compartidos extendidos** (no landing-scoped, mejoras de
+proyecto): `core/ui/Icon.jsx` ganó 6 íconos nuevos (`chart`,
+`inventory`, `shield`, `clock`, `users`, `arrow-right`), mismo
+registro de siempre. `module.css`: la clase base `.btn` ganó
+`display:inline-flex`/`text-decoration:none` (nunca se había usado
+sobre un `<a>`/`<Link>` antes de esta pieza, solo sobre `<button>`), y
+se agregaron `.btn-ghost`/`.btn-large` como variantes genéricas y
+reutilizables.
+
+### Tests y verificación
+Sin tests unitarios nuevos (pieza puramente de presentación en el
+frontend, sin lógica pura que probar — mismo criterio ya usado en
+otras piezas solo-frontend del proyecto). 718/718 tests de backend sin
+regresiones (la única pieza con cambio de código es `ProtectedRoute`,
+frontend). Lint backend 0 errores, lint frontend mismo baseline de 8
+warnings (0 nuevos), build frontend limpio (875 módulos, +2 por las 2
+piezas nuevas).
+
+Verificado en vivo con Playwright contra los dos servidores reales:
+visitar `/` sin sesión muestra la landing completa (hero, navbar,
+confirmado por selector, no una redirección a `/acceso`); clic en "Ver
+cómo funciona" hace scroll real hasta la sección de Capacidades;
+acordeón de Preguntas Frecuentes abre y cierra correctamente; los 2
+CTA principales enlazan a `/registro` y `/acceso` tal como se
+espera; `/registro` sigue funcionando igual que antes (regresión);
+**visitar `/` ya logueado sigue mostrando el Panel principal
+normal, nunca la landing** (regresión confirmada explícitamente — el
+cambio de `ProtectedRoute` solo afecta al visitante sin sesión).
+Responsive verificado en 390px y 768px: 0 desbordes horizontales en
+ambos, navegación colapsa correctamente bajo 600px, CTAs del hero se
+apilan a ancho completo en móvil. Capturas de escritorio y móvil
+revisadas una por una — paleta, tipografía serif en títulos, color de
+marca vino/borgoña y jerarquía visual coinciden exactamente con el
+resto de la aplicación. 0 errores de consola nuevos (aparte del
+bloqueo ya conocido de Google Fonts).
+
+### Código modificado/nuevo
+`frontend/src/pages/landing/LandingPage.jsx`+`.css` (nuevo),
+`frontend/src/components/ProtectedRoute.jsx` (+caso especial para
+`/`), `frontend/src/core/ui/Icon.jsx` (+6 íconos),
+`frontend/src/styles/module.css` (+`.btn-ghost`/`.btn-large`, `.btn`
+ajustado para funcionar sobre enlaces).
+
+**Fase Landing — Landing pública: COMPLETA.** El embudo comercial real
+ahora tiene las 3 piezas que F16 había señalado como ausentes:
+una landing pública real (no un "Próximamente"), un registro
+self-service real (pieza anterior), y una prueba gratuita real de 7
+días sin tarjeta. Pendiente de pulido opcional, no bloqueante: meta
+tags de SEO (título/descripción ya definidos en la estrategia,
+sección 19, todavía no escritos en `index.html`) y reemplazar la vista
+previa estilizada del hero por una captura real del producto cuando
+haya una empresa de demostración presentable.

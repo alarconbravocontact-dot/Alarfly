@@ -183,6 +183,9 @@
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 9px 16px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border-strong);
@@ -190,6 +193,7 @@
   color: var(--color-text-primary);
   font-size: 13px;
   font-weight: 500;
+  text-decoration: none;
   cursor: pointer;
   transition: background var(--transition-fast), transform var(--transition-fast);
 }
@@ -232,6 +236,24 @@
 .btn-small {
   padding: 6px 12px;
   font-size: 12px;
+}
+
+/* Fase Landing: variantes genéricas (texto plano sin fondo, tamaño
+   grande para CTAs de hero/sección) — generales a propósito, no solo
+   de la landing, en caso de que otra pantalla las necesite después. */
+.btn-ghost {
+  background: transparent;
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.btn-large {
+  padding: 13px 24px;
+  font-size: 15px;
 }
 
 .btn-row {

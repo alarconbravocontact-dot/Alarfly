@@ -8935,3 +8935,88 @@ críticas. No queda ningún punto bloqueado — los pendientes documentados
 en `AFFILIATE_SYSTEM_FINAL.md` sección 17 son mejoras futuras
 razonables (ej. conectar un evento de comisión real cuando exista
 facturación del propio SaaS), no trabajo a medias.
+
+---
+
+## Auditoría Global Post-Afiliados (2026-10-03)
+
+### Objetivo
+Verificar, sin crear funcionalidad nueva ni rediseñar nada, que todo el
+sistema sigue siendo coherente después de introducir Afiliados — la
+primera pieza del proyecto que opera a nivel de PLATAFORMA en vez de
+por-empresa. Documentado completo en
+`POST_AFFILIATES_ARCHITECTURE_AUDIT.md`.
+
+### Hallazgos CRÍTICOS, encontrados y corregidos
+**(1) Fuga de datos entre empresas, confirmada en vivo.**
+`requireAuth` (core/auth) nunca validaba la FORMA del JWT, solo su
+firma — aceptaba por igual una sesión de empresa real, el token
+`PENDING_2FA` (5 min, del segundo paso de login) y, desde esta fase, el
+nuevo token de afiliado (30 días, **obtenible gratis por cualquiera**).
+Confirmado explotando el propio sistema: un token de afiliado recién
+registrado, reenviado contra `GET /notifications` (protegida solo con
+`requireAuth`, sin gate de módulo), devolvió alertas reales de VARIAS
+empresas mezcladas — `companyId: undefined` en un `where` de Prisma
+elimina ese filtro por completo. Corregido en el único punto de entrada
+real: `requireAuth` ahora rechaza cualquier payload con `type` o sin
+`userId`+`companyId`. Verificado que el mismo ataque ahora da 401, y que
+una sesión real sigue funcionando igual. 4 tests nuevos.
+
+**(2) Registro público roto para cualquier empresa sin afiliado.**
+Encontrado probando el flujo NORMAL (sin tocar afiliados): `POST
+/auth/signup` devolvía 400 porque `AuthContext.signup` siempre manda la
+llave `referralCode` (con el código real o con `null` cuando no hay
+ninguno guardado) y el validador Zod (`.optional()`) nunca acepta
+`null` explícito, solo ausencia. Esto rompía el embudo de registro
+público — el canal de crecimiento principal del producto — para la
+inmensa mayoría de los visitantes (los que NO llegan por un enlace de
+afiliado). Corregido con `.nullable()`. 3 tests nuevos.
+
+### Hallazgos IMPORTANTES, encontrados y corregidos
+Condición de carrera real en `transitionCommissionStatus`/
+`setAffiliateStatus` (lectura-validación-escritura sin atomicidad,
+corregida con `updateMany` condicional al estado leído); cambio de
+estado y su entrada de auditoría escritos como dos operaciones
+separadas en vez de una transacción (corregido envolviendo ambas en
+`prisma.$transaction`, mismo patrón que ya usa `auth.service.signup`);
+`AffiliateAdminPage.jsx` no mostraba ningún error si una acción
+fallaba (corregido con el mismo patrón `try/catch` + mensaje en pantalla
+que ya usa el resto del proyecto, ej. `CustomersPage`).
+
+### Verificado sin problemas (secciones completas)
+Finanzas: confirmado por `grep` que el módulo de Afiliados nunca toca
+Ledger/CxC/CxP/Tesorería (0 resultados) — las comisiones son un
+registro administrativo aislado, nunca contabilidad real. CORE/AUDIT:
+`AuditLog.companyId` opcional no debilitó ninguna consulta existente
+(todas siguen exigiendo un companyId real). Datos: constraints de
+unicidad/cascadas/precisión monetaria del schema de Afiliados,
+correctos tal como se diseñaron, sin cambios.
+
+### Tests y verificación
+8 tests nuevos (4 + 3 + 1), 746/746 tests del proyecto completo, 0
+regresiones. Lint backend 0 errores, lint frontend mismo baseline,
+build limpio (889 módulos). Playwright de punta a punta corrido TRES
+veces (una por cada ronda de correcciones) contra Postgres real: el
+exploit de fuga cross-company confirmado y luego bloqueado con `curl`
+directo; un registro de empresa normal (sin afiliado) confirmado roto y
+luego funcionando; el ciclo completo afiliado→enlace→referido→
+comisión→aprobación re-verificado sano después de cada fix, incluyendo
+los 7 módulos de negocio (Ventas, Clientes, Proveedores, Inventario,
+Finanzas, Contabilidad, Tesorería) recorridos con una empresa nueva
+real. Datos de prueba borrados de Postgres después de cada ronda, sin
+dejar rastro.
+
+### Documentación
+`POST_AFFILIATES_ARCHITECTURE_AUDIT.md` (nuevo, 15 secciones: estado
+general, arquitectura, separación Company/Global/Affiliate, seguridad,
+datos, finanzas, API, CORE/AUDIT, UX, tests, hallazgos clasificados,
+correcciones, riesgos, decisiones, estado final).
+
+**Auditoría Global Post-Afiliados: CERRADA, sin problemas críticos
+conocidos.** Los 2 hallazgos críticos encontrados no eran del diseño
+original de Afiliados en sí (el flujo de atribución/comisiones/
+administración sigue siendo exactamente el que se construyó y verificó
+en la fase anterior) sino de la superficie compartida que Afiliados
+tocó por primera vez (autenticación transversal, validación de
+registro) — ambos corregidos en el punto más central posible para que
+protejan también cualquier ruta futura, no solo las de hoy.

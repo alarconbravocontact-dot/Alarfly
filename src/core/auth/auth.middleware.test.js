@@ -71,4 +71,40 @@ describe('requireAuth (sesiones reales)', () => {
     await requireAuth(req, res, next);
     expect(next.mock.calls[0][0]).toMatchObject({ code: 'INVALID_TOKEN' });
   });
+
+  // Auditoría Post-Afiliados (hallazgo CRÍTICO): requireAuth firmaba con
+  // el mismo JWT_SECRET que otros dos tipos de token con forma distinta
+  // (PENDING_2FA del segundo paso de login, y el token de afiliado de
+  // core/affiliates) — antes de este fix, cualquiera de los dos pasaba
+  // igual, dejando `req.auth.companyId` en `undefined`, lo que en
+  // Prisma elimina el filtro de empresa por completo en cualquier
+  // `where: { companyId }` (confirmado en vivo con un escaneo real
+  // contra Postgres: devolvía alertas de varias empresas mezcladas).
+  test('rechaza un token de afiliado (type: "affiliate"), nunca una sesión de empresa', async () => {
+    const token = signToken({ affiliateId: 'af1', type: 'affiliate' });
+    const { req, res, next } = mockReqRes(token);
+    await requireAuth(req, res, next);
+    expect(next.mock.calls[0][0]).toMatchObject({ code: 'INVALID_TOKEN' });
+  });
+
+  test('rechaza un token PENDING_2FA, nunca una sesión de empresa', async () => {
+    const token = signToken({ userId: 'u1', type: 'PENDING_2FA' });
+    const { req, res, next } = mockReqRes(token);
+    await requireAuth(req, res, next);
+    expect(next.mock.calls[0][0]).toMatchObject({ code: 'INVALID_TOKEN' });
+  });
+
+  test('rechaza cualquier token sin companyId, aunque no tenga "type"', async () => {
+    const token = signToken({ userId: 'u1', role: 'ADMIN' });
+    const { req, res, next } = mockReqRes(token);
+    await requireAuth(req, res, next);
+    expect(next.mock.calls[0][0]).toMatchObject({ code: 'INVALID_TOKEN' });
+  });
+
+  test('rechaza cualquier token sin userId, aunque no tenga "type"', async () => {
+    const token = signToken({ companyId: 'c1', role: 'ADMIN' });
+    const { req, res, next } = mockReqRes(token);
+    await requireAuth(req, res, next);
+    expect(next.mock.calls[0][0]).toMatchObject({ code: 'INVALID_TOKEN' });
+  });
 });

@@ -263,4 +263,39 @@ describe('Fase Afiliados — flujo completo (integración real)', () => {
     // Terminal: ya no se puede mover a ningún otro estado.
     await expect(adminService.transitionCommissionStatus(commissions[0].id, 'APPROVED', platformAdminUserId)).rejects.toThrow();
   });
+
+  // Auditoría Post-Afiliados: dos transiciones "concurrentes" sobre la
+  // MISMA comisión — la segunda, armada con el estado ya desactualizado
+  // (simulando dos peticiones que leyeron PENDING casi al mismo tiempo),
+  // debe rechazarse en vez de pisar silenciosamente a la primera.
+  test('dos transiciones concurrentes sobre la misma comisión: la segunda se rechaza, nunca pisa a la primera', async () => {
+    const affiliateEmail = `${unique('afiliado-concurrencia')}@example.com`;
+    const { affiliate } = await affiliateAuthService.registerAffiliate('Afiliado Concurrencia', affiliateEmail, 'ClaveFuerte123!');
+    createdAffiliateIds.push(affiliate.id);
+
+    const referredEmail = `${unique('referido-concurrencia')}@example.com`;
+    const session = await authService.signup('Empresa Concurrencia', 'Dueño', referredEmail, 'ClaveFuerte123!', {
+      referralCode: affiliate.code,
+    });
+    createdCompanyIds.push(session.user.companyId);
+
+    const commissions = await affiliatesService.listCommissions(affiliate.id);
+    const commissionId = commissions[0].id;
+
+    // Las dos "peticiones" leen PENDING y arrancan al mismo tiempo.
+    const [first, second] = await Promise.allSettled([
+      adminService.transitionCommissionStatus(commissionId, 'APPROVED', platformAdminUserId),
+      adminService.transitionCommissionStatus(commissionId, 'CANCELLED', platformAdminUserId),
+    ]);
+
+    // Exactamente una de las dos tuvo éxito, la otra fue rechazada —
+    // nunca las dos silenciosamente "exitosas" dejando un estado
+    // ambiguo.
+    const outcomes = [first.status, second.status];
+    expect(outcomes.filter((o) => o === 'fulfilled')).toHaveLength(1);
+    expect(outcomes.filter((o) => o === 'rejected')).toHaveLength(1);
+
+    const final = await prisma.affiliateCommission.findUnique({ where: { id: commissionId } });
+    expect(['APPROVED', 'CANCELLED']).toContain(final.status);
+  });
 });

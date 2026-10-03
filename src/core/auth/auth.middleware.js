@@ -27,6 +27,32 @@ async function requireAuth(req, res, next) {
     throw new AppError('Tu sesión no es válida o expiró. Inicia sesión de nuevo.', 401, 'INVALID_TOKEN');
   }
 
+  // Auditoría Post-Afiliados (hallazgo CRÍTICO, corregido acá): este
+  // middleware nunca validaba la FORMA del payload, solo que la firma
+  // fuera válida — cualquier JWT firmado con el mismo JWT_SECRET pasaba,
+  // sin importar para qué se emitió. El proyecto ya firmaba otro tipo de
+  // token con esa misma llave (`PENDING_2FA`, de 5 minutos, solo para
+  // completar el segundo paso del login) y ahora también el token de
+  // afiliado (`type: 'affiliate'`, 30 días, obtenible gratis por
+  // cualquiera con solo registrarse en /affiliates/register) — ninguno
+  // de los dos trae `companyId`/`role`. Confirmado en vivo antes de este
+  // fix: un token de afiliado recién registrado, reenviado como Bearer
+  // contra `GET /notifications` (una ruta con requireAuth pero sin
+  // requireModuleAccess), devolvía alertas de VARIAS empresas distintas
+  // mezcladas — porque `companyId: undefined` en un `where` de Prisma
+  // elimina ese filtro por completo (comportamiento documentado de
+  // Prisma, no un bug de Prisma) en vez de no encontrar nada. Cualquier
+  // endpoint que solo tuviera `requireAuth` (sin un segundo gate de
+  // rol/módulo) quedaba expuesto a esta fuga entre empresas. Se corrige
+  // en la ÚNICA puerta de entrada real: una sesión de empresa genuina
+  // SIEMPRE trae `userId` y `companyId`, y NUNCA trae `type` (ese campo
+  // solo existe en los otros dos tipos de token) — cualquier payload que
+  // no cumpla esto se rechaza acá, antes de que `req.auth` llegue a
+  // ningún servicio.
+  if (payload.type || !payload.userId || !payload.companyId) {
+    throw new AppError('Tu sesión no es válida o expiró. Inicia sesión de nuevo.', 401, 'INVALID_TOKEN');
+  }
+
   if (payload.sessionId) {
     const session = await prisma.userSession.findUnique({ where: { id: payload.sessionId } });
     if (!session || session.revokedAt || session.userId !== payload.userId) {

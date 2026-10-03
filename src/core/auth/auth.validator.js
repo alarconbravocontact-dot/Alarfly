@@ -24,7 +24,20 @@ const signupSchema = z.object({
   // valida que el código exista acá (eso es responsabilidad del
   // servicio, que lo trata como mejor-esfuerzo); acá solo se limita el
   // tamaño para no aceptar basura arbitraria en el body.
-  referralCode: z.string().max(40).optional(),
+  //
+  // Auditoría Post-Afiliados (hallazgo CRÍTICO, corregido acá): `.optional()`
+  // en Zod solo acepta que la llave esté AUSENTE (`undefined`), nunca un
+  // `null` explícito. El frontend (AuthContext.signup) siempre manda la
+  // llave — con el valor real o con `null` cuando `getStoredReferralCode()`
+  // no encontró ningún código guardado (el caso normal: la inmensa
+  // mayoría de los registros no vienen de un enlace de afiliado). Sin
+  // `.nullable()`, CADA registro sin código de referido fallaba con 400
+  // ("Expected string, received null") — rompiendo el embudo de registro
+  // público completo, no solo el camino de afiliados. Encontrado en
+  // esta auditoría con Playwright (un registro común, sin tocar nada de
+  // afiliados, ya fallaba) y confirmado con `curl` que el mismo registro
+  // SIN la llave `referralCode` en el body sí funcionaba.
+  referralCode: z.string().max(40).nullable().optional(),
 });
 
 const verifyTwoFactorSchema = z.object({

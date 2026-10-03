@@ -28,6 +28,12 @@ export default function AffiliateAdminPage() {
   const [settingsForm, setSettingsForm] = useState(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState('');
+  // Auditoría Post-Afiliados: las acciones de cambio de estado no
+  // atrapaban errores (ej. el 409 nuevo de "otra persona ya la cambió",
+  // ver affiliate-admin.service.js) — fallaban en silencio, sin avisar
+  // nada en pantalla, a diferencia de cómo ya lo resuelve el resto del
+  // proyecto (ej. CustomersPage.handleToggleActive). Mismo patrón acá.
+  const [actionError, setActionError] = useState('');
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -69,8 +75,13 @@ export default function AffiliateAdminPage() {
     if (nextStatus === 'CANCELLED') {
       note = window.prompt('Motivo de la cancelación (opcional):') || undefined;
     }
-    await affiliateAdminApi.transitionCommission(commission.id, nextStatus, note);
-    load();
+    setActionError('');
+    try {
+      await affiliateAdminApi.transitionCommission(commission.id, nextStatus, note);
+      await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'No se pudo cambiar el estado de la comisión.');
+    }
   }
 
   async function handleToggleAffiliateStatus(affiliate) {
@@ -81,8 +92,13 @@ export default function AffiliateAdminPage() {
       tone: nextStatus === 'SUSPENDED' ? 'danger' : 'default',
     });
     if (!ok) return;
-    await affiliateAdminApi.setAffiliateStatus(affiliate.id, nextStatus);
-    load();
+    setActionError('');
+    try {
+      await affiliateAdminApi.setAffiliateStatus(affiliate.id, nextStatus);
+      await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'No se pudo cambiar el estado del afiliado.');
+    }
   }
 
   async function handleSaveSettings(event) {
@@ -116,6 +132,12 @@ export default function AffiliateAdminPage() {
         <h1>Administración de Afiliados</h1>
         <p className="page-subtitle">Afiliados, referidos y comisiones de todo el programa — vista cruzada de plataforma.</p>
       </div>
+
+      {actionError && (
+        <p className="login-error" role="alert">
+          {actionError}
+        </p>
+      )}
 
       <h2 className="affiliate-section-title">Configuración de comisión</h2>
       {settingsForm && (

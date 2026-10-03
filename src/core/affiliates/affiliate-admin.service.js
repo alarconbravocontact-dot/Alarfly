@@ -54,6 +54,20 @@ async function listAllCommissions({ status, affiliateId } = {}) {
 // qué — acá se graba companyId: null (ver encabezado del modelo) y sí
 // el userId real del administrador, que es lo que realmente identifica
 // quién actuó.
+// Auditoría Post-Afiliados (hallazgo IMPORTANTE, corregido acá): la
+// versión original leía la comisión, validaba la transición, y RECIÉN
+// DESPUÉS escribía — dos peticiones concurrentes (ej. dos pestañas del
+// mismo Administrador, o dos Administradores de plataforma) podían leer
+// el mismo estado PENDING, las dos pasar `assertCanTransitionCommission`,
+// y las dos escribir sin enterarse una de la otra (la segunda pisa
+// silenciosamente el resultado de la primera, con dos entradas de
+// auditoría contradictorias). No es un escenario de alta probabilidad
+// hoy (normalmente un solo Administrador de plataforma), pero es dinero
+// real (comisiones) y la corrección es simple y segura: el `update` se
+// vuelve CONDICIONAL en el estado que se leyó (`updateMany` con
+// `status` en el `where`, atómico a nivel de base de datos) — si otra
+// petición ya cambió el estado entre medio, no actualiza ninguna fila y
+// se rechaza con un mensaje claro en vez de corromper el historial.
 async function transitionCommissionStatus(commissionId, toStatus, adminUserId, note) {
   const commission = await prisma.affiliateCommission.findUnique({ where: { id: commissionId } });
   if (!commission) {
@@ -65,22 +79,43 @@ async function transitionCommissionStatus(commissionId, toStatus, adminUserId, n
   if (toStatus === 'APPROVED') timestamps.approvedAt = new Date();
   if (toStatus === 'PAID') timestamps.paidAt = new Date();
 
-  const updated = await prisma.affiliateCommission.update({
-    where: { id: commissionId },
-    data: { status: toStatus, statusNote: note || null, ...timestamps },
-  });
+  // Auditoría Post-Afiliados (hallazgo IMPORTANTE, corregido acá): el
+  // cambio de estado y su entrada de auditoría se escribían como dos
+  // operaciones separadas — si el proceso caía justo entre medio
+  // (crash, caída de conexión a la base), la comisión quedaba cambiada
+  // SIN que quedara ningún rastro de quién lo hizo ni cuándo, violando
+  // la trazabilidad completa que esta pieza promete explícitamente. El
+  // resto del proyecto nunca hace esto (ej. `auth.service.signup` ya
+  // pasa `tx` a `auditService.log` dentro de su propio `$transaction`);
+  // se iguala acá al mismo criterio.
+  return prisma.$transaction(async (tx) => {
+    const result = await tx.affiliateCommission.updateMany({
+      where: { id: commissionId, status: commission.status },
+      data: { status: toStatus, statusNote: note || null, ...timestamps },
+    });
+    if (result.count === 0) {
+      throw new AppError(
+        'Esta comisión ya cambió de estado — alguien más la actualizó justo antes. Recarga e inténtalo de nuevo.',
+        409,
+        'COMMISSION_STATE_CHANGED'
+      );
+    }
 
-  await auditService.log({
-    companyId: null,
-    userId: adminUserId,
-    action: 'affiliate_commission.status_changed',
-    entityType: 'AffiliateCommission',
-    entityId: commissionId,
-    oldValue: { status: commission.status },
-    newValue: { status: toStatus, note: note || null },
-  });
+    await auditService.log(
+      {
+        companyId: null,
+        userId: adminUserId,
+        action: 'affiliate_commission.status_changed',
+        entityType: 'AffiliateCommission',
+        entityId: commissionId,
+        oldValue: { status: commission.status },
+        newValue: { status: toStatus, note: note || null },
+      },
+      tx
+    );
 
-  return updated;
+    return tx.affiliateCommission.findUnique({ where: { id: commissionId } });
+  });
 }
 
 async function setAffiliateStatus(affiliateId, status, adminUserId) {
@@ -88,19 +123,33 @@ async function setAffiliateStatus(affiliateId, status, adminUserId) {
   if (!affiliate) {
     throw new AppError('No se encontró ese afiliado.', 404, 'AFFILIATE_NOT_FOUND');
   }
-  const updated = await prisma.affiliate.update({ where: { id: affiliateId }, data: { status } });
+  // Mismo criterio de concurrencia Y de atomicidad con la auditoría que
+  // transitionCommissionStatus (ver su comentario arriba).
+  return prisma.$transaction(async (tx) => {
+    const result = await tx.affiliate.updateMany({ where: { id: affiliateId, status: affiliate.status }, data: { status } });
+    if (result.count === 0) {
+      throw new AppError(
+        'Este afiliado ya cambió de estado — alguien más lo actualizó justo antes. Recarga e inténtalo de nuevo.',
+        409,
+        'AFFILIATE_STATE_CHANGED'
+      );
+    }
 
-  await auditService.log({
-    companyId: null,
-    userId: adminUserId,
-    action: 'affiliate.status_changed',
-    entityType: 'Affiliate',
-    entityId: affiliateId,
-    oldValue: { status: affiliate.status },
-    newValue: { status },
+    await auditService.log(
+      {
+        companyId: null,
+        userId: adminUserId,
+        action: 'affiliate.status_changed',
+        entityType: 'Affiliate',
+        entityId: affiliateId,
+        oldValue: { status: affiliate.status },
+        newValue: { status },
+      },
+      tx
+    );
+
+    return tx.affiliate.findUnique({ where: { id: affiliateId } });
   });
-
-  return updated;
 }
 
 // Historial cruzado de auditoría del programa (puntos 8/15 del

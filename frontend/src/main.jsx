@@ -6,6 +6,7 @@ import './styles/theme.css'
 import './styles/module.css'
 import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
+import { AffiliateAuthProvider } from './context/AffiliateAuthContext.jsx'
 import { ThemeProvider } from './context/ThemeContext.jsx'
 import { CurrencyProvider } from './context/CurrencyContext.jsx'
 import { ConfirmProvider } from './context/ConfirmContext.jsx'
@@ -27,6 +28,7 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
+        <AffiliateAuthProvider>
           <ThemeProvider>
             <CurrencyProvider>
               <ConfirmProvider>
@@ -42,6 +44,7 @@ createRoot(document.getElementById('root')).render(
               </ConfirmProvider>
             </CurrencyProvider>
           </ThemeProvider>
+        </AffiliateAuthProvider>
         </AuthProvider>
       </QueryClientProvider>
     </BrowserRouter>

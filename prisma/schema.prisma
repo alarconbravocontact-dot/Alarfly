@@ -211,6 +211,11 @@ model Company {
   viewModePreferences         ViewModePreference[]
   pinnedItems                 PinnedItem[]
   supportQuestions            SupportQuestion[]
+
+  // Fase Afiliados: a lo sumo UN afiliado puede haber referido a esta
+  // empresa (ver AffiliateReferral.referredCompanyId @unique) — una vez
+  // creada esta relación en el signup, queda fija para siempre.
+  affiliateReferral AffiliateReferral?
 }
 
 model User {
@@ -336,6 +341,24 @@ model User {
   arRecurringTemplatesCreated      ArRecurringInvoiceTemplate[]
   pinnedItems                      PinnedItem[]
   supportQuestions                 SupportQuestion[]
+
+  // Fase Afiliados: el programa de afiliados es PLATAFORMA (cruza
+  // empresas), así que no reutiliza el RBAC por-empresa existente
+  // (ADMIN/ACCOUNTANT/FINANCE/COLLABORATOR — ninguno significa nada
+  // fuera de su propia empresa). Este flag explícito, seteable solo
+  // por seed/DB directa (mismo criterio ya usado para el primer ADMIN
+  // de Niveles de Acceso — tampoco hay un camino self-service para
+  // volverse el primer administrador de algo sensible), es quien puede
+  // entrar a la administración cruzada de afiliados/comisiones. NO es
+  // un rol nuevo ni un permiso delegado — ver AFFILIATE_SYSTEM_FINAL.md.
+  isAffiliateProgramAdmin Boolean @default(false)
+
+  // Vínculo opcional: si este User (de cualquier empresa) también se
+  // registró como Affiliate, usando el mismo u otro correo — ver
+  // Affiliate.linkedUserId. Nunca se usa para autenticar ni para dar
+  // acceso cruzado entre los dos sistemas, solo para mostrarlo en el
+  // panel de administración.
+  affiliateProfile Affiliate?
 
   @@index([companyId])
 }
@@ -550,8 +573,16 @@ model AccountDeletionRequest {
 
 model AuditLog {
   id         String   @id @default(cuid())
-  companyId  String
-  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Fase Afiliados: companyId se volvió opcional — el programa de
+  // afiliados opera a nivel de PLATAFORMA (un afiliado no pertenece a
+  // ninguna empresa cliente), así que sus propias acciones sensibles
+  // (alta de afiliado, cambio de estado de una comisión, etc.) no
+  // tienen una empresa a la cual colgarse. Cambio aditivo y seguro: no
+  // se tocó `onDelete: Cascade` (sigue aplicando igual a cualquier fila
+  // que SÍ tenga companyId), y las ~100 llamadas existentes a
+  // `audit.service.log()` siguen pasando companyId real sin cambios.
+  companyId  String?
+  company    Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
   userId     String?
   user       User?    @relation(fields: [userId], references: [id])
   action     String // ej: "journal_entry.approved", "period.reopened"
@@ -4110,4 +4141,153 @@ model JobRun {
   createdAt DateTime @default(now())
 
   @@index([companyId, jobKey, startedAt])
+}
+
+// =====================================================================
+// CORE / AFFILIATES — src/core/affiliates (Fase Afiliados)
+//
+// Única capa del schema que NO cuelga de `Company`: un afiliado
+// promueve Alarfly como producto (para que una empresa NUEVA se
+// registre), no opera dentro de una empresa cliente ya existente — por
+// construcción no puede modelarse como "otro módulo multiempresa más".
+// Por esto mismo tiene su propia autenticación (`Affiliate`, nunca
+// `User`) y su propio administrador de plataforma
+// (`User.isAffiliateProgramAdmin`, visto arriba) en vez de reutilizar
+// el RBAC por-empresa (`core/rbac`), que no tiene ningún concepto de
+// "cruzar empresas" y no debía ganar uno solo para esto.
+//
+// Evento de comisión: HOY el único evento real y verificable es el
+// registro público (`POST /auth/signup` con un código de referido
+// válido) — el proyecto nunca ha tenido facturación/cobro real del
+// propio SaaS (el precio del plan en la Landing es solo texto
+// comercial), así que no existe ninguna señal de "pago confirmado" a
+// la cual enganchar la comisión sin inventar una integración ficticia
+// (prohibido explícitamente). `eventType` queda como enum extensible
+// a propósito para el día que exista un evento de cobro real.
+// =====================================================================
+
+enum AffiliateStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model Affiliate {
+  id           String          @id @default(cuid())
+  email        String          @unique
+  passwordHash String
+  name         String
+  phone        String?
+  // Código corto del enlace de referido (ej. "AF-7K2M9"). Cambiarlo no
+  // está expuesto todavía (ver affiliates.service) — simplificación
+  // consciente, documentada.
+  code         String          @unique
+  status       AffiliateStatus @default(ACTIVE)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  // Vínculo opcional y puramente informativo con un User de alguna
+  // empresa cliente — ver nota en el modelo User.
+  linkedUserId String? @unique
+  linkedUser   User?   @relation(fields: [linkedUserId], references: [id], onDelete: SetNull)
+
+  referrals   AffiliateReferral[]
+  commissions AffiliateCommission[]
+
+  @@index([status])
+}
+
+model AffiliateReferral {
+  id          String    @id @default(cuid())
+  affiliateId String
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  // La empresa real que se registró con el enlace de este afiliado.
+  // @unique es la protección estructural central de todo el módulo:
+  // una empresa queda atribuida A LO SUMO a un afiliado PARA SIEMPRE —
+  // ni reenviar el mismo código, ni usar el enlace de otro afiliado
+  // después, pueden reasignarla una vez creada esta fila. Como la
+  // atribución solo ocurre en el momento exacto de crear la empresa
+  // (dentro de la misma transacción de signup, ver auth.service.js),
+  // el caso "ya estaba asociada a otro afiliado" es estructuralmente
+  // imposible de alcanzar dos veces para la misma empresa — no hace
+  // falta una regla aparte que lo vuelva a chequear.
+  referredCompanyId String  @unique
+  referredCompany   Company @relation(fields: [referredCompanyId], references: [id], onDelete: Cascade)
+
+  // El código tal como se usó al registrarse — se conserva aunque el
+  // afiliado llegue a cambiar de código más adelante (trazabilidad del
+  // enlace real que convirtió, no del código actual del afiliado).
+  codeUsed     String
+  attributedAt DateTime @default(now())
+
+  commissions AffiliateCommission[]
+
+  @@index([affiliateId])
+}
+
+enum AffiliateCommissionEventType {
+  SIGNUP
+}
+
+// PENDING: se generó, sin revisar. APPROVED: un administrador de
+// plataforma confirmó que el referido es legítimo. PAYABLE: lista para
+// pagarse (ej. ya pasó la ventana de arrepentimiento/reembolso que se
+// decida usar). PAID: pagada de verdad, fuera del sistema (no hay
+// pasarela de pago integrada — ver Decisiones). CANCELLED: anulada
+// (ej. referido fraudulento), con motivo en `statusNote`.
+enum AffiliateCommissionStatus {
+  PENDING
+  APPROVED
+  PAYABLE
+  PAID
+  CANCELLED
+}
+
+model AffiliateCommission {
+  id          String            @id @default(cuid())
+  affiliateId String
+  affiliate   Affiliate         @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  referralId  String
+  referral    AffiliateReferral @relation(fields: [referralId], references: [id], onDelete: Cascade)
+
+  eventType AffiliateCommissionEventType
+
+  // Snapshot de AffiliateProgramSettings en el momento exacto en que
+  // se generó esta comisión — un cambio posterior de tasa NUNCA
+  // recalcula comisiones ya existentes, mismo criterio que ya usa el
+  // proyecto para la tasa BCV en ArPayment.
+  baseAmount Decimal @db.Decimal(14, 2)
+  rateType   String // "FLAT" | "PERCENTAGE", snapshot
+  rateValue  Decimal @db.Decimal(14, 4)
+  amount     Decimal @db.Decimal(14, 2)
+  currency   String  @default("USD")
+
+  status     AffiliateCommissionStatus @default(PENDING)
+  statusNote String?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  approvedAt DateTime?
+  paidAt     DateTime?
+
+  // Idempotencia: el mismo evento del mismo referido nunca genera dos
+  // comisiones (protección en base de datos, no solo en el servicio).
+  @@unique([referralId, eventType])
+  @@index([affiliateId, status])
+}
+
+// Configuración de comisión, una sola fila para toda la plataforma
+// (no hay "empresa" a la cual colgarla — ver encabezado de sección).
+// Mismo patrón simple de fila única ya usado en otros lugares puntuales
+// del proyecto cuando no hace falta más de una.
+model AffiliateProgramSettings {
+  id              String   @id @default(cuid())
+  rateType        String   @default("FLAT") // "FLAT" | "PERCENTAGE"
+  rateValue       Decimal  @default(5) @db.Decimal(14, 4)
+  // Usado solo cuando rateType = PERCENTAGE (precio de referencia del
+  // plan — hoy un valor de configuración, no un cobro real: el
+  // proyecto no tiene facturación de su propio SaaS, ver encabezado).
+  referenceAmount Decimal  @default(25) @db.Decimal(14, 2)
+  currency        String   @default("USD")
+  updatedAt       DateTime @updatedAt
 }

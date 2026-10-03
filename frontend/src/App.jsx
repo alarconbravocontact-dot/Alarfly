@@ -1,4 +1,6 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { captureReferralFromUrl } from './utils/referralCapture';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import AcceptInvitationPage from './pages/AcceptInvitationPage';
@@ -76,6 +78,11 @@ import AdvancedAnalyticsLayout from './modules/analisis-avanzados/AdvancedAnalyt
 import AnalysisCatalogPage from './modules/analisis-avanzados/CatalogPage';
 import AnalysisReportsArchivePage from './modules/analisis-avanzados/ReportsArchivePage';
 import BenchmarkingPage from './modules/analisis-avanzados/BenchmarkingPage';
+import AffiliateAccessPage from './pages/affiliates/AffiliateAccessPage';
+import AffiliateLayout from './pages/affiliates/AffiliateLayout';
+import AffiliateDashboardPage from './pages/affiliates/AffiliateDashboardPage';
+import AffiliateAdminPage from './pages/affiliates/AffiliateAdminPage';
+import AffiliateProtectedRoute from './components/AffiliateProtectedRoute';
 import AccountLayout from './core/account/AccountLayout';
 import ProfileSection from './core/account/ProfileSection';
 import SecuritySection from './core/account/SecuritySection';
@@ -87,11 +94,36 @@ import SignatureSection from './core/account/SignatureSection';
 import DangerZoneSection from './core/account/DangerZoneSection';
 
 function App() {
+  const location = useLocation();
+
+  // Fase Afiliados: se captura en CADA cambio de ruta (no solo en el
+  // montaje inicial de la app) — así funciona sin importar qué pantalla
+  // reciba primero el `?ref=` (la Landing, /registro directo, o
+  // cualquier otra ruta que alguien comparta con el parámetro). Es
+  // idempotente y barata (ver referralCapture.js): si no hay `?ref=`
+  // en la URL actual, no hace nada.
+  useEffect(() => {
+    captureReferralFromUrl(location.search);
+  }, [location.search]);
+
   return (
     <Routes>
       <Route path="/acceso" element={<LoginPage />} />
       <Route path="/registro" element={<SignupPage />} />
       <Route path="/aceptar-invitacion" element={<AcceptInvitationPage />} />
+
+      {/* Fase Afiliados: ramal de rutas totalmente independiente del
+          resto de la app — ni ProtectedRoute (sesión de empresa) ni
+          AppLayout (menú de 9 módulos) aplican acá, porque un afiliado
+          no es un User de ninguna Company (ver backend
+          core/affiliates). `/afiliados` es pública (registro/login de
+          afiliado); `/afiliados/panel` exige la sesión de afiliado. */}
+      <Route path="/afiliados" element={<AffiliateAccessPage />} />
+      <Route element={<AffiliateProtectedRoute />}>
+        <Route element={<AffiliateLayout />}>
+          <Route path="/afiliados/panel" element={<AffiliateDashboardPage />} />
+        </Route>
+      </Route>
 
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
@@ -200,6 +232,7 @@ function App() {
           </Route>
           <Route path="/niveles-de-acceso" element={<NivelesAccesoPage />} />
           <Route path="/auditoria" element={<AuditTrailPage />} />
+          <Route path="/admin/afiliados" element={<AffiliateAdminPage />} />
           <Route path="/mi-cuenta" element={<AccountLayout />}>
             <Route index element={<Navigate to="perfil" replace />} />
             <Route path="perfil" element={<ProfileSection />} />

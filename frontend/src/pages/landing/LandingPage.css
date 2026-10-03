@@ -496,6 +496,12 @@
   font-size: var(--text-sm);
 }
 
+.landing-footer-links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
 /* Responsive */
 @media (min-width: 860px) {
   .landing-hero {

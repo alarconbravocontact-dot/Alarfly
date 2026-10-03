@@ -20,6 +20,11 @@ const signupSchema = z.object({
   name: z.string().min(1, 'Tu nombre es obligatorio.'),
   email: z.string().email('Debe ser un correo válido.'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres.'),
+  // Fase Afiliados: opcional — ver auth.service.signup. Nunca se
+  // valida que el código exista acá (eso es responsabilidad del
+  // servicio, que lo trata como mejor-esfuerzo); acá solo se limita el
+  // tamaño para no aceptar basura arbitraria en el body.
+  referralCode: z.string().max(40).optional(),
 });
 
 const verifyTwoFactorSchema = z.object({

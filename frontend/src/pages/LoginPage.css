@@ -139,3 +139,18 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* Fase Afiliados: alternar registro/login de afiliado en la misma
+   pantalla (AffiliateAccessPage) necesitaba un botón que se vea como
+   el enlace <Link> de al lado, no como un botón real — reutilizable en
+   cualquier otra pantalla de acceso que necesite el mismo patrón. */
+.login-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--color-brand-strong);
+  text-decoration: underline;
+  cursor: pointer;
+}

@@ -7,6 +7,7 @@ const auditService = require('../audit/audit.service');
 const { assertQuotaAvailable } = require('../rbac/rbac.rules');
 const { decrypt } = require('../utils/crypto');
 const { assertStrongPassword } = require('../account/services/security.rules');
+const affiliatesService = require('../affiliates/affiliates.service');
 
 const PENDING_2FA_EXPIRES_IN = '5m';
 const TRIAL_DAYS = 7;
@@ -146,7 +147,13 @@ async function completeTwoFactorLogin(pendingToken, code, { deviceInfo, ipAddres
 // (setup-status.service.js/SetupProgressBar) ya guía ese camino
 // dentro del producto — duplicar eso acá sería reinventar algo que ya
 // funciona.
-async function signup(companyName, name, email, password, { deviceInfo, ipAddress } = {}) {
+// Fase Afiliados: `referralCode` es el único punto de entrada real de
+// la atribución de un referido — viene del `?ref=` que la Landing/el
+// formulario de registro capturaron y reenvían tal cual (ver
+// frontend/src/pages/SignupPage.jsx). Mejor-esfuerzo a propósito: un
+// código inválido/inactivo/autorreferido nunca bloquea el registro,
+// solo no genera atribución (ver affiliates.service.attributeReferral).
+async function signup(companyName, name, email, password, { deviceInfo, ipAddress, referralCode } = {}) {
   const passwordProblems = assertStrongPassword(password);
   if (passwordProblems.length > 0) {
     throw new AppError(`La contraseña debe tener ${passwordProblems.join(', ')}.`, 400, 'WEAK_PASSWORD');
@@ -187,6 +194,11 @@ async function signup(companyName, name, email, password, { deviceInfo, ipAddres
       },
       tx
     );
+
+    if (referralCode) {
+      await affiliatesService.attributeReferral(tx, referralCode.trim().toUpperCase(), company, email);
+    }
+
     return createdUser;
   });
 

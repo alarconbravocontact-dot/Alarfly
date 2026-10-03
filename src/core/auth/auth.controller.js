@@ -24,8 +24,8 @@ const acceptInvitation = asyncHandler(async (req, res) => {
 });
 
 const signup = asyncHandler(async (req, res) => {
-  const { companyName, name, email, password } = req.body;
-  const result = await authService.signup(companyName, name, email, password, requestContext(req));
+  const { companyName, name, email, password, referralCode } = req.body;
+  const result = await authService.signup(companyName, name, email, password, { ...requestContext(req), referralCode });
   res.status(201).json(result);
 });
 

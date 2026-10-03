@@ -318,9 +318,17 @@ export default function LandingPage() {
             <span className="landing-brand-name">Alarfly</span>
           </div>
           <p className="landing-footer-copy">Gestión financiera integral para pymes.</p>
-          <Link to="/acceso" className="landing-footer-link">
-            Iniciar sesión
-          </Link>
+          <div className="landing-footer-links">
+            {/* Fase Afiliados: único cambio a la Landing — un enlace de
+                footer, sin tocar Hero/propuesta de valor/estructura/CTA
+                existentes (instrucción explícita de no rehacerla). */}
+            <Link to="/afiliados" className="landing-footer-link">
+              Gana dinero recomendando Alarfly
+            </Link>
+            <Link to="/acceso" className="landing-footer-link">
+              Iniciar sesión
+            </Link>
+          </div>
         </div>
       </footer>
     </div>

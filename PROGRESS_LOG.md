@@ -8832,3 +8832,106 @@ tags de SEO (título/descripción ya definidos en la estrategia,
 sección 19, todavía no escritos en `index.html`) y reemplazar la vista
 previa estilizada del hero por una captura real del producto cuando
 haya una empresa de demostración presentable.
+
+---
+
+## Fase Afiliados — Sistema de Afiliados completo (2026-10-03)
+
+### Qué se encontró
+Auditoría exhaustiva confirmó que no existía nada relacionado con
+afiliados/referidos/comisiones en todo el proyecto (los únicos hits de
+`grep` fueron falsos positivos: comisiones bancarias de Tesorería,
+"proveedor preferido" de Inventario). Tampoco existe facturación real
+del propio SaaS de Alarfly ni ningún concepto de "administrador de
+plataforma" distinto de "Administrador de una empresa cliente" — cada
+modelo del schema, incluido `User`, cuelga de `Company`. El Sistema de
+Afiliados es, por diseño, la primera pieza que opera a nivel de
+plataforma en vez de por-empresa.
+
+### Qué se construyó
+Documentado completo en `AFFILIATE_SYSTEM_FINAL.md` (arquitectura,
+modelos, endpoints, flujos de atribución y comisión, estados, permisos,
+auditoría, reglas, tests, limitaciones, decisiones, pendientes). Resumen:
+
+**Backend** (`src/core/affiliates/`, nuevo, vive en `core/` por ser
+infraestructura de plataforma, no un módulo de negocio): autenticación
+propia del afiliado (JWT separado, `type: 'affiliate'`, nunca
+confundible con una sesión de empresa), atribución de referidos
+integrada dentro de la MISMA transacción de `auth.service.signup`
+(mejor-esfuerzo: código inválido/autorreferido nunca bloquean el
+registro), comisiones con snapshot de configuración y estados
+PENDING→APPROVED→PAYABLE→PAID/CANCELLED (siempre una acción explícita
+de un Administrador de Plataforma, nunca automático), administración
+cruzada protegida por un flag nuevo y angosto (`User.isAffiliateProgramAdmin`,
+otorgado solo por seed/DB directa, mismo criterio que el primer
+Administrador de Niveles de Acceso). `AuditLog.companyId` se volvió
+opcional (cambio aditivo, sin afectar ninguna fila existente) para que
+el programa reutilice `core/audit` sin crear un sistema paralelo.
+
+**Frontend**: `/afiliados` (registro/login público), `/afiliados/panel`
+(tablero del afiliado: enlace con copiar/compartir, referidos,
+comisiones), `/admin/afiliados` (administración cruzada, montada dentro
+del `AppLayout` existente, nunca un segundo panel administrativo). Un
+único enlace nuevo en el footer de la Landing — Hero/propuesta de
+valor/estructura/CTAs existentes no se tocaron.
+
+### Bugs reales encontrados y corregidos
+(1) El enlace de referido se armaba en el backend con `req.headers.origin`,
+que no llega intacto detrás del proxy de desarrollo de Vite — el enlace
+apuntaba al puerto del backend en vez del frontend, rompiendo el flujo
+completo. Corregido devolviendo solo el código desde el backend y
+armando la URL en el navegador con `window.location.origin`. (2) Un
+`userId` de prueba inventado violó la llave foránea real de `AuditLog`
+— confirmó que el diseño exige correctamente que el Administrador de
+Plataforma sea un `User` real, se corrigió el fixture de prueba, no el
+servicio.
+
+### Tests y verificación
+13 tests unitarios (`affiliates.rules.test.js`) + 7 pruebas de
+integración contra Postgres real (`affiliates.integration.test.js`:
+ciclo completo, autorreferido, código inválido no bloquea, idempotencia
+de referido y de comisión confirmada contra restricciones `@unique`
+reales, aislamiento entre afiliados, cancelación con motivo). 738/738
+tests del proyecto completo sin regresiones, lint backend 0
+errores, lint frontend mismo baseline (+1 warning esperado,
+`AffiliateAuthContext` sigue el mismo patrón que los otros 8 contextos),
+build limpio (889 módulos). Playwright de punta a punta contra los dos
+servidores reales: afiliado se registra → copia su enlace real →
+visitante nuevo lo usa y se registra como empresa → el tablero del
+afiliado (recargado) muestra el referido y la comisión reales →
+Administrador de Plataforma real la aprueba con el flujo de
+confirmación real → Contador (sin el flag) confirmado sin el enlace de
+administración y con 403 reales en los 6 endpoints protegidos. 0
+regresiones en Landing/Acceso/Panel principal/Contabilidad/Tesorería/
+Cuentas por Cobrar y Pagar/Ventas/Inventario/Finanzas/Niveles de
+Acceso/Auditoría. Responsive verificado en 390px/768px. Datos de
+prueba (4 afiliados, empresas referidas) borrados de Postgres al
+terminar, sin dejar rastro.
+
+### Documentación
+`AFFILIATE_SYSTEM_FINAL.md` (nuevo, repo raíz) — documentación completa
+de la fase, siguiendo la estructura pedida explícitamente.
+
+### Código modificado/nuevo
+`prisma/schema.prisma` (+4 modelos, `AuditLog.companyId` opcional,
+2 campos/relaciones en `User`/`Company`), `prisma/seed.js` (+flag en
+Admin Demo), `src/core/affiliates/` (nuevo, 11 archivos),
+`src/core/audit/audit.service.js` (+1 función), `src/core/auth/
+auth.service.js`/`auth.validator.js`/`auth.controller.js` (+referralCode
+opcional), `src/app.js` (+2 rutas montadas). Frontend: `frontend/src/
+pages/affiliates/` (nuevo, 7 archivos), `frontend/src/api/affiliateAuth.js`/
+`affiliates.js`/`affiliate-admin.js` (nuevos), `frontend/src/context/
+AffiliateAuthContext.jsx` (nuevo), `frontend/src/components/
+AffiliateProtectedRoute.jsx` (nuevo), `frontend/src/utils/
+referralCapture.js` (nuevo), `App.jsx`/`AppLayout.jsx`/`main.jsx`/
+`AuthContext.jsx`/`SignupPage.jsx`/`Icon.jsx`/`LoginPage.css`/
+`landing/LandingPage.jsx`+`.css` (extendidos).
+
+**Fase Afiliados: COMPLETA.** Sistema de afiliados funcionando de punta
+a punta con atribución real, comisiones trazables, dashboard,
+controles administrativos, CORE/AUDIT integrados, permisos protegidos
+en servidor, tests pasando, Playwright pasando, sin regresiones
+críticas. No queda ningún punto bloqueado — los pendientes documentados
+en `AFFILIATE_SYSTEM_FINAL.md` sección 17 son mejoras futuras
+razonables (ej. conectar un evento de comisión real cuando exista
+facturación del propio SaaS), no trabajo a medias.

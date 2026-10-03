@@ -56,4 +56,19 @@ async function listForCompany(companyId, { entityType, action, from, to, userId,
   });
 }
 
-module.exports = { log, listForEntity, listForEntities, listForCompany };
+// Fase Afiliados: única lectura de AuditLog que NO filtra por
+// companyId — reservada a entidades que genuinamente viven fuera de
+// cualquier empresa (ver companyId? nullable en el modelo), usada solo
+// por la administración cruzada de afiliados (nunca expuesta a una
+// empresa cliente, que sigue viendo exclusivamente su propia bitácora
+// vía listForCompany/listForEntity de siempre).
+async function listForEntityTypesAnyCompany(entityTypes) {
+  return prisma.auditLog.findMany({
+    where: { entityType: { in: entityTypes } },
+    orderBy: { createdAt: 'desc' },
+    include: { user: { select: { id: true, name: true, email: true } } },
+    take: 500,
+  });
+}
+
+module.exports = { log, listForEntity, listForEntities, listForCompany, listForEntityTypesAnyCompany };

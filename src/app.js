@@ -35,6 +35,8 @@ const pinnedItemsRoutes = require('./core/pinned-items/pinned-items.routes');
 const helpRoutes = require('./core/help/help.routes');
 const auditLogRoutes = require('./core/audit/audit.routes');
 const jobsRoutes = require('./core/jobs/jobs.routes');
+const affiliatesRoutes = require('./core/affiliates/affiliates.routes');
+const affiliateAdminRoutes = require('./core/affiliates/affiliate-admin.routes');
 const errorHandler = require('./core/middlewares/errorHandler');
 const requestId = require('./core/middlewares/requestId');
 const prisma = require('./core/database/prisma');
@@ -113,6 +115,8 @@ app.use('/fx', fxRoutes);
 app.use('/pinned-items', pinnedItemsRoutes);
 app.use('/audit-log', auditLogRoutes);
 app.use('/jobs', jobsRoutes);
+app.use('/affiliates', affiliatesRoutes);
+app.use('/affiliate-admin', affiliateAdminRoutes);
 
 app.use(errorHandler);
 

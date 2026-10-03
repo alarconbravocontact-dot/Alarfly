@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ApiError } from '../api/client';
+import { getStoredReferralCode } from '../utils/referralCapture';
 import './LoginPage.css';
 
 // Fase Landing — Registro Público: primera puerta de entrada real sin
@@ -24,7 +25,7 @@ export default function SignupPage() {
     setError('');
     setIsSubmitting(true);
     try {
-      await signup(companyName, name, email, password);
+      await signup(companyName, name, email, password, getStoredReferralCode());
       navigate('/', { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo conectar con el servidor.');

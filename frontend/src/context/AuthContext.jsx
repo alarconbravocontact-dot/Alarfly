@@ -57,9 +57,12 @@ export function AuthProvider({ children }) {
 
   // Fase Landing — Registro Público: mismo patrón que acceptInvitation
   // (el backend ya entrega una sesión completa al crear la empresa).
+  // Fase Afiliados: `referralCode` es opcional — SignupPage lo lee de
+  // referralCapture.js (el `?ref=` ya guardado, si existe) y lo manda
+  // tal cual; el backend decide si corresponde atribuirlo.
   const signup = useCallback(
-    async (companyName, name, email, password) => {
-      const result = await api.post('/auth/signup', { companyName, name, email, password });
+    async (companyName, name, email, password, referralCode) => {
+      const result = await api.post('/auth/signup', { companyName, name, email, password, referralCode });
       return applySession(result);
     },
     [applySession]

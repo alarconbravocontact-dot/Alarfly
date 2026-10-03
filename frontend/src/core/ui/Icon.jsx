@@ -34,6 +34,9 @@ const PATHS = {
   clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3.5 2',
   users: 'M8 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM2 21c0-4 3-6.5 6-6.5s6 2.5 6 6.5M16.5 7a3 3 0 1 1 0 6M18 14.5c2.5.3 4 2.4 4 6.5',
   'arrow-right': 'M5 12h14M13 6l6 6-6 6',
+  // Fase Afiliados: botón de copiar/compartir el enlace de referido.
+  copy: 'M9 9h10v10H9z M5 15V5h10',
+  share: 'M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM8.5 13.5l7-3.5M8.5 14.5l7 3.5',
 };
 
 const BASE_SIZE = 20;

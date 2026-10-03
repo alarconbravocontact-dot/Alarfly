@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
 import { usePinnedItems } from '../context/PinnedItemsContext';
 import { accessLevelsApi } from '../api/access-levels';
+import { affiliateAdminApi } from '../api/affiliate-admin';
 import { panelPreferencesApi } from '../api/panel-preferences';
 import {
   FINANCE_TABS,
@@ -109,6 +110,7 @@ export default function AppLayout() {
   const { companyName } = useCurrency();
   const { items: pinnedItems, unpin } = usePinnedItems();
   const [hasAccessLevelsAccess, setHasAccessLevelsAccess] = useState(user?.role === 'ADMIN');
+  const [hasAffiliateAdminAccess, setHasAffiliateAdminAccess] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   // Bug real encontrado en la validación visual de F16 (E18): medido
@@ -234,8 +236,34 @@ export default function AppLayout() {
   // grupo de Configuración aparte — corrige la ubicación de F11, que la
   // había dejado junto a "Niveles de Acceso" por comodidad de
   // implementación, no porque perteneciera ahí conceptualmente.
+  // Fase Afiliados: el flag `isAffiliateProgramAdmin` no viaja en el
+  // JWT (ver affiliate-admin.middleware.js — se lee fresco de la base
+  // en cada petición del backend), así que acá se pregunta igual que
+  // `hasAccessLevelsAccess` pregunta por el permiso delegado — una
+  // llamada liviana al entrar, nunca asumida desde el rol.
+  useEffect(() => {
+    let isMounted = true;
+    affiliateAdminApi
+      .amIAdmin()
+      .then((result) => {
+        if (isMounted) setHasAffiliateAdminAccess(result.isAdmin);
+      })
+      .catch(() => {
+        if (isMounted) setHasAffiliateAdminAccess(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const configItems = [];
   if (hasAccessLevelsAccess) configItems.push({ to: '/niveles-de-acceso', label: 'Niveles de Acceso', icon: '⚿' });
+  // Visible para CUALQUIER rol (nunca gateado por canAccessModule, ver
+  // moduleAccess.js — no se agregó 'affiliates' a MODULE_ROLES a
+  // propósito): ser afiliado no es un módulo de negocio de la empresa,
+  // es un programa aparte al que cualquier persona puede sumarse.
+  configItems.push({ to: '/afiliados', label: 'Programa de Afiliados', icon: '◎' });
+  if (hasAffiliateAdminAccess) configItems.push({ to: '/admin/afiliados', label: 'Administración de Afiliados', icon: '⚑' });
 
   const navAreas = NAV_AREAS.map((group) => {
     if (group.area === 'Control' && user?.role === 'ADMIN') {

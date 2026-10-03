@@ -8531,7 +8531,111 @@ Bloque 5 (E21-E27) no ejecutado, documentado como pendiente. Detenido
 aquí por instrucción explícita del prompt — no se inicia ninguna fase
 posterior (F18 u otra) sin autorización nueva.
 
+**Estado consolidado de F17 (previo a la auditoría final)**: Bloque 1
+(E1-E5) CERRADO, Bloque 2 (E6-E10) CERRADO, Bloque 3 (E11-E15)
+CERRADO, Bloque 4 (E16-E20) CERRADO, Bloque 5 (E21-E27) NO EJECUTADO,
+Cierre Global: PRODUCT READY WITH DOCUMENTED DEBT sobre E1-E20.
+
+## F17 — Auditoría Final y Cierre Total
+
+### Reconfirmación de alcance (regla del prompt: no asumir, re-verificar)
+Se repitió la búsqueda de E21-E27 en todo el repositorio de forma
+independiente al cierre global anterior, sin asumir su conclusión
+previa como dada. Mismo resultado: las únicas coincidencias de
+"E21".."E27" pertenecen a `F14 — Bloque Final (E19-E27)`, un
+engagement distinto (F14 Enterprise). **Reconfirmado: E21-E27 no
+forman parte del alcance verificable de F17.** Alcance final de F17:
+E1-E20.
+
+### Auditoría global del proyecto (no solo las experiencias)
+Entorno reiniciado desde cero (Postgres + backend + frontend) y
+re-verificado con `/health` antes de empezar. Ejecutado en esta
+sesión, con evidencia real contra Postgres:
+- **Baseline técnico**: 715/715 tests backend (0 drift desde el
+  cierre del Bloque 4), `npm run lint` backend 0 errores, `npx prisma
+  validate` sin errores, `npx prisma migrate status` → 47 migraciones,
+  base de datos al día. Frontend: lint 8 warnings (mismo baseline,
+  0 nuevos), build limpio (870 módulos). Confirmado con `grep` que
+  los 5 falsos positivos de `.skip` en todo `src/` son en realidad
+  `createExit` (0 tests realmente deshabilitados).
+- **Auditoría de arquitectura**: confirmado con `find` que existe un
+  solo `core/ledger` y un solo `core/audit`; los 2 pares de archivos
+  con nombre repetido (`alerts.service.js`, `consolidation.service.js`)
+  son envoltorios delgados ya documentados (14-267 líneas, no
+  reimplementaciones). 0 duplicación introducida por F17.
+- **Auditoría de datos**: 0 `FpaDimension` tipo PRODUCT duplicadas por
+  nombre (reconfirma que el fix de aislamiento de transacción de
+  F17-E16-01 sigue sin regresar), 0 niveles de stock negativos, 0
+  líneas de orden de compra sobre-recibidas, 0 desajustes entre
+  `paidAmount` y las aplicaciones reales de pago en 6 facturas AR + 1
+  AP, 0 facturas sobre-pagadas — todo verificado con consultas
+  directas contra Postgres, no inferido.
+- **Auditoría financiera de mayor rigor de todo F17**: por primera vez
+  se verificó la integridad del Ledger **a nivel de cada asiento
+  individual** (no solo el Balance General agregado) — las 23 asientos
+  preexistentes de la empresa de prueba, **0 desbalanceados**.
+
+### Cadenas transaccionales completas ejecutadas en vivo (nuevas en esta sesión)
+Para cumplir la exigencia explícita de "probar cadenas completas, no
+solo pantallas individuales", se ejecutaron dos flujos reales nuevos
+de punta a punta contra la empresa de prueba:
+- **Venta → Inventario → Factura → CxC → Cobro → Ledger → Auditoría**:
+  Venta Rápida real ($30, producto físico, cobro parcial $15) — stock
+  bajó exacto (98→96), factura quedó `PARTIALLY_PAID` coherente, 2
+  asientos generados ambos balanceados (19.32=19.32 y 15=15, ambos
+  `APPROVED`), 6 eventos de auditoría en el orden cronológico correcto.
+- **Compra → CxP → Pago → Ledger → Auditoría**: factura de compra real
+  ($40, servicio) + pago completo inmediato — CxP quedó `PAID`, 1
+  asiento balanceado (40=40), Banco Principal bajó exacto (95→55,
+  consistente con el cobro de la cadena anterior), 4 eventos de
+  auditoría correctos.
+- **Balance General verificado antes y después de ambas cadenas**:
+  698.08=698.08 → 668.76=668.76, ambos cuadrando exacto.
+
+### Auditoría de permisos (reconfirmada en vivo)
+Usuario Contador real (`f17-contador@example.com`): `200` en
+Contabilidad, `403` en Niveles de Acceso (sin permiso delegado), `403`
+en Inventario (fuera de su matriz de rol) — sin ningún `500`,
+reconfirmando que el bug CRITICAL preexistente de
+`requireAccessManagement` no regresó en ningún bloque de F17.
+
+### Auditoría UX/responsive de pantallas no cubiertas por ningún bloque
+Panel principal, Finanzas, Mi Cuenta verificadas con Playwright en
+390px y desktop — 0 desbordes horizontales, 0 errores de consola de
+aplicación, Panel principal confirmado íntegro visualmente (6 tarjetas
+de KPI, feed de alertas reales con 6 alertas específicas, gráficos,
+Previsión de Liquidez, widget de Junta — sin elementos rotos).
+
+### Resultado de esta auditoría final
+**0 defectos nuevos encontrados.** Todo lo auditado en profundidad
+(financiero a nivel de asiento, inventario, datos huérfanos,
+migraciones, arquitectura, permisos, auditoría, UX/responsive de
+pantallas no cubiertas) salió limpio — no fue necesario corregir nada
+en esta sesión. Las 19 correcciones de los 4 bloques anteriores siguen
+vigentes, reverificadas sin regresión mediante las cadenas
+transaccionales reales ejecutadas en esta sesión (no solo releyendo
+los reportes).
+
+### Documentación
+`F17_PRODUCT_READINESS_FINAL.md` reescrito con las 32 secciones
+pedidas explícitamente en esta auditoría final (reemplaza la versión
+de 22 secciones del cierre global anterior, incorporando toda la
+evidencia nueva de esta sesión).
+
+### Git
+Commit local `0033ffc` (cierre global anterior) conservado sin
+alterar. El bloqueo de push (403 de acceso GitHub a nivel de
+organización) persiste, documentado y no reintentado indefinidamente
+— ver el commit de esta auditoría final para el estado más reciente.
+
+**F17 — CLOSED WITH DOCUMENTED DEBT (alcance E1-E20).** Auditoría
+final ejecutada con evidencia real de cadenas transaccionales
+completas, 0 defectos nuevos, 0 regresiones. Bloque 5 (E21-E27)
+reconfirmado fuera del alcance verificable de F17. F17 termina aquí —
+no se inicia ninguna fase posterior sin autorización nueva y explícita.
+
 **Estado consolidado de F17**: Bloque 1 (E1-E5) CERRADO, Bloque 2
 (E6-E10) CERRADO, Bloque 3 (E11-E15) CERRADO, Bloque 4 (E16-E20)
-CERRADO, Bloque 5 (E21-E27) NO EJECUTADO, Cierre Global: PRODUCT READY
-WITH DOCUMENTED DEBT sobre E1-E20.
+CERRADO, Bloque 5 (E21-E27) NO EJECUTADO (fuera del alcance verificable
+de F17), Auditoría Final: **F17 — CLOSED WITH DOCUMENTED DEBT** sobre
+E1-E20.

@@ -115,9 +115,17 @@ export default function LotsPage() {
             <p className="section-title">
               Trazabilidad — {trace.lot.lotNumber} ({trace.variantSku} · {trace.productName})
             </p>
-            <p className="text-muted" style={{ marginBottom: 12 }}>
-              Cantidad restante: {trace.remainingQuantity}
-            </p>
+            {trace.exactTraceAvailable ? (
+              <p className="text-muted" style={{ marginBottom: 12 }}>
+                Cantidad restante: {trace.remainingQuantity}
+              </p>
+            ) : (
+              <p className="alert-box alert-box-warning" style={{ marginBottom: 12 }}>
+                No se puede saber la cantidad restante exacta de este lote: este producto usa valoración
+                por Promedio Ponderado, que no distingue de qué lote salió cada venta. Para ver cuánto
+                queda en total del producto, revisa el stock en la pestaña “Stock”.
+              </p>
+            )}
 
             <p className="section-title">Entradas</p>
             {trace.entries.length === 0 && <EmptyState icon="○" message="Sin entradas registradas para este lote." />}
@@ -145,7 +153,15 @@ export default function LotsPage() {
             )}
 
             <p className="section-title">Salidas que consumieron este lote</p>
-            {trace.usages.length === 0 && <EmptyState icon="○" message="Todavía no se ha consumido nada de este lote." />}
+            {trace.usages.length === 0 && trace.exactTraceAvailable && (
+              <EmptyState icon="○" message="Todavía no se ha consumido nada de este lote." />
+            )}
+            {trace.usages.length === 0 && !trace.exactTraceAvailable && (
+              <EmptyState
+                icon="○"
+                message="No se puede saber qué ventas/salidas consumieron este lote en particular (valoración por Promedio Ponderado)."
+              />
+            )}
             {trace.usages.length > 0 && (
               <table className="data-table">
                 <thead>

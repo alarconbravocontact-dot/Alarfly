@@ -48,6 +48,16 @@ async function getLotTrace(companyId, lotId) {
     warehouseName: m.warehouse.name,
   }));
 
+  // Un producto por Promedio Ponderado (PMP) nunca crea StockCostLayer (solo
+  // FIFO/LIFO las crea) — para esos productos este lote no tiene ninguna capa
+  // de costo ligada, así que no hay forma de saber cuánto de ESTE lote en
+  // particular queda (el costo/cantidad de todos los lotes se mezcla en un
+  // solo promedio). Reportar "0" en ese caso sería un dato falso (el lote
+  // puede seguir teniendo stock real, solo que no rastreado por lote) — se
+  // distingue explícitamente de un lote FIFO/LIFO genuinamente agotado
+  // (donde sí hay capas, y su suma real es 0).
+  const hasCostLayerTracking = entryMovements.some((m) => m.costLayersCreated.length > 0);
+
   const usages = [];
   let remainingQuantity = new Decimal(0);
   for (const movement of entryMovements) {
@@ -73,7 +83,8 @@ async function getLotTrace(companyId, lotId) {
     productName: lot.variant.product.name,
     variantSku: lot.variant.sku,
     entries,
-    remainingQuantity: remainingQuantity.toFixed(4),
+    exactTraceAvailable: hasCostLayerTracking,
+    remainingQuantity: hasCostLayerTracking ? remainingQuantity.toFixed(4) : null,
     usages,
   };
 }

@@ -58,6 +58,17 @@ function WidgetContent({ widgetKey, data }) {
     );
   }
   if (widgetKey === 'balance_sheet_summary') {
+    // F17-E16: el backend ya devolvía `netIncomeToDate` (la utilidad
+    // acumulada del periodo, que el Balance General SIEMPRE suma a
+    // Patrimonio para poder cuadrar — mismo criterio que ya usa
+    // FinancialStatementsPage.jsx con su fila final "Total Pasivo +
+    // Patrimonio"), pero este widget la recibía y nunca la mostraba:
+    // "Total Activos" quedaba sin ninguna fila con la que compararlo,
+    // y "Total Patrimonio" por sí solo parecía dejar los libros
+    // descuadrados. Se agregan las 2 filas que ya usa el reporte
+    // completo, con el mismo criterio, para que este resumen sea
+    // consistente con él.
+    const totalLiabilitiesAndEquity = Number(data.totalLiabilities || 0) + Number(data.totalEquity || 0) + Number(data.netIncomeToDate || 0);
     return (
       <table className="data-table">
         <tbody>
@@ -72,6 +83,18 @@ function WidgetContent({ widgetKey, data }) {
           <tr>
             <td>Total Patrimonio</td>
             <td className="num">{formatCurrency(data.totalEquity)}</td>
+          </tr>
+          <tr>
+            <td>Utilidad del periodo</td>
+            <td className="num">{formatCurrency(data.netIncomeToDate)}</td>
+          </tr>
+          <tr>
+            <td>
+              <strong>Total Pasivo + Patrimonio</strong>
+            </td>
+            <td className="num">
+              <strong>{formatCurrency(totalLiabilitiesAndEquity.toFixed(2))}</strong>
+            </td>
           </tr>
         </tbody>
       </table>

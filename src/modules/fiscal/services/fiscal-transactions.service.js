@@ -175,7 +175,12 @@ async function createFiscalTransaction(companyId, userId, data, tx = null) {
       client
     );
 
-    return { ...fiscalTransaction, warnings: warnings.map((rule) => rule.name) };
+    // F17-E16: se devuelven también las líneas del asiento recién
+    // posteado (`entry.lines`, ya las traía `postEntry`) — AR las
+    // necesita para poder etiquetar la línea de ingreso de una factura
+    // con la misma FpaDimension del producto, sin tener que volver a
+    // leer el asiento con una segunda consulta.
+    return { ...fiscalTransaction, warnings: warnings.map((rule) => rule.name), journalEntryLines: entry.lines };
   }
 
   return withTransaction(run, tx);

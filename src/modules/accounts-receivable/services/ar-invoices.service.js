@@ -135,6 +135,22 @@ async function createInvoice(companyId, userId, data, tx = null) {
   }
   const subtotal = lines.reduce((sum, line) => sum.plus(line.amount), new Decimal(0));
 
+  // F17-E16: Rentabilidad por Producto (reports/profitability.service)
+  // necesita la línea de INGRESO etiquetada con la misma FpaDimension
+  // que ya etiqueta Inventario del lado del costo (ver
+  // inventory-movements.service.tagCogsLineWithProduct) — sin esto, el
+  // reporte siempre mostraba ingreso $0 para cualquier producto real,
+  // aunque el costo sí apareciera, haciendo ver cualquier venta como
+  // una pérdida del 100%. Como el motor fiscal postea un único renglón
+  // de ingreso por factura (todas las líneas comparten la misma cuenta
+  // — decisión ya documentada), solo se puede atribuir con certeza
+  // cuando la factura entera es de UN solo producto: con más de un
+  // producto distinto no hay forma de dividir ese único renglón sin
+  // inventar un reparto, así que se deja sin etiquetar (mismo
+  // resultado que hoy, no se empeora nada).
+  const distinctProductVariantIds = [...new Set(lines.filter((l) => l.productVariantId).map((l) => l.productVariantId))];
+  const singleProductVariantId = distinctProductVariantIds.length === 1 ? distinctProductVariantIds[0] : null;
+
   const issueDate = new Date(data.issueDate);
   const dueDate = calculateDueDate(issueDate, customer.paymentTermsDays);
 
@@ -190,6 +206,25 @@ async function createInvoice(companyId, userId, data, tx = null) {
       },
       tx
     );
+
+    // F17-E16: etiqueta la línea de ingreso con la FpaDimension del
+    // producto (ver comentario en la resolución de
+    // `singleProductVariantId`, arriba) — reutiliza exactamente el
+    // mismo helper que ya usa Inventario para el lado del costo, así
+    // nunca hay dos FpaDimension distintas para el mismo producto.
+    if (singleProductVariantId) {
+      const variant = await tx.productVariant.findUnique({
+        where: { id: singleProductVariantId },
+        include: { product: true },
+      });
+      const incomeLine = fiscalTransaction.journalEntryLines.find(
+        (line) => line.accountId === data.incomeAccountId && Number(line.credit) > 0
+      );
+      if (variant && incomeLine) {
+        const fpaDimensionId = await inventoryMovementsService.resolveProductFpaDimension(tx, companyId, variant.product);
+        await tx.journalEntryLineFpaDimension.create({ data: { lineId: incomeLine.id, fpaDimensionId } });
+      }
+    }
 
     const invoiceNumber = await arApSettingsService.getNextArInvoiceNumber(companyId, tx);
     const totalAmount = subtotal.plus(fiscalTransaction.taxAmount).minus(fiscalTransaction.withholdingAmount);

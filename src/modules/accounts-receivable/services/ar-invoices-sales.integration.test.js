@@ -61,6 +61,67 @@ describe('Factura directa de producto físico (sin pedido) dispara la salida rea
     expect(Number(movement.totalCost)).toBe(60);
   });
 
+  // F17-E16: sin esto, Rentabilidad por Producto (reports/profitability)
+  // siempre mostraba ingreso $0 para cualquier producto real — solo el
+  // costo quedaba etiquetado (ver inventoryMovementsService
+  // .tagCogsLineWithProduct más abajo), nunca el ingreso de la propia
+  // factura, así que cualquier venta se veía como una pérdida del 100%.
+  test('una factura de UN solo producto etiqueta la línea de ingreso con la misma FpaDimension del producto', async () => {
+    const { company, user, variant, warehouse, product, incomeAccount } = scenario;
+
+    const invoice = await arInvoicesService.createInvoice(
+      company.id,
+      user.id,
+      invoiceData({
+        lines: [{ description: 'Venta directa', variantId: variant.id, warehouseId: warehouse.id, quantity: 2, unitPrice: 50 }],
+      })
+    );
+
+    const updatedProduct = await prisma.product.findUnique({ where: { id: product.id } });
+    expect(updatedProduct.fpaDimensionId).not.toBeNull();
+
+    const fiscalTransaction = await prisma.fiscalTransaction.findUnique({ where: { id: invoice.fiscalTransactionId } });
+    const incomeLine = await prisma.journalEntryLine.findFirst({
+      where: { journalEntryId: fiscalTransaction.journalEntryId, accountId: incomeAccount.id },
+    });
+    expect(incomeLine).not.toBeNull();
+
+    const tag = await prisma.journalEntryLineFpaDimension.findFirst({ where: { lineId: incomeLine.id } });
+    expect(tag).not.toBeNull();
+    expect(tag.fpaDimensionId).toBe(updatedProduct.fpaDimensionId);
+  });
+
+  // Caso límite a propósito: el motor fiscal postea un único renglón de
+  // ingreso por factura (todas las líneas comparten la misma cuenta,
+  // decisión ya documentada) — con 2 productos distintos en la misma
+  // factura no hay forma de repartir ese único renglón sin inventar un
+  // reparto, así que se deja sin etiquetar (nunca se adivina, mismo
+  // criterio que el resto del proyecto) y nunca se duplica el ingreso
+  // completo contra ambos productos.
+  test('una factura con 2 productos distintos NO etiqueta la línea de ingreso (evita atribuirla a cualquiera de los dos)', async () => {
+    const { company, user, variant, warehouse, serviceVariant, incomeAccount } = scenario;
+
+    const invoice = await arInvoicesService.createInvoice(
+      company.id,
+      user.id,
+      invoiceData({
+        lines: [
+          { description: 'Producto físico', variantId: variant.id, warehouseId: warehouse.id, quantity: 1, unitPrice: 10 },
+          { description: 'Servicio', variantId: serviceVariant.id, quantity: 1, unitPrice: 20 },
+        ],
+      })
+    );
+
+    const fiscalTransaction = await prisma.fiscalTransaction.findUnique({ where: { id: invoice.fiscalTransactionId } });
+    const incomeLine = await prisma.journalEntryLine.findFirst({
+      where: { journalEntryId: fiscalTransaction.journalEntryId, accountId: incomeAccount.id },
+    });
+    expect(incomeLine).not.toBeNull();
+
+    const tag = await prisma.journalEntryLineFpaDimension.findFirst({ where: { lineId: incomeLine.id } });
+    expect(tag).toBeNull();
+  });
+
   test('una línea de SERVICIO en una factura directa nunca toca inventario', async () => {
     const { company, user, serviceVariant } = scenario;
 

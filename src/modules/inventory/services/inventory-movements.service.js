@@ -173,7 +173,17 @@ async function createEntry(companyId, userId, data, tx = null) {
 // una venta de producto físico es una sola operación atómica, nunca
 // dos. Si no se pasa, se comporta igual que siempre (transacción propia).
 async function createExit(companyId, userId, data, tx = null) {
-  const variant = await prisma.productVariant.findFirst({
+  // F17-E16: esta lectura ocurre ANTES de entrar al `withTransaction`
+  // de más abajo — si `tx` ya existe (un llamador externo, ej.
+  // ar-invoices.service, ya abrió la transacción), leer con el cliente
+  // `prisma` plano no ve escrituras todavía sin confirmar hechas antes
+  // en esa misma transacción (ej. `Product.fpaDimensionId`, si algo
+  // más ya lo resolvió recién, en la misma transacción, un momento
+  // antes) — causaba que `tagCogsLineWithProduct` creara una SEGUNDA
+  // FpaDimension duplicada para el mismo producto en vez de reusar la
+  // que ya se acababa de crear. `tx || prisma` es el mismo criterio
+  // `tx = null` que ya usa el resto de este archivo.
+  const variant = await (tx || prisma).productVariant.findFirst({
     where: { id: data.variantId, product: { companyId } },
     include: { product: { include: { category: true } }, bomAsParent: { where: { isActive: true }, include: { components: true } } },
   });
@@ -531,4 +541,15 @@ async function listMovements(companyId, { variantId, warehouseId, type, from, to
   });
 }
 
-module.exports = { createEntry, createExit, createAdjustment, listMovements };
+module.exports = {
+  createEntry,
+  createExit,
+  createAdjustment,
+  listMovements,
+  // F17-E16: AR necesita esta misma función para etiquetar la línea de
+  // INGRESO de una factura (ver ar-invoices.service.js) — sin este
+  // export, Rentabilidad por Producto nunca podía mostrar ingreso real
+  // (solo costo), porque nada fuera de Inventario podía resolver/crear
+  // la misma FpaDimension que ya usa tagCogsLineWithProduct.
+  resolveProductFpaDimension,
+};

@@ -87,6 +87,24 @@ async function scanLowStock(companyId, userId) {
 // Punto 8: lotes con stock restante (suma de remainingQuantity en sus
 // capas) cuya fecha de vencimiento está a `daysBefore` días o menos —
 // mismas funciones puras de vencimiento que ya usan Tesorería/Fiscal.
+//
+// F17-E20: un producto por Promedio Ponderado (PMP, el método por
+// defecto de la empresa) nunca crea `StockCostLayer` — así que la suma
+// de capas siempre daba 0, y `if (remaining.lessThanOrEqualTo(0))
+// continue;` saltaba el lote SIEMPRE, sin importar cuánto stock real
+// tuviera ni cuán cerca estuviera de vencer. Resultado real: para
+// cualquier producto PMP con lotes y vencimiento (el caso más común,
+// porque PMP es el método por defecto), la alerta de vencimiento
+// NUNCA se disparaba — exactamente el mismo hueco ya corregido en
+// `lot-traceability.service.js` para la pantalla de trazabilidad,
+// pero acá el efecto es más grave: no es solo un dato impreciso en
+// pantalla, es una alerta de seguridad que nunca avisa, con riesgo
+// real de que se pierda mercancía vencida sin aviso. Igual que en la
+// trazabilidad, no se puede saber la cantidad EXACTA de un lote PMP
+// (el costo/cantidad de todos los lotes se mezcla), así que en vez de
+// fingir precisión se usa el stock actual del producto en el almacén
+// de esa entrada como señal de "todavía podría quedar algo de este
+// lote" — conservador a propósito, para no dejar de avisar.
 async function scanExpiringLots(companyId) {
   const rule = await prisma.alertRule.findFirst({ where: { companyId, type: 'PRODUCT_EXPIRING_SOON', isActive: true } });
   if (!rule) return [];
@@ -104,21 +122,43 @@ async function scanExpiringLots(companyId) {
 
     const entryMovements = await prisma.inventoryMovement.findMany({
       where: { lotId: lot.id },
-      select: { costLayersCreated: { select: { remainingQuantity: true } } },
+      select: { warehouseId: true, costLayersCreated: { select: { remainingQuantity: true } } },
     });
-    const remaining = entryMovements
-      .flatMap((m) => m.costLayersCreated)
-      .reduce((sum, layer) => sum.plus(layer.remainingQuantity), new Decimal(0));
-    if (remaining.lessThanOrEqualTo(0)) continue;
+    const hasCostLayerTracking = entryMovements.some((m) => m.costLayersCreated.length > 0);
+
+    let remaining = null;
+    let approximate = false;
+    if (hasCostLayerTracking) {
+      remaining = entryMovements
+        .flatMap((m) => m.costLayersCreated)
+        .reduce((sum, layer) => sum.plus(layer.remainingQuantity), new Decimal(0));
+      if (remaining.lessThanOrEqualTo(0)) continue;
+    } else {
+      approximate = true;
+      const warehouseIds = [...new Set(entryMovements.map((m) => m.warehouseId))];
+      const stockLevels = await prisma.stockLevel.findMany({
+        where: { variantId: lot.variantId, warehouseId: { in: warehouseIds } },
+      });
+      remaining = stockLevels.reduce((sum, level) => sum.plus(level.quantityOnHand), new Decimal(0));
+      if (remaining.lessThanOrEqualTo(0)) continue;
+    }
+
+    const message = approximate
+      ? `El lote "${lot.lotNumber}" de "${lot.variant.product.name}" vence el ${lot.expirationDate
+          .toISOString()
+          .slice(0, 10)} — este producto usa valoración por Promedio Ponderado, así que no se puede saber exactamente cuánto queda de este lote; el almacén donde entró todavía tiene ${remaining.toFixed(
+          4
+        )} unidades en stock del producto.`
+      : `El lote "${lot.lotNumber}" de "${lot.variant.product.name}" (${remaining.toFixed(4)} unidades) vence el ${lot.expirationDate
+          .toISOString()
+          .slice(0, 10)}.`;
 
     const alert = await coreAlertsService.createAlertIfNotExists({
       companyId,
       ruleId: rule.id,
       type: 'PRODUCT_EXPIRING_SOON',
       severity: severityForDueSoon(lot.expirationDate, today),
-      message: `El lote "${lot.lotNumber}" de "${lot.variant.product.name}" (${remaining.toFixed(4)} unidades) vence el ${lot.expirationDate
-        .toISOString()
-        .slice(0, 10)}.`,
+      message,
       entityType: 'InventoryLot',
       entityId: lot.id,
     });

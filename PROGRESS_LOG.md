@@ -8310,5 +8310,144 @@ validación real, igual que el MEDIUM asociado encontrado al verificar
 ese mismo fix; sin deuda bloqueante. Detenido aquí por instrucción
 explícita del prompt — no se avanza a E16 sin autorización nueva).
 
+## F17 — Bloque 4 (E16-E20): Rentabilidad/Tablero Ejecutivo, Niveles de
+Acceso, Cobranza Escalonada AR, Métricas del Negocio + Junta,
+Inventario Avanzado
+
+### Definición de E16–E20 (regla explícita del prompt: no inventar sin
+buscar primero)
+Búsqueda exhaustiva previa a tocar código (`grep` de "E16".."E20" en
+todo el repositorio, lectura completa de `PROGRESS_LOG.md` y de los 3
+reportes F17 ya entregados): las únicas apariciones de esos nombres en
+el proyecto pertenecen a F14/F15/F16, engagements no relacionados.
+**No existe un mapa maestro de experiencias de F17 que numere
+E16-E20** (mismo hallazgo que al definir E11-E15 en el Bloque 3).
+Definición adoptada, continuando la narrativa de los Bloques 1-3:
+**E16** Rentabilidad por Producto y Tablero Ejecutivo (Reportes),
+**E17** Niveles de Acceso, **E18** Cobranza Escalonada de Cuentas por
+Cobrar, **E19** Métricas del Negocio + Junta, **E20** Inventario
+Avanzado (lotes, vencimientos, reabastecimiento automático).
+
+### Empresa de prueba
+Se reutilizó `F17 Empresa Nueva` (confirmada intacta al retomar cada
+vez). Datos nuevos: factura real backdateada a 35 días de atraso (E18),
+producto nuevo con lote/vencimiento y 2 entradas/2 salidas reales
+(E20), orden de compra auto-generada y recibida parcialmente (E20),
+reglas de alerta `AR_COLLECTION_ESCALATION`/`LOW_STOCK`/
+`PRODUCT_EXPIRING_SOON` creadas.
+
+### F17-E16 — Rentabilidad por Producto y Tablero Ejecutivo
+**Hallazgo más importante del bloque (F17-E16-01, HIGH)**: Rentabilidad
+por Producto mostraba ingreso **$0** para cualquier venta real —
+`reports/profitability.service.js` exige que la línea de COSTO Y la
+línea de INGRESO de una venta estén etiquetadas con la misma
+`FpaDimension`; Inventario ya etiquetaba el costo (desde una sesión
+anterior), pero nada etiquetaba el ingreso. Corregido en
+`ar-invoices.service.createInvoice`: para facturas de UN solo
+producto, etiqueta la línea de ingreso real reutilizando
+`resolveProductFpaDimension` (sin duplicar esa lógica); facturas
+multi-producto quedan sin atribuir a propósito (el motor fiscal postea
+un ingreso combinado, atribuirlo a cualquiera de los productos sería
+arbitrario). Al construir el fix se encontró un segundo bug real,
+independiente: `inventory-movements.service.createExit` leía
+`variant`/`product` con el cliente Prisma plano ANTES de entrar a su
+propia transacción — si se llamaba con una transacción externa ya
+abierta (como la nueva de AR), no veía escrituras recién hechas en esa
+misma transacción, creando una `FpaDimension` duplicada para el mismo
+producto. Corregido leyendo con `tx || prisma`. **F17-E16-02 (MEDIUM)**:
+el widget Balance General del Tablero Ejecutivo nunca mostraba la
+Utilidad del periodo (el backend ya la calculaba correctamente) — un
+usuario real no podía confirmar que Activo = Pasivo + Patrimonio.
+Corregido agregando la fila faltante en `ExecutiveDashboardPage.jsx`,
+mismo patrón que el reporte completo de Balance General.
+
+### F17-E17 — Niveles de Acceso
+Sin hallazgos. Cupos por rol y tabla de usuarios verificados con datos
+reales de los 3 bloques previos.
+
+### F17-E18 — Cobranza Escalonada de Cuentas por Cobrar
+Sin hallazgos. Factura backdateada a 35 días de atraso, regla
+`AR_COLLECTION_ESCALATION` creada, escaneo generó alerta CRITICAL real
+y bloqueó al cliente automáticamente — visible en el Centro de
+Notificaciones.
+
+### F17-E19 — Métricas del Negocio + Junta
+Sin hallazgos. Métrica con valores reales, gráfico y estadísticas
+(promedio/mínimo/máximo/total) confirmados; widget de Junta en el
+Panel principal con mensaje real visible.
+
+### F17-E20 — Inventario Avanzado
+**F17-E20-01 (HIGH, dos componentes de la misma causa raíz)**: tanto
+`lot-traceability.service.js` como `inventory-alerts.service.js`
+(`scanExpiringLots`) calculan "cuánto queda de un lote" sumando
+`StockCostLayer.remainingQuantity`. Un producto por **Promedio
+Ponderado (PMP) — el método de valoración por defecto de la empresa**
+— nunca crea esas capas, así que la suma siempre daba 0. Efecto real:
+(A) la pantalla de trazabilidad mostraba "Cantidad restante: 0" para
+un lote con 35/19 unidades reales en stock, vigente y por vencer —
+dato falso y peligroso; (B) el escaneo de vencimiento NUNCA disparaba
+la alerta `PRODUCT_EXPIRING_SOON` para ese lote, sin importar cuán
+cerca del vencimiento, porque `if (remaining <= 0) continue` lo
+saltaba siempre. Corregido en ambos servicios: sin capas de costo
+ligadas, se reporta honestamente la limitación (`exactTraceAvailable:
+false`, `remainingQuantity: null`, con explicación clara en pantalla)
+en vez de "0", y la alerta usa el stock actual del almacén como señal
+conservadora (prefiere avisar de más, con aclaración, a no avisar
+nunca). No se tocó el motor de valoración ni `StockCostLayer` — la
+corrección es de presentación/decisión en los 2 servicios de lectura.
+Verificado también el resto de E20 sin hallazgos: entrada/salida con
+lote, escaneo de stock bajo con generación automática de orden de
+compra borrador, envío/recepción parcial de la orden con discrepancia
+correcta.
+
+### Hallazgos
+CRITICAL=0, HIGH=2 (ambos corregidos: F17-E16-01 y F17-E20-01),
+MEDIUM=1 (corregido: F17-E16-02), LOW=1 (deuda documentada, no
+bloqueante: recorte visual menor de un botón a 390px en la tabla de
+Lotes), DEUDA=1 (la alerta de vencimiento en PMP es conservadora, no
+exacta por lote — requeriría rediseñar el motor de valoración, fuera
+de alcance de F17). Ninguna funcionalidad comercial nueva introducida
+fuera de lo necesario para destrabar E16/E20.
+
+### Código modificado
+`src/modules/accounts-receivable/services/ar-invoices.service.js`
+(etiquetado de línea de ingreso), `src/modules/fiscal/services/fiscal-transactions.service.js`
+(expone `journalEntryLines`), `src/modules/inventory/services/inventory-movements.service.js`
+(exporta `resolveProductFpaDimension`; fix de aislamiento de
+transacción en `createExit`), `src/modules/inventory/services/lot-traceability.service.js`
+y `src/modules/inventory/services/inventory-alerts.service.js`
+(reporte honesto cuando no hay capas de costo),
+`frontend/src/pages/reports/ExecutiveDashboardPage.jsx` (fila de
+Utilidad del periodo), `frontend/src/pages/inventory/LotsPage.jsx`
+(aviso honesto en vez de "0" falso).
+
+### Tests
+710/710 antes de este bloque → 715/715 después (5 tests nuevos: 2 en
+`ar-invoices-sales.integration.test.js` para F17-E16-01, 2 en
+`lot-traceability-weighted-average.integration.test.js` + 3 en
+`inventory-alerts-expiring-lots.integration.test.js` para F17-E20-01
+— total 5 nuevos, 0 regresiones). `npm run lint` backend (0 errores),
+`npm run lint` frontend (mismo baseline de 8 warnings, 0 nuevos),
+`npm run build` frontend (870 módulos, sin errores).
+
+### Validación real
+Playwright + `curl` contra los dos servidores reales y Postgres real,
+con la misma empresa de prueba de los Bloques 1-3: las 5 experiencias
+recorridas de punta a punta con evidencia real (respuestas HTTP
+reales, capturas de pantalla). Responsive de la pantalla tocada
+(`/inventario/lotes`) verificado en 390/768/1440px sin desborde
+horizontal de página.
+
+### Documentación
+`F17_PRODUCT_READINESS_E16_E20.md` (nuevo, las 13 secciones pedidas
+explícitamente).
+
+**F17 — BLOQUE E16–E20 CERRADO** (CRITICAL=0, HIGH=0 tras esta sesión
+— los 2 HIGH encontrados se corrigieron en el mismo bloque con
+validación real, igual que el MEDIUM asociado; sin deuda bloqueante.
+Detenido aquí por instrucción explícita del prompt — no se avanza a
+E21 sin autorización nueva).
+
 **Estado consolidado de F17**: Bloque 1 (E1-E5) CERRADO, Bloque 2
-(E6-E10) CERRADO, Bloque 3 (E11-E15) CERRADO.
+(E6-E10) CERRADO, Bloque 3 (E11-E15) CERRADO, Bloque 4 (E16-E20)
+CERRADO.

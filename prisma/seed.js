@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../src/core/database/prisma');
 const templatesService = require('../src/modules/accounting/services/account-templates.service');
+const periodLockService = require('../src/core/period-lock/period-lock.service');
 
 // Plan de cuentas estándar de ejemplo (numeración estilo PUC), con
 // jerarquía de 3 niveles para demostrar que no hay límite de profundidad.
@@ -87,15 +88,11 @@ async function seedCompanyAndUsers() {
 }
 
 async function seedOpenPeriod(companyId) {
-  const now = new Date();
-  const startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const endDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
-  const name = startDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-
-  const existing = await prisma.accountingPeriod.findFirst({ where: { companyId, startDate, endDate } });
-  if (existing) return existing;
-
-  return prisma.accountingPeriod.create({ data: { companyId, name, startDate, endDate } });
+  // Cierre Total: esta misma lógica se extrajo a
+  // `core/period-lock.createInitialOpenPeriod` para que el registro
+  // público real (`auth.service.signup`) la reutilice — el seed ahora
+  // solo la llama, en vez de mantener su propia copia del cálculo.
+  return periodLockService.createInitialOpenPeriod(companyId);
 }
 
 async function seedTreasuryAccount(companyId) {

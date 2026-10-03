@@ -9020,3 +9020,82 @@ en la fase anterior) sino de la superficie compartida que Afiliados
 tocó por primera vez (autenticación transversal, validación de
 registro) — ambos corregidos en el punto más central posible para que
 protejan también cualquier ruta futura, no solo las de hoy.
+
+## Cierre Total del Producto y Preparación para Lanzamiento (2026-10-03)
+
+Pedido explícito del usuario: auditar → corregir → probar → documentar
+→ cerrar, sin abrir ninguna fase nueva después. Alcance: arquitectura,
+backend, frontend, DB, seguridad, multiempresa, CORE/AUDIT/Ledger,
+Finanzas (incluida la congelación de tasa BCV), operaciones centrales
+(Ventas/Compras/Inventario/Clientes/Proveedores), Afiliados (ya
+construido, solo reconfirmar), responsive, rendimiento, tests y
+Playwright. Documento completo: `CIERRE_TOTAL_LANZAMIENTO_FINAL.md`.
+
+### Hallazgo CRÍTICO encontrado y corregido
+**Toda empresa nueva nacía sin ningún periodo contable abierto.**
+Encontrado simulando la primera venta de un usuario real recién
+registrado (paso obligatorio del recorrido "registro → operación →
+venta → cobro → revisión financiera" pedido explícitamente). Causa:
+`core/ledger.postEntry` exige un `AccountingPeriod` abierto que cubra
+la fecha del asiento; `prisma/seed.js` ya creaba uno para el entorno de
+demo (`seedOpenPeriod`), pero esa misma lógica nunca se replicó en el
+registro público real (`auth.service.signup`). Resultado: el 100% de
+las empresas nuevas quedaban bloqueadas en su primera operación
+financiera (venta, compra, ajuste de inventario — cualquier cosa que
+toque el Ledger), con un error plano y sin ninguna guía de qué hacer.
+Corregido extrayendo la lógica del seed a
+`periodLockService.createInitialOpenPeriod` (reutilizada por ambos:
+signup real y seed, ya no hay dos copias del mismo cálculo), llamada
+dentro de la misma transacción que crea la empresa — una empresa nueva
+nace con su primer periodo ya abierto, sin cambiar ninguna regla de
+negocio de periodos existente (cierre/reapertura siguen igual). Además,
+el mensaje de error de "falta periodo contable" en Venta Rápida ahora
+incluye un enlace directo a Contabilidad > Periodos, para el caso real
+que puede seguir ocurriendo (una empresa que cruza de mes sin abrir el
+siguiente a tiempo). 1 test de integración nuevo contra Postgres real
+que guarda esta corrección contra una regresión futura.
+
+### Verificado sin problemas (secciones completas)
+**Operaciones centrales**: venta→cobro→revisión financiera y
+compra→pago→CxP, encadenadas en vivo contra Postgres real tras el fix
+— asientos balanceados y `APPROVED`, inventario decrementado
+exactamente, caja y CxC/CxP de Finanzas consistentes con cada
+movimiento real. **Finanzas (BCV)**: experimento real — tasa
+registrada, cobro en bolívares hecho, tasa cambiada drásticamente
+después — confirmó que el `exchangeRate`/monto de un `ArPayment` ya
+creado nunca se recalcula; congelamiento correcto. **Seguridad**: los
+2 fixes del cierre Post-Afiliados reconfirmados (token de afiliado, sin
+token, y token inválido — los 3 rechazados con 401 en una ruta
+company-scoped). **Afiliados**: estado consistente, sin tocar nada.
+**Responsive**: 13/13 combinaciones (Landing 390/768/1440, áreas
+principales 390/768) sin desborde horizontal. **Rendimiento**: barrido
+de patrones N+1 en todo el backend (24 ocurrencias, todas crons o
+procesamiento secuencial necesario dentro de una transacción, ninguna
+es un endpoint de lista que escale mal); 5 endpoints reales medidos
+entre 5-55ms, sin optimización necesaria. **UX/onboarding**: checklist
+de incorporación y estados vacíos confirmados con capturas de pantalla
+— ya estaban bien construidos, sin necesitar rediseño.
+
+### Tests y verificación
+746/746 tests (745 anteriores + 1 nuevo de integración), lint backend
+0 errores, lint frontend mismo baseline de 9 warnings ya conocido,
+build limpio (889 módulos). Playwright real: recorrido completo de
+usuario nuevo con los dos falsos positivos de mi propio script
+descartados tras revisar capturas de pantalla reales (selector de
+formulario, limitación de captura `fullPage` con scroll interno —
+confirmado con consulta directa al DOM que los ítems sí estaban
+presentes); Venta Rápida completa de punta a punta tras el fix
+(cliente real, producto real, cobro inmediato, factura `PAID`).
+
+### Documentación
+`CIERRE_TOTAL_LANZAMIENTO_FINAL.md` (nuevo, 15 secciones: estado,
+alcance, hallazgo crítico con causa raíz y corrección, recorrido de
+usuario nuevo, operaciones centrales, BCV, seguridad, CORE/AUDIT,
+UX/UI, responsive, rendimiento, tests, pendientes, commit, veredicto).
+
+**Cierre Total: CERRADO.** El único defecto que de verdad impedía usar
+el producto (ninguna empresa nueva podía vender nada) está corregido,
+probado con Postgres real y Playwright, y guardado contra regresión
+con un test de integración dedicado. No queda ningún hallazgo CRÍTICO
+ni IMPORTANTE abierto. No se avanza a ninguna fase funcional nueva
+después de este cierre.

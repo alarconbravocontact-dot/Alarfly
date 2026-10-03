@@ -342,6 +342,18 @@ export default function QuickSalePage() {
                 <Link to="/inventario/stock">Configúrala ahí →</Link>
               </>
             )}
+            {/* Cierre Total: una empresa nueva ya abre su primer periodo
+                sola (ver auth.service.signup), pero este mensaje sigue
+                pudiendo aparecer en una empresa real que cruzó de mes
+                sin abrir el siguiente periodo — antes no daba ninguna
+                pista de a dónde ir, mismo criterio que el resto de los
+                avisos F17-E3 de esta misma pantalla. */}
+            {formError.includes('periodo contable') && (
+              <>
+                {' '}
+                <Link to="/contabilidad/periodos">Abre el periodo en Contabilidad →</Link>
+              </>
+            )}
           </p>
         )}
 

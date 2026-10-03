@@ -17,6 +17,32 @@ async function createPeriod({ companyId, name, startDate, endDate }) {
   return prisma.accountingPeriod.create({ data: { companyId, name, startDate, endDate } });
 }
 
+// Cierre Total (hallazgo CRÍTICO, corregido acá): todo movimiento
+// financiero exige un `AccountingPeriod` que cubra su fecha
+// (`getPeriodForDate` abajo) — pero nada lo creaba automáticamente
+// para una empresa recién registrada. Hasta este fix, SOLO
+// `prisma/seed.js` creaba uno (para que el entorno de demo funcionara
+// de una vez), nunca el registro público real
+// (`core/auth/auth.service.signup`): toda empresa nueva quedaba con el
+// Ledger completo bloqueado hasta que alguien, a mano, entrara a
+// Contabilidad > Periodos — su primera venta/compra/ajuste fallaba con
+// un error que ni siquiera explicaba qué hacer. Se extrae acá la MISMA
+// lógica que ya usaba el seed (mismo criterio de nombre y rango: el
+// mes calendario que contiene la fecha dada) para que el registro real
+// la reutilice sin duplicarla (ver su llamada nueva en
+// `auth.service.signup`) y para que el propio seed deje de tener su
+// propia copia suelta de este cálculo.
+async function createInitialOpenPeriod(companyId, referenceDate = new Date(), client = prisma) {
+  const startDate = new Date(Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth(), 1));
+  const endDate = new Date(Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth() + 1, 0));
+
+  const existing = await client.accountingPeriod.findFirst({ where: { companyId, startDate, endDate } });
+  if (existing) return existing;
+
+  const name = startDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return client.accountingPeriod.create({ data: { companyId, name, startDate, endDate } });
+}
+
 async function listPeriods(companyId) {
   return prisma.accountingPeriod.findMany({ where: { companyId }, orderBy: { startDate: 'asc' } });
 }
@@ -132,6 +158,7 @@ async function reopenPeriod(companyId, periodId, userId, reason) {
 
 module.exports = {
   createPeriod,
+  createInitialOpenPeriod,
   listPeriods,
   getPeriodForDate,
   assertOpenForDate,

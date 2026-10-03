@@ -51,6 +51,25 @@ describe('signup — Registro Público', () => {
     expect(auditRow.userId).toBe(user.id);
   });
 
+  // Cierre Total (hallazgo CRÍTICO, corregido): sin un periodo contable
+  // abierto que cubra HOY, una empresa recién registrada no podía
+  // registrar ninguna venta/compra/ajuste — su primera operación
+  // fallaba de inmediato. Este test guarda específicamente que el
+  // registro público deja un periodo `OPEN` cubriendo la fecha de hoy,
+  // para que esto nunca vuelva a regresar en silencio.
+  test('deja un periodo contable OPEN que cubre la fecha de hoy (sin esto, la primera venta/compra fallaría)', async () => {
+    const email = `signup-period-${Date.now()}@example.com`;
+    const session = await authService.signup('Empresa Con Periodo', 'Dueña', email, 'Prueba1234');
+    companyId = session.user.companyId;
+
+    const today = new Date();
+    const period = await prisma.accountingPeriod.findFirst({
+      where: { companyId, startDate: { lte: today }, endDate: { gte: today } },
+    });
+    expect(period).not.toBeNull();
+    expect(period.status).toBe('OPEN');
+  });
+
   test('rechaza un correo ya registrado, sin crear una Company nueva (sin efecto parcial)', async () => {
     const email = `signup-dup-${Date.now()}@example.com`;
     const first = await authService.signup('Primera Empresa', 'Ana', email, 'Prueba1234');

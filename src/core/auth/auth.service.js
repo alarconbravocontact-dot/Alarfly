@@ -8,6 +8,7 @@ const { assertQuotaAvailable } = require('../rbac/rbac.rules');
 const { decrypt } = require('../utils/crypto');
 const { assertStrongPassword } = require('../account/services/security.rules');
 const affiliatesService = require('../affiliates/affiliates.service');
+const periodLockService = require('../period-lock/period-lock.service');
 
 const PENDING_2FA_EXPIRES_IN = '5m';
 const TRIAL_DAYS = 7;
@@ -183,6 +184,19 @@ async function signup(companyName, name, email, password, { deviceInfo, ipAddres
         isActive: true,
       },
     });
+
+    // Cierre Total (hallazgo CRÍTICO, corregido acá): sin esto, una
+    // empresa recién registrada no tenía NINGÚN periodo contable
+    // abierto — su primera venta/compra/ajuste de inventario fallaba
+    // de inmediato ("No hay un periodo contable creado que cubra esa
+    // fecha."), sin ninguna pista de qué hacer. Se abre acá, dentro de
+    // la misma transacción, el periodo del mes calendario en que se
+    // registra (mismo criterio que ya usaba `prisma/seed.js` para el
+    // entorno de demo) — el Administrador sigue pudiendo crear más
+    // periodos o cerrarlo normalmente desde Contabilidad > Periodos,
+    // esto solo evita que el producto nazca bloqueado.
+    await periodLockService.createInitialOpenPeriod(company.id, trialStartedAt, tx);
+
     await auditService.log(
       {
         companyId: company.id,

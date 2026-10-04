@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from '../../core/ui/Icon';
 import Seo from '../../core/ui/Seo';
@@ -6,6 +7,26 @@ import ShareButton from '../../core/ui/ShareButton';
 import Reveal from '../../core/ui/Reveal';
 import BackToTop from '../../core/ui/BackToTop';
 import './LandingPage.css';
+
+// Rediseño del Header: los 4 enlaces de la navegación principal
+// apuntan únicamente a secciones que YA existen en esta misma página
+// (anchors reales, nunca una ruta inventada). El pedido original
+// listaba también "Fina IA" y "Dispositivos" — ninguno de los dos
+// existe en Alarfly (confirmado en AI_ARCHITECTURE.md: el producto no
+// usa IA en ningún punto; no hay app móvil ni contenido de
+// "dispositivos" en la Landing), así que no se agregaron — agregar un
+// enlace a una sección que no existe sería exactamente lo que el
+// propio pedido prohíbe explícitamente. "Testimonios" tampoco existe
+// como tal (no hay citas de clientes reales en todo el proyecto, por
+// la misma regla de honestidad ya aplicada en los legales) — se usó en
+// su lugar la sección de Confianza ya real, que cumple el mismo rol de
+// generar confianza sin inventar una cita que no existe.
+const NAV_ITEMS = [
+  { id: 'producto', label: 'Funcionalidades' },
+  { id: 'confianza', label: 'Confianza' },
+  { id: 'precio', label: 'Precios' },
+  { id: 'faq', label: 'FAQ' },
+];
 
 // Cierre Web/SEO: datos estructurados (JSON-LD) usando ÚNICAMENTE
 // hechos que ya se muestran en esta misma página (nombre, descripción,
@@ -114,6 +135,92 @@ const FAQS = [
 ];
 
 export default function LandingPage() {
+  const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState('');
+  const toggleRef = useRef(null);
+
+  // Un solo listener de scroll (con el mismo throttle por
+  // requestAnimationFrame ya usado por BackToTop) resuelve dos cosas a
+  // la vez: la transición sutil del Header y el estado activo real de
+  // la navegación — nunca un valor fijo/simulado.
+  //
+  // El estado activo se calcula leyendo la posición real de las 4
+  // secciones (nunca con un IntersectionObserver de banda centrada):
+  // la sección activa es la última cuyo borde superior ya cruzó la
+  // línea justo debajo del Header. Es el mismo criterio con el que
+  // "Ver cómo funciona"/los enlaces ya aterrizan (scrollIntoView con
+  // block:'start' + scroll-margin-top) — una banda centrada del
+  // viewport fallaba con secciones más cortas que la mitad de la
+  // pantalla (ej. "Confianza" marcaba "Precios" como activa porque el
+  // centro del viewport ya había pasado a la siguiente sección).
+  useEffect(() => {
+    const sections = NAV_ITEMS.map((item) => document.getElementById(item.id)).filter(Boolean);
+    const REFERENCE_LINE = 96; // un poco más que la altura del Header (~72px)
+    let ticking = false;
+
+    function update() {
+      setScrolled(window.scrollY > 8);
+      let current = '';
+      for (const section of sections) {
+        if (section.getBoundingClientRect().top <= REFERENCE_LINE) {
+          current = section.id;
+        }
+      }
+      setActiveSection(current);
+    }
+
+    function handleScroll() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        update();
+        ticking = false;
+      });
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    update();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Menú móvil: Escape cierra y devuelve el foco al botón que lo abrió;
+  // mientras está abierto, se bloquea el scroll del fondo (detalle
+  // premium, revertido siempre al cerrar/desmontar).
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        toggleRef.current?.focus();
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [menuOpen]);
+
+  function closeMenu() {
+    setMenuOpen(false);
+  }
+
+  // Scroll suave hacia una sección real de la página (nunca una ruta
+  // inventada), respetando prefers-reduced-motion — mismo criterio
+  // exacto que ya usa BackToTop para su propio scroll. El
+  // `scroll-margin-top` ya puesto en CSS sobre cada sección evita que
+  // el título quede oculto debajo del Header sticky.
+  function scrollToSection(event, id) {
+    const target = document.getElementById(id);
+    if (!target) return;
+    event.preventDefault();
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  }
+
   return (
     <div className="landing">
       <Seo
@@ -122,17 +229,27 @@ export default function LandingPage() {
         path="/"
         jsonLd={LANDING_JSON_LD}
       />
-      <header className="landing-nav">
+      <header className={`landing-nav${scrolled ? ' is-scrolled' : ''}`}>
         <div className="landing-nav-inner">
-          <div className="landing-brand">
+          <Link to="/" className="landing-brand" style={{ textDecoration: 'none' }}>
             <span className="landing-brand-mark">A</span>
             <span className="landing-brand-name">Alarfly</span>
-          </div>
-          <nav className="landing-nav-links">
-            <a href="#producto">Producto</a>
-            <a href="#precio">Precio</a>
-            <a href="#faq">Preguntas</a>
+          </Link>
+
+          <nav className="landing-nav-links" aria-label="Navegación principal">
+            {NAV_ITEMS.map((item) => (
+              <a
+                key={item.id}
+                href={`#${item.id}`}
+                className={activeSection === item.id ? 'is-active' : ''}
+                aria-current={activeSection === item.id ? 'true' : undefined}
+                onClick={(event) => scrollToSection(event, item.id)}
+              >
+                {item.label}
+              </a>
+            ))}
           </nav>
+
           <div className="landing-nav-actions">
             <ThemeToggle />
             <ShareButton title="Alarfly — Gestión financiera integral para pymes" text="Ventas, compras, inventario y finanzas conectados en un solo lugar." />
@@ -142,6 +259,55 @@ export default function LandingPage() {
             <Link to="/registro" className="btn btn-primary">
               Empieza gratis
             </Link>
+            <button
+              type="button"
+              ref={toggleRef}
+              className="landing-nav-toggle"
+              aria-label={menuOpen ? 'Cerrar menú' : 'Abrir menú'}
+              aria-expanded={menuOpen}
+              aria-controls="landing-mobile-menu"
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <Icon name={menuOpen ? 'close' : 'menu'} label={menuOpen ? 'Cerrar' : 'Menú'} />
+            </button>
+          </div>
+        </div>
+
+        <div
+          id="landing-mobile-menu"
+          className={`landing-mobile-menu${menuOpen ? ' is-open' : ''}`}
+          aria-hidden={!menuOpen}
+          inert={!menuOpen}
+        >
+          <div className="landing-mobile-menu-inner">
+            <nav className="landing-mobile-menu-links" aria-label="Navegación móvil">
+              {NAV_ITEMS.map((item) => (
+                <a
+                  key={item.id}
+                  href={`#${item.id}`}
+                  onClick={(event) => {
+                    // El bloqueo de scroll del menú abierto (ver el
+                    // efecto de arriba) se libera recién en el próximo
+                    // render — se quita acá mismo, sincrónico, para que
+                    // el scroll suave de abajo no quede atrapado por
+                    // `overflow: hidden` todavía activo en <body>.
+                    document.body.style.overflow = '';
+                    scrollToSection(event, item.id);
+                    closeMenu();
+                  }}
+                >
+                  {item.label}
+                </a>
+              ))}
+            </nav>
+            <div className="landing-mobile-menu-actions">
+              <Link to="/acceso" onClick={closeMenu}>
+                Iniciar sesión
+              </Link>
+              <Link to="/registro" className="btn btn-primary btn-large" onClick={closeMenu}>
+                Empieza gratis
+              </Link>
+            </div>
           </div>
         </div>
       </header>
@@ -161,7 +327,11 @@ export default function LandingPage() {
               <Link to="/registro" className="btn btn-primary btn-large">
                 Empieza gratis
               </Link>
-              <a href="#producto" className="btn btn-ghost btn-large">
+              <a
+                href="#producto"
+                className="btn btn-ghost btn-large"
+                onClick={(event) => scrollToSection(event, 'producto')}
+              >
                 Ver cómo funciona
               </a>
             </div>
@@ -260,7 +430,7 @@ export default function LandingPage() {
         </section>
 
         {/* Confianza */}
-        <section className="landing-section landing-section-alt">
+        <section className="landing-section landing-section-alt" id="confianza">
           <Reveal className="landing-section-inner landing-narrow">
             <h2>Un producto real, auditado de punta a punta</h2>
             <div className="landing-trust-grid">

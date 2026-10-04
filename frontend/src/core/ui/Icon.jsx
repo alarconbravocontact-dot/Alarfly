@@ -45,6 +45,8 @@ const PATHS = {
   'theme-auto': 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 3v18',
   // Prompt 2 (UX): botón "Volver arriba".
   'arrow-up': 'M12 19V5M5 12l7-7 7 7',
+  // Rediseño del Header: botón de menú móvil (hamburguesa de 3 líneas).
+  menu: 'M4 6h16M4 12h16M4 18h16',
 };
 
 const BASE_SIZE = 20;

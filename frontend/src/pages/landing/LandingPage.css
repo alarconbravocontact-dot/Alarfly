@@ -21,6 +21,17 @@
   max-width: 740px;
 }
 
+/* Compensar la altura del Header fijo (sticky, ~72px medido en vivo)
+   al navegar por anchor — para que el título de cada sección no quede
+   oculto debajo de la barra. Se aplica solo a las 4 secciones que la
+   navegación principal realmente enlaza. */
+#producto,
+#confianza,
+#precio,
+#faq {
+  scroll-margin-top: 92px;
+}
+
 /* Navbar */
 .landing-nav {
   position: sticky;
@@ -34,6 +45,23 @@
   background: rgba(var(--color-bg-rgb), 0.85);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--color-border);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+/* Rediseño del Header: transición discreta al hacer scroll — un poco
+   más opaco, borde más marcado y una sombra sutil, nunca un cambio
+   brusco ni una reducción de altura exagerada. */
+.landing-nav.is-scrolled {
+  background: rgba(var(--color-bg-rgb), 0.97);
+  border-bottom-color: var(--color-border-strong);
+  box-shadow: var(--shadow-card);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-nav {
+    transition: none;
+  }
 }
 
 .landing-nav-inner {
@@ -77,13 +105,25 @@
 }
 
 .landing-nav-links a {
+  position: relative;
   color: var(--color-text-secondary);
   text-decoration: none;
   font-size: var(--text-sm);
+  padding-bottom: var(--space-1);
+  border-bottom: 2px solid transparent;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .landing-nav-links a:hover {
   color: var(--color-text-primary);
+}
+
+/* Estado activo real: calculado por un IntersectionObserver sobre las
+   secciones reales de la página (ver LandingPage.jsx), nunca fijo. */
+.landing-nav-links a.is-active {
+  color: var(--color-text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--color-brand);
 }
 
 .landing-nav-actions {
@@ -101,6 +141,56 @@
 
 .landing-nav-login:hover {
   color: var(--color-text-primary);
+}
+
+/* Botón de menú móvil — mismo patrón pill ya usado por
+   ThemeToggle/ShareButton/IncognitoToggle (ver sus CSS): ancho mínimo
+   en vez de fijo, para que la etiqueta de texto del modo "principiante"
+   nunca quede cortada ni superpuesta. Oculto en escritorio; el
+   breakpoint que lo muestra vive en la sección Responsive, abajo. */
+.landing-nav-toggle {
+  display: none;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.landing-nav-toggle:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+/* Panel de navegación móvil — oculto en escritorio; en el breakpoint
+   móvil se convierte en un desplegable animado con la misma técnica de
+   grid-template-rows 0fr→1fr ya usada por ConditionalField.css (nunca
+   mide alturas en JavaScript, nunca da un salto brusco).
+   Bug real encontrado y corregido: con el panel en flujo normal del
+   documento, cerrarlo (al elegir una sección) encogía el Header justo
+   mientras el scroll suave todavía estaba en curso — el contenido de
+   abajo se movía a mitad de la animación y el destino final quedaba
+   descuadrado. Se corrigió con `position: absolute` (flota encima del
+   contenido, nunca empuja nada) — .landing-nav ya es el bloque
+   contenedor correcto por ser `position: sticky`. */
+.landing-mobile-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 25;
+  /* Opaco a propósito (no la misma translucidez que la barra superior):
+     es un panel flotando sobre el contenido, se ve mejor sólido — con
+     transparencia, el texto de la sección de abajo se transparentaba a
+     través, con aspecto descuidado. */
+  background: var(--color-bg);
 }
 
 /* Hero */
@@ -529,12 +619,80 @@
   .landing-trust-grid {
     grid-template-columns: 1fr;
   }
+
+  /* Rediseño del Header: por debajo de este ancho, la navegación
+     principal y "Iniciar sesión" se mueven al menú móvil (ver
+     .landing-mobile-menu más abajo) — el CTA "Empieza gratis" se
+     queda siempre visible en la barra, junto al botón de menú. */
+  .landing-nav-links,
+  .landing-nav-login {
+    display: none;
+  }
+
+  .landing-nav-toggle {
+    display: flex;
+  }
+
+  .landing-mobile-menu {
+    display: grid;
+    grid-template-rows: 0fr;
+    border-top: 1px solid transparent;
+    transition: grid-template-rows 220ms ease, border-color 220ms ease;
+  }
+
+  .landing-mobile-menu.is-open {
+    grid-template-rows: 1fr;
+    border-top-color: var(--color-border);
+    box-shadow: var(--shadow-card);
+  }
+
+  .landing-mobile-menu-inner {
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .landing-mobile-menu-links {
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-4) var(--space-5) 0;
+  }
+
+  .landing-mobile-menu-links a {
+    padding: var(--space-3) 0;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    font-size: var(--text-sm);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .landing-mobile-menu-links a:hover {
+    color: var(--color-text-primary);
+  }
+
+  .landing-mobile-menu-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5) var(--space-5);
+  }
+
+  .landing-mobile-menu-actions a:not(.btn) {
+    text-align: center;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    font-size: var(--text-sm);
+    padding: var(--space-2) 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-mobile-menu {
+    transition: none;
+  }
 }
 
 @media (max-width: 600px) {
-  .landing-nav-links {
-    display: none;
-  }
 
   /* Prompt 2 (UX): bug real encontrado y corregido — con el modo
      "principiante" activo por defecto (ver Icon.jsx), los botones de

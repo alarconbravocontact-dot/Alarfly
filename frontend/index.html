@@ -8,6 +8,41 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#0b0d10" />
+    <script>
+      // Prompt 2 (UX/Tema): evita el parpadeo de tema (FOUC) — sin
+      // esto, la página siempre pintaba primero con los tokens del
+      // :root (oscuro) y recién después, cuando React montaba
+      // ThemeContext, saltaba a claro si esa era la preferencia real.
+      // Se resuelve de forma síncrona, antes de la primera pintura,
+      // leyendo EXACTAMENTE las mismas claves de localStorage que ya
+      // usa ThemeContext.jsx (nunca un mecanismo de tema aparte) — la
+      // preferencia real de un usuario con sesión sigue viviendo en el
+      // servidor; esto solo evita el salto visual mientras React la
+      // confirma. Va DESPUÉS del <meta name="theme-color"> de arriba a
+      // propósito: necesita que ese elemento ya exista en el DOM para
+      // poder actualizarlo.
+      (function () {
+        try {
+          var raw;
+          var userRaw = localStorage.getItem('alarfly_user');
+          if (userRaw) {
+            var user = JSON.parse(userRaw);
+            raw = user && user.id ? localStorage.getItem('theme-cache-' + user.id) : null;
+          }
+          if (!raw) raw = localStorage.getItem('theme-public');
+          if (!raw) raw = 'dark';
+          var effective = raw;
+          if (raw === 'auto') {
+            effective = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', effective);
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', effective === 'light' ? '#f6f4ef' : '#0b0d10');
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Cierre Web/SEO: Alarfly ya tiene Landing pública real — el
          bloqueo global de indexación (dejado desde F16-E17, cuando

@@ -57,6 +57,13 @@
   --color-warning-rgb: 201, 162, 39;
   --color-info-rgb: 107, 143, 174;
   --color-brand-rgb: 156, 39, 64;
+  /* Prompt 2 (UX/Tema): faltaba una tripleta para --color-bg — sin
+     ella, el fondo translúcido del nav sticky de la Landing (sección
+     "Navbar" de LandingPage.css) tenía el tono oscuro escrito a mano
+     (rgba(11, 13, 16, 0.85)), así que en tema claro seguía viéndose
+     oscuro encima de una página clara. Mismo criterio que el resto de
+     tripletas de arriba. */
+  --color-bg-rgb: 11, 13, 16;
 
   /* Fondo oscuro semitransparente detrás de un diálogo — mismo tono en
      los dos temas a propósito (siempre debe verse como "apagar" el
@@ -174,6 +181,8 @@
   --color-warning-rgb: 150, 114, 28;
   --color-info-rgb: 63, 106, 138;
   --color-brand-rgb: 138, 36, 56;
+  /* Mismo fondo "Papel" que --color-bg de arriba, como tripleta. */
+  --color-bg-rgb: 246, 244, 239;
 
   /* Sombras mucho más suaves que en el tema oscuro: una sombra tan
      oscura como la de arriba, sobre un fondo claro, se ve como una

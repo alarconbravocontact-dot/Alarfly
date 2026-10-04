@@ -335,8 +335,342 @@ AUDIT/permisos/cálculos financieros ya existentes.
    (sección 12) y, si corresponde, agregar un banner de cookies real
    — nunca antes de que esa integración exista de verdad.
 
-## 17. Cierre
+## 17. Cierre (Prompt 1/2)
 
 Commit local sobre `claude/fintech-platform-nodejs-pdgvjf`. No se
 avanza al Prompt 2 — se entrega el resumen ejecutivo pedido y se
 espera confirmación/continuación explícita del usuario.
+
+---
+
+# Parte 2 — UX + Animaciones + Interacción + Tema Claro/Oscuro (Prompt 2/2)
+
+> Continúa directamente sobre el resultado real del Prompt 1 — nada de
+> lo documentado arriba se rehizo. Alcance: animaciones de scroll,
+> botón "Volver arriba", botón de compartir, sugerencias/feedback
+> (extendiendo el contacto ya existente), modo claro/oscuro real y
+> persistente, accesibilidad, responsive y rendimiento. No se tocó
+> lógica financiera, ERP, autenticación, Ledger ni afiliados — todos
+> los cambios de esta parte son de presentación/interacción o,
+> cuando fue estrictamente necesario (la categoría del formulario de
+> contacto), una extensión aditiva de un modelo ya existente.
+
+## 18. Auditoría previa a esta parte
+
+Antes de escribir código se revisó, contra el estado real dejado por
+el Prompt 1:
+
+- **`ThemeContext.jsx` ya existía**, completo, pero con una limitación
+  real: **solo funcionaba con sesión** (`if (!user) { setRawTheme
+  ('dark'); return; }`) — un visitante de la Landing/legales/contacto/
+  404 no tenía ningún control de tema, siempre veía oscuro fijo. Se
+  **extendió** (nunca se reconstruyó) para que, sin sesión, use
+  `localStorage` directamente como fuente de verdad — mismo
+  `data-theme`, mismos tokens de `theme.css`, un solo sistema.
+- **`theme.css` ya cubría** fondo/superficies/texto/bordes/estados
+  (positivo/negativo/warning/info) en los dos temas — confirmado
+  completo antes de tocar nada. Solo faltaba una tripleta RGB
+  (`--color-bg-rgb`, ver sección 20).
+- **No había ningún mecanismo de scroll/animación, botón "volver
+  arriba" ni botón de compartir** en todo el proyecto — se audita y
+  confirma con `grep` antes de construir cualquiera de los tres.
+- **El formulario de contacto del Prompt 1 YA era, de hecho, un
+  mecanismo de feedback utilizable** (nombre/correo/asunto/mensaje,
+  validación, loading/éxito/error, protección básica contra spam) —
+  se **extendió** con una categoría (sugerencia/comentario/mejora/
+  reporte) en vez de construir un segundo sistema, tal como pide
+  explícitamente la sección 5 del prompt ("si existe, reutilizarlo").
+- **Íconos de sol/luna/flecha arriba no existían** en `Icon.jsx` — se
+  agregaron al mismo registro ya existente, mismo criterio de trazo a
+  mano sin librería que el resto del set.
+
+## 19. Animaciones de scroll
+
+`core/ui/Reveal.jsx` (nuevo, genérico): envuelve cualquier bloque y le
+aplica fade + un desplazamiento corto de 12px al entrar en el
+viewport, con un único `IntersectionObserver` por instancia (nunca un
+listener de `scroll`, que es la causa típica de layout thrashing en
+este tipo de animación) — se desconecta solo apenas el elemento
+aparece una vez. Transición de 320ms (rápida, discreta). **Respeta
+`prefers-reduced-motion: reduce`** en dos capas: JS (el componente
+nunca activa la animación, se muestra de inmediato) y CSS (una regla
+`@media` de respaldo, por si el componente llegara a montarse con la
+animación activa). Conectado en las 8 secciones de contenido de la
+Landing (no en el Hero, que debe verse de inmediato, ni en el pie de
+página). Nada de parallax ni efectos pesados — solo opacidad y un
+`transform: translateY()` corto.
+
+## 20. Botón "Volver arriba"
+
+`core/ui/BackToTop.jsx` (nuevo): aparece pasados 480px de scroll,
+desaparece por debajo de ese umbral, con transición suave de opacidad.
+Un solo listener de `scroll`, protegido con `requestAnimationFrame`
+(nunca recalcula en cada evento de scroll, que puede dispararse
+decenas de veces por segundo). Es un `<button>` real (no un `<div>` con
+`onClick`) — funciona con teclado (Tab + Enter, verificado), con
+`aria-label="Volver arriba"`, `aria-hidden`/`tabIndex` que se
+desactivan cuando está oculto (no queda alcanzable por teclado sin
+verse). El scroll usa `behavior: 'smooth'`, excepto si
+`prefers-reduced-motion: reduce` está activo, en cuyo caso salta
+directo (`behavior: 'auto'`). Conectado en la Landing y en las 3
+páginas legales (donde más sentido tiene — Términos es la página más
+larga del sitio).
+
+## 21. Botón de compartir
+
+`core/ui/ShareButton.jsx` (nuevo): usa la **Web Share API** nativa
+cuando el navegador la soporta (deja que el propio sistema operativo
+muestre sus apps reales de compartir — nunca se integró ningún SDK de
+red social). Cuando no está disponible (confirmado con Playwright: no
+existe en Chromium headless, el caso típico de navegador de
+escritorio), copia la URL actual al portapapeles y confirma con el
+**mismo sistema de toasts ya existente** (`ToastContext`, que ya
+estaba montado globalmente desde el Prompt 1 y funciona sin sesión) —
+no se inventó un mecanismo de confirmación aparte. Conectado en la
+Landing y en las 3 páginas legales (compartir el enlace directo a una
+política o a los Términos es un caso de uso real — alguien se lo puede
+querer reenviar a un colega o abogado).
+
+## 22. Sugerencias / Feedback
+
+Se auditó primero si ya existía un mecanismo de contacto o feedback —
+sí, el formulario de contacto del Prompt 1 — así que se **extendió**
+en vez de crear un sistema aparte: `ContactMessage.category` (enum
+nuevo `ContactMessageCategory`: `GENERAL`/`SUGGESTION`/`COMMENT`/
+`IMPROVEMENT`/`BUG_REPORT`, migración puramente aditiva, `GENERAL` por
+defecto para no romper el caso de uso original). El formulario ganó un
+selector "¿Qué nos quieres decir?" con las 5 categorías — validación,
+loading, éxito y error ya los tenía el formulario original y se
+reutilizan sin cambios; la protección contra spam (honeypot + ventana
+de enfriamiento por IP) tampoco se duplicó.
+
+## 23. Modo claro y modo oscuro
+
+**No se crearon dos diseños independientes** — el sistema de tokens de
+`theme.css` ya existía completo desde una sesión anterior (fondo,
+superficies, texto primario/secundario, bordes, estados positivo/
+negativo/warning/info, con sus tripletas RGB para fondos translúcidos)
+y ya cubría botones/inputs/cards/tablas/modales/enlaces a través de
+`module.css` (confirmado con `grep`: 87 usos de `var(--color-*)`, cero
+colores fijos). El trabajo real de esta sección fue:
+
+1. **Extender `ThemeContext` a visitantes sin sesión** (ver sección
+   18) — un solo sistema, dos fuentes de verdad (servidor con sesión,
+   `localStorage` sin ella), nunca dos temas separados.
+2. **`core/ui/ThemeToggle.jsx`** (nuevo): botón que cicla
+   oscuro→claro→automático→oscuro, con `aria-label`/`title`
+   describiendo el estado actual y el próximo. Conectado en la
+   Landing, las 3 páginas legales y la 404.
+3. **Bug real encontrado y corregido**: el fondo del nav sticky de la
+   Landing (`.landing-nav`) tenía escrito a mano el tono OSCURO fijo
+   (`rgba(11, 13, 16, 0.85)`) — en tema claro, la barra de navegación
+   seguía viéndose oscura encima de una página ya clara (confirmado
+   con captura de pantalla). Causa: faltaba una tripleta RGB para
+   `--color-bg` en `theme.css` (ya existían para
+   positive/negative/warning/info/brand, no para bg). Se agregó
+   `--color-bg-rgb` a los dos temas y se corrigió el nav para usar
+   `rgba(var(--color-bg-rgb), 0.85)` — ahora cambia con el tema,
+   confirmado con una nueva captura.
+4. **El modo oscuro no se tocó** — sigue siendo exactamente la
+   identidad ya construida ("Tinta"/negro mate). El modo claro
+   ("Papel"/hueso cálido, "Tinta"/carbón cálido) ya era una adaptación
+   profesional existente, ahora verificada también en las 4 páginas
+   públicas nuevas del Prompt 1 (antes nunca se habían visto en claro,
+   porque no existía ningún control de tema sin sesión).
+
+## 24. Persistencia del tema y parpadeo (FOUC)
+
+- **Elegir claro/oscuro/automático** ya funcionaba con sesión (`Mi
+  Cuenta > Preferencias`, sin cambios); ahora también funciona sin
+  sesión vía `ThemeToggle` + `localStorage['theme-public']`.
+- **"Automático"** sigue resolviendo contra `prefers-color-scheme` del
+  sistema operativo, reevaluado en vivo (ya existía, sin cambios).
+- **Bug real de parpadeo (FOUC) encontrado y corregido**: no existía
+  ningún mecanismo para fijar el tema antes del primer render de
+  React — la página siempre pintaba primero con los tokens del
+  `:root` (oscuro) y recién después, cuando `ThemeContext` montaba,
+  saltaba al tema real si era distinto. Se agregó un script inline en
+  `index.html` (antes de cualquier CSS/JS de la app) que lee
+  **exactamente las mismas claves de `localStorage`** que ya usa
+  `ThemeContext.jsx` (nunca un mecanismo de tema aparte) y fija
+  `data-theme` + el `<meta name="theme-color">` de forma síncrona,
+  antes de la primera pintura. Verificado con Playwright: cambiar el
+  tema, recargar, y confirmar que `data-theme` ya es el correcto en el
+  primer `evaluate()` posible (sin esperar a que React monte nada).
+
+## 25. Accesibilidad
+
+- **Contraste**: medido con la fórmula real de contraste WCAG (no
+  estimado) sobre texto de cuerpo, texto secundario, los 2 botones
+  nuevos y el botón primario, **en los dos temas** — las 12
+  combinaciones dieron ratio ≥ 6.2:1 (AA para texto normal exige
+  4.5:1) — el sistema de tokens ya estaba bien calibrado, nada que
+  corregir ahí.
+- **Bug real encontrado y corregido** (no de contraste, de token):
+  `NotificationCenter.css` tenía dos `color: #fff` escritos a mano
+  (insignia de notificaciones, botón de marcar como atendida) — fuera
+  del sistema de tokens, así que no se adaptaban al tema. Corregido a
+  `var(--color-on-accent)`, el token que el proyecto ya usa
+  exactamente para este caso (texto claro encima de un fondo de color
+  saturado) en otros 5 archivos.
+- **Bug real encontrado y corregido** (botones superpuestos): con el
+  modo "principiante" de íconos activo por defecto (`Icon.jsx`,
+  `beginnerMode`), los botones circulares de ancho fijo (32px:
+  `IncognitoToggle`, y los nuevos `ThemeToggle`/`ShareButton`) no
+  dejaban espacio para su propia etiqueta de texto — el texto se
+  salía del botón y se montaba encima del siguiente ícono de la barra
+  (confirmado con captura de pantalla en la Landing Y en la barra
+  superior ya existente del ERP: "Tema"/"Ocultar montos"/
+  "Notificaciones" se veían unos encima de otros). **No es un bug que
+  haya introducido esta pieza en soledad** — `IncognitoToggle` ya
+  tenía exactamente el mismo problema estructural desde antes; se
+  corrigió en los 3 archivos a la vez (criterio consistente): de
+  `width` fijo + círculo perfecto a `min-width` + forma píldora
+  (`border-radius: var(--radius-pill)`), que crece con su contenido —
+  sigue viéndose como un círculo limpio cuando no hay etiqueta.
+- **Teclado**: verificado con Playwright — Tab alcanza el selector de
+  tema y el botón de compartir, Enter los activa (cambia el tema;
+  dispara copiar+toast). El botón "Volver arriba" es un `<button>`
+  real, alcanzable y activable por teclado, con `aria-hidden`/
+  `tabIndex=-1` cuando está oculto (nunca "atrapa" el foco de alguien
+  navegando solo con teclado en un botón invisible).
+- **`prefers-reduced-motion`**: respetado en `Reveal` (aparece de
+  inmediato, sin transición) y en `BackToTop` (`scrollTo` sin
+  `behavior: 'smooth'`) — verificado con Playwright emulando esta
+  preferencia.
+- **Formularios**: el formulario de contacto ya tenía
+  `aria-invalid`/`aria-describedby`/`role="alert"` por campo (Prompt
+  1, sin cambios); el nuevo selector de categoría usa una etiqueta
+  nativa `<label>` (nombre accesible sin necesitar `aria-label`
+  aparte).
+- **Imágenes**: sin cambios — la Landing y las páginas legales no usan
+  ninguna imagen raster (confirmado en el Prompt 1); nada que auditar
+  de nuevo acá.
+
+## 26. Responsive (390px / 768px / desktop)
+
+Verificado con Playwright, 15 combinaciones (Landing, Privacidad,
+Términos, Contacto, 404 × 390/768/1440px).
+
+**Bug real encontrado y corregido, en dos pasos**: agregar `ThemeToggle`
++ `ShareButton` al nav público produjo primero 126px de desborde
+horizontal a 390px (4 elementos — tema, compartir, iniciar sesión,
+empieza gratis — no cabían en una sola fila). Se corrigió en dos
+pasos: (1) ocultar la etiqueta de texto de los 2 botones nuevos a
+≤600px (mismo criterio ya usado ahí mismo para ocultar los enlaces
+"Producto/Precio/Preguntas" en ese breakpoint), que bajó el desborde a
+32px; (2) agregar `flex-wrap` al grupo de acciones del nav para que,
+si aun así no caben, pasen a una segunda línea sin perder ningún botón
+ni cortar "Empieza gratis". Resultado final: **15/15 combinaciones en
+0px de desborde**, confirmado con captura de pantalla del nav a 390px
+(logo arriba, tema+compartir+iniciar sesión en una fila, "Empieza
+gratis" en su propia fila — se ve intencional, no roto).
+
+**Regresión real encontrada y corregida en el ERP autenticado** (fuera
+del alcance explícito de páginas públicas, pero verificada porque esta
+pieza tocó un archivo global, `ThemeContext.jsx`): se había agregado
+`ThemeToggle` también a la barra superior del ERP (`AppLayout.jsx`)
+como mejora adicional — eso empujó esa barra, ya ajustada de espacio
+desde una pieza anterior del proyecto, a 46px de desborde a 390px.
+Como Mi Cuenta > Preferencias **ya** ofrece el mismo control de tema
+para un usuario con sesión, se revirtió esa adición puntual (el
+componente `ThemeToggle` en sí se conserva, solo se sacó de esa barra
+en particular) en vez de tocar los breakpoints ya afinados del ERP —
+la opción más segura y con menos riesgo de otra regresión. Confirmado:
+0px de desborde en Panel principal, Venta Rápida y Finanzas a
+390/768px tras revertir.
+
+## 27. Rendimiento — antes/después (mismo método que el Prompt 1: Playwright + CDP contra el build de producción con `vite preview`, nunca el servidor de desarrollo)
+
+| Métrica | Prompt 1 (antes de esta parte) | Prompt 2 (después) |
+|---|---|---|
+| LCP (Landing) | 400 ms | 392 ms |
+| CLS (Landing) | 0,0000 | 0,0000 |
+| DOMContentLoaded | 290 ms | 304 ms |
+| Chunk de entrada (JS) | 365,50 kB (gzip 110,23 kB) | 369,58 kB (gzip 111,50 kB) |
+| Chunk de entrada (CSS) | 46,74 kB (gzip 8,01 kB) | 49,61 kB (gzip 8,35 kB) |
+| Peso real en disco de lo que carga la Landing | ≈416 KB | ≈422,6 KB |
+| Requests totales | 9 | 9 |
+
+**Sin degradación real**: LCP mejoró ligeramente (dentro del margen de
+medición), CLS se mantuvo en 0 exacto (las animaciones de `Reveal` son
+`opacity`/`transform`, que el navegador puede animar sin recalcular
+layout — por diseño, nunca mueven el contenido de alrededor), y el
+crecimiento de bundle (+4 KB JS, +3 KB CSS sin comprimir) es
+exactamente el tamaño esperado de 4 componentes nuevos, pequeños y sin
+ninguna dependencia externa (`Reveal`/`BackToTop`/`ShareButton`/
+`ThemeToggle`, un único `IntersectionObserver` y un único listener de
+`scroll` protegido con `requestAnimationFrame` en total). No se usó
+ninguna librería de animación — nunca se consideró necesaria.
+
+## 28. Tests, lint, build (regresión completa)
+
+- **Jest (backend)**: **753/753** (752 del Prompt 1 + 1 nuevo de
+  `contact.service.test.js`, que guarda específicamente que la
+  categoría de feedback se persiste correctamente).
+- **Lint backend** (`eslint src`): 0 errores.
+- **Lint frontend** (`oxlint`): mismo baseline de 9 warnings ya
+  conocido (`only-export-components`, patrón arquitectónico
+  deliberado) — sin warnings nuevos pese a los ~10 componentes/
+  archivos nuevos de esta parte.
+- **Build frontend** (`vite build`): limpio, 907 módulos.
+- **Prisma**: `npx prisma validate` sin errores; migración
+  `20261003202817_contact_message_category` puramente aditiva.
+- Ningún test se eliminó ni se omitió para forzar un resultado verde
+  — los 3 bugs reales encontrados (nav oscuro en tema claro, botones
+  superpuestos, desborde de 126px→32px→0px) se corrigieron en el
+  código de producción, re-verificados con Playwright después de cada
+  fix, nunca "parcheados" solo en el test.
+
+## 29. Playwright (verificación en vivo, los dos servidores reales + Postgres real)
+
+- **Tema**: ciclo completo oscuro→claro→automático→oscuro con clics
+  reales; persistencia confirmada recargando la página
+  (`localStorage['theme-public']`); las 4 páginas públicas
+  confirmadas en claro con los colores exactos esperados (fondo
+  `rgb(246,244,239)`, texto `rgb(30,28,24)`).
+- **Animaciones de scroll**: con movimiento normal, las secciones
+  empiezan ocultas y pasan a visibles al hacer scroll (confirmado
+  comparando el estado antes/después de un scroll al final de la
+  página); con `prefers-reduced-motion: reduce` emulado, la primera
+  sección ya está visible sin ningún scroll.
+- **Volver arriba**: oculto al cargar, visible pasados 480px de
+  scroll, el clic y la tecla Enter devuelven `scrollY` a 0.
+- **Compartir**: sin Web Share API (caso real de Chromium de
+  escritorio), copia al portapapeles y muestra el toast "Enlace
+  copiado al portapapeles."; con teclado (foco + Enter) funciona
+  igual.
+- **Feedback**: categoría "Sugerencia" seleccionada, formulario
+  enviado, fila real confirmada en Postgres con `category: SUGGESTION`
+  antes de limpiarla.
+- **Responsive**: ver sección 26 — 15/15 páginas públicas + 6/6
+  pantallas del ERP autenticado en 0px de desborde.
+- 0 errores de consola nuevos en todo el recorrido (aparte del
+  bloqueo ya conocido de Google Fonts en este entorno de pruebas, sin
+  relación con esta pieza).
+
+## 30. Regresiones
+
+Ninguna en el ERP ni en lo ya construido del Prompt 1. Los 2 bugs de
+responsive/superposición de botones eran regresiones que esta MISMA
+pieza introdujo al conectar los componentes nuevos — se encontraron y
+corrigieron dentro de la propia verificación, antes del cierre, no
+después. La regresión de la barra superior del ERP (sección 26) se
+revirtió por completo. El resto de bugs encontrados (nav oscuro en
+tema claro, `#fff` fuera de tokens) eran reales pero preexistentes al
+layout ya construido, solo visibles ahora porque esta pieza fue la
+primera vez que alguien probó esas pantallas en tema claro — se
+corrigieron igual.
+
+## 31. Documentación
+
+Esta sección (18-31) se agregó a `WEB_SEO_PERFORMANCE_FINAL.md` (no
+se creó un documento nuevo). `PROGRESS_LOG.md` actualizado con el
+cierre de esta parte.
+
+## 32. Cierre definitivo (Prompt 2/2)
+
+Commit local sobre `claude/fintech-platform-nodejs-pdgvjf`. Con esto
+se cierra por completo la etapa WEB/UX de Alarfly — no se crea una
+tercera fase ni otro plan. Cualquier trabajo adicional sobre la capa
+web requiere una instrucción explícita nueva del usuario.

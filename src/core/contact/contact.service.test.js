@@ -24,8 +24,23 @@ describe('contact.service', () => {
         email: 'ana@example.com',
         subject: 'Hola',
         message: 'Un mensaje real suficientemente largo.',
+        category: 'GENERAL',
         ipAddress: '1.2.3.4',
       },
+    });
+  });
+
+  test('sección 5 (Sugerencias/Feedback): guarda la categoría real cuando se manda una distinta de GENERAL', async () => {
+    prisma.contactMessage.findFirst.mockResolvedValue(null);
+    prisma.contactMessage.create.mockResolvedValue({ id: 'm-feedback' });
+
+    await contactService.createContactMessage(
+      { name: 'Ana', email: 'ana@example.com', subject: 'Idea', message: 'Sería genial poder exportar a PDF.', category: 'SUGGESTION' },
+      '1.2.3.4'
+    );
+
+    expect(prisma.contactMessage.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ category: 'SUGGESTION' }),
     });
   });
 

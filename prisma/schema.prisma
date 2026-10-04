@@ -4302,16 +4302,31 @@ model AffiliateProgramSettings {
 // Company — mismo criterio que `Affiliate`/`ContactMessage` no cuelga
 // de ninguna empresa porque quien escribe puede no tener cuenta
 // todavía.
+// Prompt 2 (UX) sección 5 — "Sugerencias/Feedback": se auditó primero
+// si ya existía un mecanismo de contacto/feedback — sí, este mismo
+// modelo (Prompt 1) — así que se EXTIENDE con una categoría en vez de
+// construir un segundo sistema. GENERAL es el valor por defecto (el
+// caso de uso original del formulario de contacto, sin fricción
+// nueva); los otros 4 son exactamente los pedidos explícitamente.
+enum ContactMessageCategory {
+  GENERAL
+  SUGGESTION
+  COMMENT
+  IMPROVEMENT
+  BUG_REPORT
+}
+
 model ContactMessage {
-  id        String   @id @default(cuid())
+  id        String                 @id @default(cuid())
   name      String
   email     String
   subject   String
   message   String
+  category  ContactMessageCategory @default(GENERAL)
   // IP de quien envió, solo para la protección básica contra spam
   // (ventana de enfriamiento por IP) — nunca se expone al usuario.
   ipAddress String?
-  createdAt DateTime @default(now())
+  createdAt DateTime               @default(now())
 
   @@index([email])
   @@index([ipAddress, createdAt])

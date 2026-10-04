@@ -1,4 +1,7 @@
 import { Link } from 'react-router-dom';
+import ThemeToggle from '../../core/ui/ThemeToggle';
+import ShareButton from '../../core/ui/ShareButton';
+import BackToTop from '../../core/ui/BackToTop';
 import '../landing/LandingPage.css';
 import './LegalLayout.css';
 
@@ -18,6 +21,13 @@ export default function LegalLayout({ title, updatedAt, children }) {
             <span className="landing-brand-name">Alarfly</span>
           </Link>
           <div className="landing-nav-actions">
+            {/* Prompt 2 (UX): mismos componentes reutilizados de la
+                Landing — ningún mecanismo nuevo por pantalla. Compartir
+                tiene sentido real acá: alguien puede querer enviarle a
+                un colega/abogado el enlace directo a esta página legal
+                en particular. */}
+            <ThemeToggle />
+            <ShareButton title={title} />
             <Link to="/acceso" className="landing-nav-login">
               Iniciar sesión
             </Link>
@@ -62,6 +72,7 @@ export default function LegalLayout({ title, updatedAt, children }) {
           </div>
         </div>
       </footer>
+      <BackToTop />
     </div>
   );
 }

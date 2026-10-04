@@ -1,7 +1,17 @@
 .incognito-toggle {
-  width: 32px;
+  /* Prompt 2 (UX/Accesibilidad): bug real encontrado y corregido — un
+     ancho FIJO de 32px no deja espacio para la etiqueta de texto del
+     modo "principiante" (Icon.jsx, beginnerMode, activo por defecto);
+     el texto se salía del botón y se montaba encima del siguiente
+     ícono de la barra superior (confirmado con captura de pantalla:
+     "Tema"/"Ocultar montos"/"Notificaciones" se veían unos encima de
+     otros). `min-width` + forma píldora deja que el botón crezca con
+     su propio contenido — sigue viéndose como un círculo limpio
+     cuando no hay etiqueta (solo el ícono, modo no-principiante). */
+  min-width: 32px;
   height: 32px;
-  border-radius: 50%;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text-secondary);

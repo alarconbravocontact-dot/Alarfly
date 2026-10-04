@@ -37,6 +37,14 @@ const PATHS = {
   // Fase Afiliados: botón de copiar/compartir el enlace de referido.
   copy: 'M9 9h10v10H9z M5 15V5h10',
   share: 'M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM8.5 13.5l7-3.5M8.5 14.5l7 3.5',
+  // Prompt 2 (UX/Tema): selector de tema público (ThemeToggle) — forma
+  // genérica de sol/luna/círculo partido, mismo criterio del resto del
+  // set (trazo a mano, sin librería).
+  sun: 'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10ZM12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42',
+  moon: 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z',
+  'theme-auto': 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 3v18',
+  // Prompt 2 (UX): botón "Volver arriba".
+  'arrow-up': 'M12 19V5M5 12l7-7 7 7',
 };
 
 const BASE_SIZE = 20;

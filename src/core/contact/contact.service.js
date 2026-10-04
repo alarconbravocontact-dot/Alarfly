@@ -18,7 +18,7 @@ async function assertNotRateLimited(ipAddress) {
   }
 }
 
-async function createContactMessage({ name, email, subject, message, honeypot }, ipAddress) {
+async function createContactMessage({ name, email, subject, message, category, honeypot }, ipAddress) {
   // Un honeypot lleno nunca es un error de validación visible al
   // usuario real (lo confundiría) — se responde éxito igual, pero no
   // se guarda nada. Mismo criterio que usan sistemas de contacto
@@ -30,7 +30,7 @@ async function createContactMessage({ name, email, subject, message, honeypot },
   await assertNotRateLimited(ipAddress);
 
   return prisma.contactMessage.create({
-    data: { name, email, subject, message, ipAddress: ipAddress || null },
+    data: { name, email, subject, message, category: category || 'GENERAL', ipAddress: ipAddress || null },
   });
 }
 

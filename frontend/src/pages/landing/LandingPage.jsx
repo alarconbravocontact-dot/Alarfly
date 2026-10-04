@@ -1,6 +1,10 @@
 import { Link } from 'react-router-dom';
 import Icon from '../../core/ui/Icon';
 import Seo from '../../core/ui/Seo';
+import ThemeToggle from '../../core/ui/ThemeToggle';
+import ShareButton from '../../core/ui/ShareButton';
+import Reveal from '../../core/ui/Reveal';
+import BackToTop from '../../core/ui/BackToTop';
 import './LandingPage.css';
 
 // Cierre Web/SEO: datos estructurados (JSON-LD) usando ÚNICAMENTE
@@ -130,6 +134,8 @@ export default function LandingPage() {
             <a href="#faq">Preguntas</a>
           </nav>
           <div className="landing-nav-actions">
+            <ThemeToggle />
+            <ShareButton title="Alarfly — Gestión financiera integral para pymes" text="Ventas, compras, inventario y finanzas conectados en un solo lugar." />
             <Link to="/acceso" className="landing-nav-login">
               Iniciar sesión
             </Link>
@@ -195,7 +201,7 @@ export default function LandingPage() {
 
         {/* Problema */}
         <section className="landing-section landing-section-alt">
-          <div className="landing-section-inner landing-narrow">
+          <Reveal className="landing-section-inner landing-narrow">
             <h2>Llevar las finanzas de tu negocio no debería sentirse así</h2>
             <div className="landing-problem-grid">
               <p>Hojas de cálculo que nadie actualiza a tiempo.</p>
@@ -203,23 +209,23 @@ export default function LandingPage() {
               <p>Clientes que se te olvidan hasta que ya es tarde para cobrarles.</p>
               <p>Depender de alguien externo para entender un número.</p>
             </div>
-          </div>
+          </Reveal>
         </section>
 
         {/* Propuesta de valor */}
         <section className="landing-section">
-          <div className="landing-section-inner landing-narrow">
+          <Reveal className="landing-section-inner landing-narrow">
             <h2>Todo conectado, explicado en lenguaje simple</h2>
             <p className="landing-section-lead">
               Alarfly reúne ventas, compras, inventario y contabilidad en un solo sistema — para que sepas, sin ser
               experto, cuánto tienes, quién te debe, y si tu negocio está ganando de verdad.
             </p>
-          </div>
+          </Reveal>
         </section>
 
         {/* Capacidades */}
         <section className="landing-section landing-section-alt" id="producto">
-          <div className="landing-section-inner">
+          <Reveal className="landing-section-inner">
             <h2>Lo que Alarfly hace por tu negocio</h2>
             <div className="landing-capabilities-grid">
               {CAPABILITIES.map((c) => (
@@ -232,12 +238,12 @@ export default function LandingPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </Reveal>
         </section>
 
         {/* Cómo funciona */}
         <section className="landing-section">
-          <div className="landing-section-inner landing-narrow">
+          <Reveal className="landing-section-inner landing-narrow">
             <h2>Cómo funciona</h2>
             <div className="landing-steps">
               {STEPS.map((s) => (
@@ -250,12 +256,12 @@ export default function LandingPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </Reveal>
         </section>
 
         {/* Confianza */}
         <section className="landing-section landing-section-alt">
-          <div className="landing-section-inner landing-narrow">
+          <Reveal className="landing-section-inner landing-narrow">
             <h2>Un producto real, auditado de punta a punta</h2>
             <div className="landing-trust-grid">
               <div className="landing-trust-item">
@@ -287,12 +293,12 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
-          </div>
+          </Reveal>
         </section>
 
         {/* Pricing */}
         <section className="landing-section" id="precio">
-          <div className="landing-section-inner landing-narrow">
+          <Reveal className="landing-section-inner landing-narrow">
             <h2>Un solo plan, sin letra pequeña</h2>
             <div className="landing-pricing-card">
               <p className="landing-price">
@@ -308,12 +314,12 @@ export default function LandingPage() {
                 Empieza gratis
               </Link>
             </div>
-          </div>
+          </Reveal>
         </section>
 
         {/* FAQ */}
         <section className="landing-section landing-section-alt" id="faq">
-          <div className="landing-section-inner landing-narrow">
+          <Reveal className="landing-section-inner landing-narrow">
             <h2>Preguntas frecuentes</h2>
             <div className="landing-faq">
               {FAQS.map((f) => (
@@ -323,18 +329,18 @@ export default function LandingPage() {
                 </details>
               ))}
             </div>
-          </div>
+          </Reveal>
         </section>
 
         {/* CTA final */}
         <section className="landing-cta-final">
-          <div className="landing-section-inner landing-narrow">
+          <Reveal className="landing-section-inner landing-narrow">
             <h2>Empieza a controlar las finanzas de tu negocio hoy</h2>
             <p>7 días de prueba gratis. Sin tarjeta, sin compromiso.</p>
             <Link to="/registro" className="btn btn-primary btn-large">
               Empieza gratis
             </Link>
-          </div>
+          </Reveal>
         </section>
       </main>
 
@@ -370,6 +376,7 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+      <BackToTop />
     </div>
   );
 }

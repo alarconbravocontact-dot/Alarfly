@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import Icon from '../core/ui/Icon';
 import Seo from '../core/ui/Seo';
+import ThemeToggle from '../core/ui/ThemeToggle';
 import '../pages/landing/LandingPage.css';
 import './NotFoundPage.css';
 
@@ -21,6 +22,9 @@ export default function NotFoundPage() {
             <span className="landing-brand-mark">A</span>
             <span className="landing-brand-name">Alarfly</span>
           </Link>
+          <div className="landing-nav-actions">
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 

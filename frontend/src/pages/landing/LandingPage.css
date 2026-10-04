@@ -26,7 +26,12 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(11, 13, 16, 0.85);
+  /* Prompt 2 (UX/Tema): bug real de tema claro corregido — este valor
+     estaba escrito a mano como el tono oscuro fijo (equivalente a
+     rgba(var(--color-bg-rgb), 0.85) del tema oscuro), así que la barra
+     de navegación seguía oscura encima de una página ya clara. Ahora
+     usa la tripleta de --color-bg, que sí cambia con el tema. */
+  background: rgba(var(--color-bg-rgb), 0.85);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--color-border);
 }
@@ -529,6 +534,30 @@
 @media (max-width: 600px) {
   .landing-nav-links {
     display: none;
+  }
+
+  /* Prompt 2 (UX): bug real encontrado y corregido — con el modo
+     "principiante" activo por defecto (ver Icon.jsx), los botones de
+     Tema/Compartir con su etiqueta de texto completa no cabían en la
+     barra de navegación a 390px junto con "Iniciar sesión"/"Empieza
+     gratis" (126px de desborde horizontal confirmado con Playwright).
+     Mismo criterio que ya se usaba acá arriba para
+     .landing-nav-links: en el nav angosto, solo el ícono — el nombre
+     accesible (aria-label/title) de cada botón sigue intacto para
+     lectores de pantalla, nunca se perdió información, solo la
+     etiqueta visible que no cabía. Ocultar las etiquetas solas dejó
+     todavía 32px de desborde (4 elementos en una sola fila seguían sin
+     caber) — se agrega además `flex-wrap` para que Tema/Compartir
+     puedan pasar a una segunda línea dentro del propio grupo de
+     acciones, sin perder ningún botón ni cortar "Empieza gratis". */
+  .landing-nav-actions .ui-icon-label {
+    display: none;
+  }
+
+  .landing-nav-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: var(--space-2);
   }
 
   .landing-hero-title {

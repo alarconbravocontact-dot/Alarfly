@@ -1,0 +1,23 @@
+.ui-reveal {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 320ms ease, transform 320ms ease;
+  will-change: opacity, transform;
+}
+
+.ui-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Respeta prefers-reduced-motion incluso si, por alguna razón, el
+   componente llegó a montarse con la animación activa (defensa en
+   profundidad — el componente ya evita esto en JS, pero la regla CSS
+   no depende de que ese chequeo nunca falle). */
+@media (prefers-reduced-motion: reduce) {
+  .ui-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

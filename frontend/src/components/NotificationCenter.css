@@ -22,7 +22,7 @@
   top: 0;
   right: 0;
   background: var(--color-negative);
-  color: #fff;
+  color: var(--color-on-accent);
   font-size: 10px;
   font-weight: 700;
   border-radius: 999px;
@@ -116,6 +116,6 @@
 
 .notification-center-ack:hover {
   background: var(--color-positive);
-  color: #fff;
+  color: var(--color-on-accent);
   border-color: var(--color-positive);
 }

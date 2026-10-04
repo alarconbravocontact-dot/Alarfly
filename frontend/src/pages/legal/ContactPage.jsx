@@ -6,7 +6,19 @@ import Seo from '../../core/ui/Seo';
 import LegalLayout from './LegalLayout';
 import './ContactPage.css';
 
-const EMPTY_FORM = { name: '', email: '', subject: '', message: '', honeypot: '' };
+const EMPTY_FORM = { name: '', email: '', subject: '', message: '', category: 'GENERAL', honeypot: '' };
+
+// Sección 5 del Prompt 2 ("Sugerencias/Feedback"): se auditó primero si
+// ya existía un mecanismo de contacto o feedback — sí, este mismo
+// formulario (Prompt 1) — así que se extiende con una categoría en vez
+// de construir un segundo sistema aparte.
+const CATEGORY_OPTIONS = [
+  { value: 'GENERAL', label: 'Pregunta general' },
+  { value: 'SUGGESTION', label: 'Sugerencia' },
+  { value: 'COMMENT', label: 'Comentario' },
+  { value: 'IMPROVEMENT', label: 'Mejora' },
+  { value: 'BUG_REPORT', label: 'Reporte de error' },
+];
 
 // Formulario de contacto real (Cierre Web/SEO): no existía ninguno en
 // el proyecto (auditado antes de construir). Guarda el mensaje en
@@ -60,7 +72,9 @@ export default function ContactPage() {
 
       <p>
         ¿Tienes una pregunta sobre Alarfly, necesitas ayuda con tu cuenta, o quieres saber más antes de empezar?
-        Escríbenos y te respondemos lo antes posible.
+        Escríbenos y te respondemos lo antes posible. También puedes usar este mismo formulario para dejarnos una
+        sugerencia, un comentario, una idea de mejora o reportar un error — elige la categoría que mejor describa tu
+        mensaje.
       </p>
 
       {status === 'success' ? (
@@ -77,6 +91,17 @@ export default function ContactPage() {
         </div>
       ) : (
         <form className="contact-form" onSubmit={handleSubmit} noValidate>
+          <label className="contact-field">
+            <span>¿Qué nos quieres decir?</span>
+            <select value={form.category} onChange={(e) => updateField('category', e.target.value)}>
+              {CATEGORY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label className="contact-field">
             <span>Nombre</span>
             <input

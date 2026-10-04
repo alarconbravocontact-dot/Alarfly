@@ -9213,3 +9213,146 @@ cookies real en ese momento.
 
 **Web + Legales + SEO + Rendimiento: CERRADO.** No se avanza al
 Prompt 2 hasta que el usuario lo pida explícitamente.
+
+## Web + UX + Animaciones + Interacción + Tema Claro/Oscuro — Prompt 2/2 (2026-10-04)
+
+Construido directamente sobre los resultados reales del Prompt 1
+(Landing/legales/404/contacto/`Seo`/`theme.css`/`React.lazy`), sin
+rehacer nada que ya funcionaba y sin tocar lógica financiera/ERP/
+auth/ventas/inventario/Ledger/afiliados.
+
+### Piezas nuevas
+`core/ui/Reveal.jsx` (aparición progresiva al hacer scroll, vía
+`IntersectionObserver`, respeta `prefers-reduced-motion` tanto en JS
+como en CSS), `core/ui/BackToTop.jsx` (botón "Volver arriba", listener
+de scroll con throttle por `requestAnimationFrame`, teclado y
+`aria-label`), `core/ui/ShareButton.jsx` (Web Share API con respaldo a
+copiar enlace + confirmación por toast, sin SDK social externo),
+`core/ui/ThemeToggle.jsx` (ciclo oscuro→claro→automático). Las 4
+conectadas en Landing, las 3 páginas legales y, donde aplica, en 404.
+
+### Tema claro/oscuro extendido a la capa pública (sin crear un segundo sistema)
+El mismo `theme.css`/`ThemeContext` ya construido para el ERP se
+extendió para cubrir visitantes sin sesión: `ThemeContext` ahora lee/
+guarda en `localStorage` bajo la llave `theme-public` cuando no hay
+usuario autenticado (el servidor — `UserPreference.theme` — sigue
+siendo la fuente de verdad una vez hay sesión). Script síncrono en
+`index.html` que fija `data-theme` antes del primer pintado, para
+evitar el parpadeo (FOUC) entre el tema oscuro por defecto y la
+preferencia real guardada.
+
+### Sugerencias/Feedback (auditado y reutilizado, no construido de cero)
+Se confirmó que el formulario de Contacto del Prompt 1 ya cubre el
+pedido ("sugerencia/comentario/mejora/reporte") — se amplió en vez de
+duplicar: `ContactMessage.category` nuevo (enum
+`GENERAL/SUGGESTION/COMMENT/IMPROVEMENT/BUG_REPORT`, migración
+puramente aditiva), selector "¿Qué nos quieres decir?" agregado al
+formulario existente.
+
+### Bugs reales encontrados y corregidos
+1. **Parpadeo del script anti-FOUC roto**: el script síncrono leía
+   `meta[name="theme-color"]` antes de que esa etiqueta existiera en
+   el HTML (estaba colocado antes de ella) — `querySelector` devolvía
+   `null`. Corregido moviendo el script a justo después de esa
+   etiqueta.
+2. **Fondo del nav fijo en oscuro dentro del tema claro**: `.landing-nav`
+   tenía `background: rgba(11, 13, 16, 0.85)` fijo (el color oscuro
+   escrito a mano) en vez de usar una variable — en tema claro la
+   barra de navegación se quedaba oscura mientras el resto de la
+   página cambiaba bien, con los íconos casi invisibles. No existía
+   `--color-bg-rgb` en `theme.css` (sí existían las tripletas `-rgb`
+   de positivo/negativo/alerta/info/marca, pero no la de fondo).
+   Corregido agregando `--color-bg-rgb` a ambos temas y usando
+   `rgba(var(--color-bg-rgb), 0.85)`.
+3. **Etiquetas de botones-ícono superpuestas** (bug preexistente,
+   confirmado también en la barra superior ya autenticada del ERP, no
+   solo en los componentes nuevos): con el modo "etiquetas para
+   principiantes" activo, los botones circulares de 32px fijos
+   (`IncognitoToggle` ya existente, y los nuevos `ThemeToggle`/
+   `ShareButton`) no tenían espacio para su texto, causando
+   superposición visible entre botones vecinos. Corregido en los 3
+   archivos CSS: de `width:32px;border-radius:50%` a
+   `min-width:32px;padding:0 8px;border-radius:var(--radius-pill)`.
+4. **Desborde horizontal en el nav público a 390px** (126px al agregar
+   Tema+Compartir, bajó a 32px tras el fix anterior): corregido
+   ocultando las etiquetas de texto de esos botones en el mismo
+   `@media (max-width:600px)` ya usado para los enlaces del nav, y
+   agregando `flex-wrap`/`justify-content:flex-end` a
+   `.landing-nav-actions` — 0px de desborde confirmado.
+5. **Regresión de 46px en la barra superior ya autenticada**: agregar
+   `ThemeToggle` ahí (una adición fuera del alcance pedido — Mi Cuenta
+   > Preferencias ya cubre el tema para usuarios con sesión) desbordó
+   un clúster de botones ya ajustado en una fase anterior. Revertido
+   por completo en vez de tocar ese `@media` ya afinado — 0px de
+   desborde confirmado tras revertir.
+6. **Color de texto fijo `#fff` sobre fondo que invierte con el tema**:
+   `NotificationCenter.css` tenía `color: #fff` en 2 lugares en vez de
+   `var(--color-on-accent)` — encontrado durante la auditoría de
+   contraste en tema claro, corregido sin tocar su lógica.
+
+### Accesibilidad (verificada con cálculo real de contraste, no solo visual)
+Script propio con la fórmula de luminancia/contraste WCAG (sin
+depender de ninguna herramienta externa): los pares texto/fondo
+revisados en ambos temas dieron ≥4.5:1 (AA texto normal) tras los
+fixes de arriba. `prefers-reduced-motion: reduce` respetado en JS
+(`Reveal`, `BackToTop`) y como regla CSS de respaldo. Navegación por
+teclado confirmada en `ThemeToggle`/`ShareButton` (Tab + Enter activa
+cada uno, outline de foco visible), `select` de categoría del
+formulario de contacto envuelto en `<label>` (nombre accesible nativo,
+sin necesitar `aria-label` aparte).
+
+### Responsive
+390px/768px/escritorio verificados en Landing, las 3 páginas legales,
+404, con tema oscuro y claro — 15/15 combinaciones en 0px de desborde
+real (medido con `document.documentElement.scrollWidth - clientWidth`,
+no con una revisión visual sola) tras los fixes 4 y 5 de arriba. La
+barra superior autenticada del ERP también reverificada en 0px tras
+revertir el `ThemeToggle` agregado ahí.
+
+### Rendimiento (remedido y comparado contra el Prompt 1)
+| Métrica | Antes (Prompt 1) | Después (Prompt 2) |
+|---|---|---|
+| LCP | 400 ms | 392 ms |
+| CLS | 0,0000 | 0,0000 |
+| DOMContentLoaded | 290 ms | 304 ms |
+| Chunk JS de entrada | 365,50 kB | 369,58 kB |
+| Chunk CSS de entrada | 46,74 kB | 49,61 kB |
+| Peso en disco (aprox.) | ≈416 KB | ≈422,6 KB |
+| Peticiones | 9 | 9 |
+
+El pequeño aumento de peso es el costo esperado de 4 componentes
+nuevos (animaciones/compartir/volver arriba/selector de tema) — ningún
+listener pesado, ninguna librería nueva, ningún empeoramiento de LCP/
+CLS real.
+
+### Tests y verificación
+753/753 tests backend (752 anteriores + 1 nuevo de
+`contact.service.test.js`: categoría real guardada al mandar una
+distinta de `GENERAL`). Lint backend y frontend sin errores nuevos
+(mismo baseline). Build limpio. Playwright real: ciclo y persistencia
+del tema (oscuro→claro→automático, con y sin sesión), tema claro en
+las 4 páginas públicas (capturas revisadas), `prefers-reduced-motion`
+respetado, aparición progresiva al hacer scroll, botón volver arriba
+(aparece/desaparece, teclado), botón compartir (API nativa + respaldo
+de copiar enlace), envío de feedback con categoría guardado real
+contra Postgres, contraste calculado en ambos temas, accesibilidad por
+teclado, responsive 15/15 público + 6/6 autenticado.
+
+### Regresiones
+Ninguna en lógica de negocio (no se tocó ERP/auth/ventas/inventario/
+Ledger/afiliados). La única regresión real encontrada en esta misma
+fase (bug 5, barra superior autenticada) fue de una adición propia de
+esta fase, detectada y revertida antes de cerrar, no heredada del
+Prompt 1.
+
+### Documentación
+`WEB_SEO_PERFORMANCE_FINAL.md` ampliado con las secciones de esta
+fase (auditoría previa, animaciones, volver arriba, compartir,
+feedback, tema claro/oscuro, persistencia/FOUC, accesibilidad,
+responsive, rendimiento antes/después, tests, Playwright, regresiones,
+cierre) — no se creó un documento nuevo. `PROGRESS_LOG.md` actualizado
+con el cierre de esta parte (esta misma entrada).
+
+**Web + UX + Animaciones + Tema Claro/Oscuro: CERRADO.** No se crea
+una tercera fase ni otro plan — la etapa Web/UX queda cerrada tras
+este prompt.

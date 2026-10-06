@@ -78,6 +78,17 @@ export const REPORTS_TABS = [
   { to: '/reportes/exportar', label: 'Exportar y Programar' },
 ];
 
+// Módulo Personal (Control → Personal): Resumen primero (mismo criterio
+// que Finanzas — responde "¿cuánto cuesta el personal?" antes que
+// cualquier detalle), después las 3 subáreas pedidas explícitamente.
+export const PERSONAL_TABS = [
+  { to: '/personal/resumen', label: 'Resumen' },
+  { to: '/personal/empleados', label: 'Personal' },
+  { to: '/personal/nomina', label: 'Nómina' },
+  { to: '/personal/gastos', label: 'Gastos' },
+  { to: '/personal/ajustes', label: 'Ajustes' },
+];
+
 export const ADVANCED_ANALYTICS_TABS = [
   { to: '/analisis-avanzados/catalogo', label: 'Catálogo' },
   { to: '/analisis-avanzados/repositorio', label: 'Repositorio de Reportes' },
@@ -133,6 +144,7 @@ export const ROUTE_MODULE_KEYS = [
   { prefix: '/reportes', moduleKey: 'reports' },
   { prefix: '/metricas', moduleKey: 'business-metrics' },
   { prefix: '/analisis-avanzados', moduleKey: 'advanced-analytics' },
+  { prefix: '/personal', moduleKey: 'personal' },
   { prefix: '/niveles-de-acceso', moduleKey: 'access-levels' },
   { prefix: '/mi-cuenta', moduleKey: 'account' },
 ];

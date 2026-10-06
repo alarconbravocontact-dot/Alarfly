@@ -19,6 +19,7 @@ export const MODULE_ROLES = {
   'business-metrics': ['ADMIN', 'FINANCE'],
   'advanced-analytics': ['ADMIN', 'ACCOUNTANT', 'FINANCE'],
   finance: ['ADMIN', 'COLLABORATOR', 'ACCOUNTANT', 'FINANCE'],
+  personal: ['ADMIN', 'FINANCE'],
 };
 
 // 'dashboard' (Inicio) y 'account' (Mi Cuenta) nunca están en

@@ -216,6 +216,12 @@ model Company {
   // empresa (ver AffiliateReferral.referredCompanyId @unique) — una vez
   // creada esta relación en el signup, queda fija para siempre.
   affiliateReferral AffiliateReferral?
+
+  // Módulo Personal
+  employees        Employee[]
+  personalSettings PersonalSettings?
+  payrolls         Payroll[]
+  employeeExpenses EmployeeExpense[]
 }
 
 model User {
@@ -359,6 +365,14 @@ model User {
   // acceso cruzado entre los dos sistemas, solo para mostrarlo en el
   // panel de administración.
   affiliateProfile Affiliate?
+
+  // Módulo Personal
+  employeesCreated           Employee[]        @relation("EmployeeCreatedBy")
+  employeeProfile            Employee?         @relation("EmployeeUser")
+  payrollsCreated            Payroll[]         @relation("PayrollCreatedBy")
+  employeeExpensesRegistered EmployeeExpense[] @relation("EmployeeExpenseRegisteredBy")
+  employeeExpensesApproved   EmployeeExpense[] @relation("EmployeeExpenseApprovedBy")
+  employeeExpensesReimbursed EmployeeExpense[] @relation("EmployeeExpenseReimbursedBy")
 
   @@index([companyId])
 }
@@ -656,6 +670,7 @@ model Dimension {
   treasuryAccounts TreasuryAccount[]
   pettyCashFunds   PettyCashFund[]
   warehouses       Warehouse[]
+  employees        Employee[]
 
   @@unique([companyId, type, code])
 }
@@ -766,6 +781,9 @@ model JournalEntry {
   lines        JournalEntryLine[]
   ArCreditNote ArCreditNote[]
   ApCreditNote ApCreditNote[]
+
+  payrollAccrual         Payroll?
+  employeeExpenseAccrual EmployeeExpense?
 
   @@unique([companyId, entryNumber])
   @@index([companyId, date])
@@ -920,6 +938,11 @@ model Account {
   productsAsCogsAccount               Product[]           @relation("ProductCogsAccount")
 
   analysisCostClassification AnalysisCostClassification?
+
+  personalSettingsAsPayrollExpense              PersonalSettings[] @relation("PersonalSettingsPayrollExpense")
+  personalSettingsAsPayrollPayable              PersonalSettings[] @relation("PersonalSettingsPayrollPayable")
+  personalSettingsAsExpense                     PersonalSettings[] @relation("PersonalSettingsExpense")
+  personalSettingsAsExpenseReimbursementPayable PersonalSettings[] @relation("PersonalSettingsExpenseReimbursementPayable")
 
   @@unique([companyId, code])
   @@index([companyId, type])
@@ -1418,6 +1441,8 @@ model PaymentOrder {
 
   approvals        PaymentApproval[]
   billApplications PaymentOrderBillApplication[]
+  payrollItem      PayrollItem?
+  employeeExpense  EmployeeExpense?
 
   @@index([companyId, status])
 }
@@ -1831,6 +1856,7 @@ model FpaDimension {
   lineTags    JournalEntryLineFpaDimension[]
   budgetLines BudgetLine[]
   product     Product? // punto 7 de Inventario: producto que se autoetiqueta con esta dimensión
+  employees   Employee[]
 
   @@index([companyId, type])
   @@index([companyId, parentId])
@@ -4330,4 +4356,295 @@ model ContactMessage {
 
   @@index([email])
   @@index([ipAddress, createdAt])
+}
+
+// =====================================================================
+// MÓDULO PERSONAL (Control → Personal)
+// Personal + Fichas + Nómina + Gastos — un módulo pequeño, no un ERP de
+// RR.HH. Auditado antes de crear nada: no existía ninguna entidad de
+// "empleado" en todo el proyecto (el "empleado" que menciona Caja
+// Chica es simplemente el User que registra un gasto, nunca un
+// catálogo propio) — Employee es genuinamente nuevo. Reutiliza sin
+// duplicar: `Dimension` tipo BRANCH para sucursal (mismo campo que ya
+// usan Warehouse/TreasuryAccount/PettyCashFund), `FpaDimension` para
+// departamento/centro de costo (mismo patrón que `Product.fpaDimensionId`
+// de Inventario — una sola FK, tipo DEPARTMENT o COST_CENTER a
+// elección del usuario, nunca dos campos separados), y el motor de
+// pagos existente de Tesorería (`PaymentOrder`, genérico — sin
+// `vendorId` — exactamente como ya se usa para un beneficiario sin
+// catálogo) para liquidar tanto nómina como reembolsos. Nunca se creó
+// un segundo Ledger, una segunda cuenta por pagar ni un segundo
+// sistema de pagos.
+// =====================================================================
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// Sección 5 del prompt: "no crear un workflow complejo de RR.HH." — se
+// limitó a los 2 estados pedidos. `EmploymentType` y `PayFrequency`
+// (abajo) son descriptivos, nunca disparan una obligación legal ni un
+// cálculo automático — ninguno de los dos inventa una regla fiscal o
+// laboral de ningún país, tal como exige la sección 4 del prompt.
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACTOR
+  OTHER
+}
+
+enum PayFrequency {
+  MONTHLY
+  BIWEEKLY
+  WEEKLY
+}
+
+model Employee {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Identificación
+  firstName  String
+  lastName   String
+  documentId String? // cédula/documento de identidad — texto libre, sin formato forzado por país
+  email      String?
+  phone      String?
+  address    String? // solo si realmente hace falta (sección 4) — nunca obligatorio
+
+  // Información laboral
+  position       String // cargo
+  employmentType EmploymentType @default(FULL_TIME)
+  hireDate       DateTime
+  status         EmployeeStatus @default(ACTIVE)
+
+  // Reutiliza Dimension tipo BRANCH — no se duplica un modelo de
+  // "sucursal" nuevo (mismo campo que Warehouse/TreasuryAccount/PettyCashFund).
+  branchDimensionId String?
+  branchDimension   Dimension? @relation(fields: [branchDimensionId], references: [id])
+
+  // Departamento/centro de costo: una sola FpaDimension (el usuario
+  // elige una de tipo DEPARTMENT o COST_CENTER) — mismo patrón que
+  // `Product.fpaDimensionId`, nunca dos campos separados para el mismo
+  // concepto de "a qué grupo de costo pertenece".
+  fpaDimensionId String?
+  fpaDimension   FpaDimension? @relation(fields: [fpaDimensionId], references: [id])
+
+  // Supervisor: auto-relación simple, opcional.
+  supervisorId String?
+  supervisor   Employee?  @relation("EmployeeSupervisor", fields: [supervisorId], references: [id])
+  subordinates Employee[] @relation("EmployeeSupervisor")
+
+  // Información económica
+  baseSalary        Decimal      @db.Decimal(18, 2)
+  currency          String
+  payFrequency      PayFrequency @default(MONTHLY)
+  // Texto libre a propósito ("cuenta o método de pago cuando sea
+  // necesario", sección 4) — el pago en sí nunca pasa por este campo,
+  // es solo informativo; el pago real se hace con el método que la
+  // Tesorería ya ofrezca al registrar el pago (sección 11).
+  paymentMethodNote String?
+
+  // Enlace opcional a un usuario del sistema, solo si este empleado
+  // también inicia sesión (ej. es además Administrador/Financiero) —
+  // nunca obligatorio, la mayoría de los empleados no tendrán cuenta.
+  userId String? @unique
+  user   User?   @relation("EmployeeUser", fields: [userId], references: [id])
+
+  createdByUserId String
+  createdByUser   User     @relation("EmployeeCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  payrollItems PayrollItem[]
+  expenses     EmployeeExpense[]
+
+  // Un documento de identidad, si se indica, no se puede repetir en la
+  // misma empresa — pero sí puede quedar vacío en varios (NULL no
+  // choca con NULL en un índice único de Postgres).
+  @@unique([companyId, documentId])
+  @@index([companyId, status])
+  @@index([companyId, branchDimensionId])
+  @@index([companyId, fpaDimensionId])
+}
+
+// Configuración mínima del módulo (mismo patrón que ArApSettings/
+// InventorySettings/TreasurySettings): a qué cuenta contable va cada
+// obligación por defecto. Sin esto configurado, aprobar una nómina o
+// un gasto se rechaza con un mensaje claro — nunca se asume ni se
+// inventa una cuenta.
+model PersonalSettings {
+  id        String  @id @default(cuid())
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Nómina: al aprobar, Debe esta cuenta (gasto) / Haber la de pasivo —
+  // al pagar, la orden de pago liquida ese mismo pasivo.
+  payrollExpenseAccountId String?
+  payrollExpenseAccount   Account? @relation("PersonalSettingsPayrollExpense", fields: [payrollExpenseAccountId], references: [id])
+  payrollPayableAccountId String?
+  payrollPayableAccount   Account? @relation("PersonalSettingsPayrollPayable", fields: [payrollPayableAccountId], references: [id])
+
+  // Gastos de personal: mismo criterio, para el reembolso.
+  expenseAccountId                     String?
+  expenseAccount                       Account? @relation("PersonalSettingsExpense", fields: [expenseAccountId], references: [id])
+  expenseReimbursementPayableAccountId String?
+  expenseReimbursementPayableAccount   Account? @relation("PersonalSettingsExpenseReimbursementPayable", fields: [expenseReimbursementPayableAccountId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Borrador → Calculada → Revisada → Aprobada → Pagada (sección 7). Solo
+// se guarda quién CREÓ directamente (mismo criterio que ArInvoice) — el
+// resto de la trazabilidad ("quién calculó/revisó/aprobó/pagó y
+// cuándo", sección 9) vive en core/audit, nunca duplicada acá.
+enum PayrollStatus {
+  DRAFT
+  CALCULATED
+  REVIEWED
+  APPROVED
+  PAID
+}
+
+model Payroll {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  label       String // ej. "Enero 2026" — descriptivo, lo escribe quien la crea
+  startDate   DateTime
+  endDate     DateTime
+  paymentDate DateTime
+  currency    String
+
+  status PayrollStatus @default(DRAFT)
+
+  // Totales agregados de todas las PayrollItem — se recalculan cada
+  // vez que una línea cambia, mientras la nómina sigue editable
+  // (DRAFT/CALCULATED).
+  totalIncome     Decimal @default(0) @db.Decimal(18, 2)
+  totalDeductions Decimal @default(0) @db.Decimal(18, 2)
+  netTotal        Decimal @default(0) @db.Decimal(18, 2)
+
+  // El asiento de OBLIGACIÓN (Debe Gasto, Haber Pasivo por Pagar) que se
+  // postea al aprobar — nunca el pago en sí, eso lo hace cada
+  // PaymentOrder individual (ver PayrollItem.paymentOrderId).
+  accrualJournalEntryId String?       @unique
+  accrualJournalEntry   JournalEntry? @relation(fields: [accrualJournalEntryId], references: [id])
+
+  createdByUserId String
+  createdByUser   User     @relation("PayrollCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  items PayrollItem[]
+
+  @@index([companyId, status])
+  @@index([companyId, startDate, endDate])
+}
+
+// Una línea por empleado dentro de una Nómina. El desglose de ingresos/
+// deducciones vive en JSON (array de {label, amount}) a propósito —
+// sección 8 del prompt exige poder "agregar conceptos posteriormente
+// sin rehacer todo el módulo"; con JSON, un concepto nuevo es una fila
+// más en el arreglo, nunca una migración (mismo criterio ya usado por
+// `AccountingRule.definition`/`FiscalRiskRule.condition` cuando el
+// proyecto no necesitaba todavía una estructura relacional completa).
+// Los totales SÍ son columnas Decimal normales (para poder sumar/
+// filtrar rápido sin parsear JSON).
+model PayrollItem {
+  id         String   @id @default(cuid())
+  payrollId  String
+  payroll    Payroll  @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  // Salario base "congelado" al momento de calcular — si el salario del
+  // empleado cambia después, esta nómina ya calculada NO se recalcula
+  // sola (sección 12: "no recalcular históricamente movimientos ya
+  // registrados").
+  baseSalary Decimal @db.Decimal(18, 2)
+
+  // [{ "label": "Bono de productividad", "amount": 50 }, ...]
+  incomeBreakdown    Json?
+  deductionBreakdown Json?
+
+  totalIncome     Decimal @db.Decimal(18, 2) // baseSalary + suma(incomeBreakdown)
+  totalDeductions Decimal @default(0) @db.Decimal(18, 2) // suma(deductionBreakdown)
+  netPay          Decimal @db.Decimal(18, 2) // totalIncome - totalDeductions
+
+  // La orden de pago (Tesorería, genérica) que liquida a este empleado
+  // — una por línea, porque cada empleado es un beneficiario distinto.
+  paymentOrderId String?       @unique
+  paymentOrder   PaymentOrder? @relation(fields: [paymentOrderId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([payrollId, employeeId])
+  @@index([employeeId])
+}
+
+// Registrado/En revisión (un solo estado real, PENDING_APPROVAL — ver
+// nota de decisión en PERSONAL_MODULE_FINAL.md: no hay ninguna acción
+// real entre "fue registrado" y "está en revisión", así que modelarlos
+// como dos estados distintos habría sido un paso falso) → Aprobado/
+// Rechazado → Reembolsado. Mismo patrón exacto que
+// `PettyCashExpenseStatus`, con REIMBURSED agregado para el paso extra
+// que este flujo sí necesita (reembolso vía Tesorería, no un pago
+// inmediato de caja chica).
+enum EmployeeExpenseStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  REIMBURSED
+}
+
+model EmployeeExpense {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  expenseDate DateTime
+  category    String? // transporte/alimentación/representación/compras menores/otros — texto libre
+  description String
+  amount      Decimal  @db.Decimal(18, 2)
+  currency    String
+
+  // Comprobante: mismo patrón base64 que PettyCashExpense (no hay
+  // almacenamiento de archivos todavía en todo el proyecto).
+  receiptFileName String?
+  receiptMimeType String?
+  receiptContent  String?
+
+  status EmployeeExpenseStatus @default(PENDING_APPROVAL)
+
+  registeredByUserId String
+  registeredByUser   User   @relation("EmployeeExpenseRegisteredBy", fields: [registeredByUserId], references: [id])
+
+  approvedByUserId String?
+  approvedByUser   User?     @relation("EmployeeExpenseApprovedBy", fields: [approvedByUserId], references: [id])
+  approvedAt       DateTime?
+  rejectionReason  String?
+
+  // El asiento de OBLIGACIÓN posteado al aprobar (Debe Gasto, Haber
+  // Pasivo por Pagar) — el reembolso en sí es la PaymentOrder de abajo.
+  accrualJournalEntryId String?       @unique
+  accrualJournalEntry   JournalEntry? @relation(fields: [accrualJournalEntryId], references: [id])
+
+  reimbursedByUserId String?
+  reimbursedByUser   User?         @relation("EmployeeExpenseReimbursedBy", fields: [reimbursedByUserId], references: [id])
+  reimbursedAt       DateTime?
+  paymentOrderId     String?       @unique
+  paymentOrder       PaymentOrder? @relation(fields: [paymentOrderId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, employeeId, status])
+  @@index([companyId, status])
 }

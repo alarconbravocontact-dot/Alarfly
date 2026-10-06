@@ -18,6 +18,7 @@ import {
   FPA_TABS,
   REPORTS_TABS,
   ADVANCED_ANALYTICS_TABS,
+  PERSONAL_TABS,
   moduleKeyForPath,
 } from '../config/moduleTabs';
 import { canAccessModule } from '../config/moduleAccess';
@@ -83,7 +84,10 @@ const NAV_AREAS = [
   },
   {
     area: 'Control',
-    items: [{ to: '/fiscal', label: 'Fiscal', icon: '⊛', subItems: FISCAL_TABS }],
+    items: [
+      { to: '/fiscal', label: 'Fiscal', icon: '⊛', subItems: FISCAL_TABS },
+      { to: '/personal', label: 'Personal', icon: '⯐', subItems: PERSONAL_TABS },
+    ],
   },
   {
     area: 'Analítica',

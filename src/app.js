@@ -38,6 +38,7 @@ const jobsRoutes = require('./core/jobs/jobs.routes');
 const affiliatesRoutes = require('./core/affiliates/affiliates.routes');
 const affiliateAdminRoutes = require('./core/affiliates/affiliate-admin.routes');
 const contactRoutes = require('./core/contact/contact.routes');
+const personalRoutes = require('./modules/personal/routes');
 const errorHandler = require('./core/middlewares/errorHandler');
 const requestId = require('./core/middlewares/requestId');
 const prisma = require('./core/database/prisma');
@@ -119,6 +120,7 @@ app.use('/jobs', jobsRoutes);
 app.use('/affiliates', affiliatesRoutes);
 app.use('/affiliate-admin', affiliateAdminRoutes);
 app.use('/contact', contactRoutes);
+app.use('/personal', personalRoutes);
 
 app.use(errorHandler);
 

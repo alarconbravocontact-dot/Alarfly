@@ -79,6 +79,12 @@ const FiscalBooksPage = lazy(() => import('./pages/fiscal/FiscalBooksPage'));
 const ElectronicInvoicingPage = lazy(() => import('./pages/fiscal/ElectronicInvoicingPage'));
 const FiscalObligationsPage = lazy(() => import('./pages/fiscal/FiscalObligationsPage'));
 const FiscalDocumentsPage = lazy(() => import('./pages/fiscal/FiscalDocumentsPage'));
+const PersonalLayout = lazy(() => import('./pages/personal/PersonalLayout'));
+const PersonalSummaryPage = lazy(() => import('./pages/personal/PersonalSummaryPage'));
+const EmployeesPage = lazy(() => import('./pages/personal/EmployeesPage'));
+const PayrollPage = lazy(() => import('./pages/personal/PayrollPage'));
+const ExpensesPage = lazy(() => import('./pages/personal/ExpensesPage'));
+const PersonalSettingsPage = lazy(() => import('./pages/personal/PersonalSettingsPage'));
 const ReportsLayout = lazy(() => import('./pages/reports/ReportsLayout'));
 const FinancialStatementsPage = lazy(() => import('./pages/reports/FinancialStatementsPage'));
 const TransactionsByTypePage = lazy(() => import('./pages/reports/TransactionsByTypePage'));
@@ -237,6 +243,14 @@ function App() {
               <Route path="facturacion-electronica" element={<ElectronicInvoicingPage />} />
               <Route path="calendario" element={<FiscalObligationsPage />} />
               <Route path="documentos" element={<FiscalDocumentsPage />} />
+            </Route>
+            <Route path="/personal" element={<PersonalLayout />}>
+              <Route index element={<Navigate to="resumen" replace />} />
+              <Route path="resumen" element={<PersonalSummaryPage />} />
+              <Route path="empleados" element={<EmployeesPage />} />
+              <Route path="nomina" element={<PayrollPage />} />
+              <Route path="gastos" element={<ExpensesPage />} />
+              <Route path="ajustes" element={<PersonalSettingsPage />} />
             </Route>
             <Route path="/reportes" element={<ReportsLayout />}>
               <Route index element={<Navigate to="estados-financieros" replace />} />

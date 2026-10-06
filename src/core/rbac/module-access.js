@@ -27,6 +27,15 @@ const MODULE_ROLES = {
   // accounts-receivable/accounts-payable), este es solo el "primer
   // portón" del que habla el comentario de arriba del archivo.
   finance: ['ADMIN', 'COLLABORATOR', 'ACCOUNTANT', 'FINANCE'],
+  // Módulo Personal (Control → Personal): mismo criterio que fiscal
+  // (un dueño claro, no disperso en los 4 roles) — Financiero ya es
+  // quien posee Contabilidad/FP&A/Reportes, así que el costo de
+  // personal (que termina siendo un gasto contable más) encaja ahí.
+  // Dentro del módulo no hay un segundo gate por acción (ver
+  // PERSONAL_MODULE_FINAL.md): el maker-checker real está en que quien
+  // aprueba una nómina/gasto no puede ser quien la creó/registró, no en
+  // restringir el verbo "aprobar" a un rol distinto.
+  personal: ['ADMIN', 'FINANCE'],
 };
 
 function rolesForModule(moduleKey) {

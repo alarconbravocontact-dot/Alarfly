@@ -9356,3 +9356,95 @@ con el cierre de esta parte (esta misma entrada).
 **Web + UX + Animaciones + Tema Claro/Oscuro: CERRADO.** No se crea
 una tercera fase ni otro plan — la etapa Web/UX queda cerrada tras
 este prompt.
+
+## Módulo Personal — Fichas, Nómina y Gastos (2026-10-06)
+
+### Auditoría previa
+Antes de crear ningún modelo se auditó: estructura de módulos/rutas,
+jerarquía de roles (`core/rbac`), `Company`/sucursales (`Dimension`
+tipo BRANCH), `FpaDimension` (departamento/centro de costo), monedas,
+el motor único de asientos (`core/ledger.postEntry`), el mecanismo
+genérico de pagos de Tesorería (`payment-orders.service.
+createPaymentOrder`, beneficiario en texto libre, `vendorId`
+opcional), el primitivo de maker-checker (`core/workflow/segregation.
+rules.assertDifferentActors`), el sistema de auditoría (`core/audit`)
+y los componentes de UI ya construidos (`RecordDrawer`,
+`DocumentTimeline`, `StatusSeal`, `FormField`). No existía ninguna
+entidad equivalente a "Empleado" que reutilizar — es la única pieza de
+catálogo genuinamente nueva del módulo. Nada se duplicó: no se creó un
+segundo sistema de pagos, ni una contabilidad paralela, ni un segundo
+sistema de auditoría/permisos/centros de costo.
+
+### Modelos nuevos (100% aditivo, migración `20261006013544_personal_module`)
+`Employee` (identificación/laboral/económica, documento único por
+empresa, sucursal→`Dimension`, departamento→`FpaDimension`, supervisor
+auto-relacionado), `PersonalSettings` (singleton por empresa, 4
+cuentas contables configurables), `Payroll`/`PayrollItem` (período con
+estados DRAFT→CALCULATED→REVIEWED→APPROVED→PAID, desglose de ingresos/
+deducciones en JSON flexible), `EmployeeExpense` (PENDING_APPROVAL→
+APPROVED/REJECTED→REIMBURSED).
+
+### Backend
+`src/modules/personal/` completo: 5 servicios + 2 archivos de reglas
+puras (`payroll.rules.js`, `employee-expenses.rules.js`), 4
+validadores Zod, 6 controladores, 5 archivos de rutas, montado en
+`/personal` vía `requireAuth` + `requireModuleAccess('personal')`.
+`core/rbac/module-access.js` ganó `personal: ['ADMIN', 'FINANCE']`.
+
+**Integración financiera (sin contabilidad paralela)**: aprobar una
+nómina o un gasto postea UN asiento de "obligación reconocida" vía
+`core/ledger.postEntry` (nunca una tabla propia), etiquetado con la
+`Dimension`/`FpaDimension` del empleado solo en las líneas de débito.
+Pagar/reembolsar crea una `PaymentOrder` por empleado/gasto
+reutilizando el servicio de Tesorería ya existente sin tocarlo —
+"pagada" en Personal significa "entregada a Tesorería", que resuelve
+el resto de su propio flujo de aprobación con su propio motor.
+
+### Frontend
+`frontend/src/pages/personal/` (6 pantallas: Layout, Resumen,
+Personal, Nómina, Gastos, Ajustes), `api/personal.js`, agregado a
+`config/moduleAccess.js`/`moduleTabs.js`/`AppLayout.jsx`/`App.jsx` —
+nueva entrada "Personal" dentro de CONTROL, junto a Fiscal.
+
+### Hallazgo real corregido (Playwright)
+Gastos mostraba 0 filas con datos reales existentes: `ExpensesPage`/
+`PayrollPage` cargan con un solo `Promise.all`, y una de esas llamadas
+(`GET /treasury/accounts`) devolvía 403 para Financiero — el gate de
+Tesorería es `['ADMIN','COLLABORATOR']`, sin incluir a Financiero
+(el único rol, junto a Admin, dentro de Personal). Se corrigió **sin
+ampliar el acceso real a Tesorería**: nuevo endpoint de solo lectura
+`GET /personal/treasury-accounts` (controlador nuevo que llama
+directo al servicio ya existente de Tesorería, sin duplicar su
+lógica), gateado por el propio `requireModuleAccess('personal')`.
+Corregida de paso una advertencia real de React (`<>` sin `key` dentro
+de un `.map()` en `PayrollPage.jsx`) cambiando a `<Fragment key=...>`.
+Ambos fixes reverificados con un segundo pase de Playwright: Gastos ya
+muestra sus 2 filas reales, advertencia de consola ya no aparece.
+
+### Tests y verificación
+26 tests unitarios nuevos (13 `payroll.rules`, 6 `employee-expenses.
+rules`, 7 `employees.service`) — 779/779 tests del proyecto completo,
+sin regresiones. Verificado con `curl` autenticado contra Postgres
+real: partida doble balanceada en ambos tipos de asiento, etiquetado
+de dimensión correcto, maker-checker con mensajes exactos, una
+`PaymentOrder` real por empleado visible sin cambios en la pantalla
+de Tesorería, aislamiento multiempresa confirmado (segunda empresa sin
+acceso ni por ID directo). Playwright de punta a punta como Financiero
+(Resumen, Personal, Ficha con línea de tiempo real, Nómina pagada en
+solo-lectura, Gastos, Ajustes en solo-lectura) y como Colaborador
+(módulo invisible en el menú y bloqueado por URL directa). Responsive
+390px/768px/escritorio en las 5 pantallas sin overflow horizontal de
+página (mismo mecanismo de scroll interno de tabla que ya usa
+Contabilidad). `npm run lint`/`npm run build` del frontend limpios,
+mismo baseline de 9 warnings preexistentes.
+
+### Documentación
+`PERSONAL_MODULE_FINAL.md` (nuevo): alcance, auditoría previa y
+decisiones de reutilización, modelos, flujos de Nómina y Gastos,
+Ficha, APIs, permisos, el hallazgo real corregido, pruebas, decisiones
+de diseño a recordar.
+
+**Módulo Personal (Fichas + Nómina + Gastos): CERRADO.** Personal →
+Ficha → Nómina → Gastos → Finanzas → Auditoría verificado de extremo a
+extremo. No se construyó un ERP de RR.HH. ni una segunda versión del
+módulo.

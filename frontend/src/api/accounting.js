@@ -9,6 +9,15 @@ export const accountsApi = {
   remove: (id) => api.delete(`/accounting/accounts/${id}`),
 };
 
+// El servicio (`core/dimensions`) y la ruta ya existían desde Fase 1,
+// usados internamente por Tesorería/Inventario (branchDimensionId) —
+// nunca habían tenido su propio cliente HTTP en el frontend porque
+// ninguna pantalla hasta ahora necesitaba que el usuario ELIGIERA una
+// sucursal desde un selector (Personal es la primera).
+export const dimensionsApi = {
+  list: (type) => api.get('/accounting/dimensions', { type }),
+};
+
 // F17-E2: el servicio ya existía completo desde el primer día del
 // proyecto (es lo que usa `prisma/seed.js` para armar el plan de
 // cuentas de la empresa demo) pero nunca había tenido ninguna

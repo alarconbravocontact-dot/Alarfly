@@ -3,6 +3,7 @@
 // ya guardados por Empleados/Nómina/Gastos, nunca inventa ni simula.
 const { Prisma } = require('@prisma/client');
 const prisma = require('../../../core/database/prisma');
+const { buildCostTrend } = require('./personal-dashboard.rules');
 
 const { Decimal } = Prisma;
 
@@ -42,4 +43,61 @@ async function getDashboard(companyId) {
   };
 }
 
-module.exports = { getDashboard, currentMonthRange };
+// Integración transversal (Dashboard/Finanzas/Alertas): los 4 estados
+// de "algo de Personal necesita una acción" — ninguno es un dato
+// nuevo, son los mismos `Payroll`/`EmployeeExpense` que ya existen,
+// agrupados por estado. `payrollPendingApproval` = `REVIEWED` (ya
+// calculada y revisada, lista para que alguien la apruebe);
+// `payrollPendingPayment` = `APPROVED` (ya generó su asiento de
+// obligación vía `core/ledger`, todavía sin `PaymentOrder`);
+// `expensesPendingReview` = `PENDING_APPROVAL`; `expensesPendingReimbursement`
+// = `APPROVED` (obligación ya reconocida, todavía sin reembolsar).
+async function getObligationsSummary(companyId) {
+  const [payrollPendingApproval, payrollPendingPayment, expensesPendingReview, expensesPendingReimbursement] = await Promise.all([
+    prisma.payroll.findMany({ where: { companyId, status: 'REVIEWED' }, select: { id: true, label: true, netTotal: true } }),
+    prisma.payroll.findMany({ where: { companyId, status: 'APPROVED' }, select: { id: true, label: true, netTotal: true } }),
+    prisma.employeeExpense.findMany({
+      where: { companyId, status: 'PENDING_APPROVAL' },
+      select: { id: true, amount: true, employee: { select: { firstName: true, lastName: true } } },
+    }),
+    prisma.employeeExpense.findMany({
+      where: { companyId, status: 'APPROVED' },
+      select: { id: true, amount: true, employee: { select: { firstName: true, lastName: true } } },
+    }),
+  ]);
+
+  return {
+    payrollPendingApproval: { count: payrollPendingApproval.length, total: sumDecimal(payrollPendingApproval, 'netTotal'), items: payrollPendingApproval },
+    payrollPendingPayment: { count: payrollPendingPayment.length, total: sumDecimal(payrollPendingPayment, 'netTotal'), items: payrollPendingPayment },
+    expensesPendingReview: { count: expensesPendingReview.length, total: sumDecimal(expensesPendingReview, 'amount'), items: expensesPendingReview },
+    expensesPendingReimbursement: {
+      count: expensesPendingReimbursement.length,
+      total: sumDecimal(expensesPendingReimbursement, 'amount'),
+      items: expensesPendingReimbursement,
+    },
+  };
+}
+
+// "Evolución del costo de personal" (Analítica): mismo patrón que
+// `ar-invoices.service.getSalesTrend`/`buildSalesTrend` — un punto por
+// cada uno de los últimos `months` meses, en 0 si no hubo costo real
+// ese mes, nunca "saltado". Costo REAL (igual criterio que
+// `totalPersonnelCost` de `getDashboard`): nómina ya pagada (por
+// `paymentDate`) + gastos ya reembolsados (por `reimbursedAt`) — nunca
+// lo aprobado-pero-no-ejecutado, que ya reportan los otros campos.
+async function getCostTrend(companyId, months = 6) {
+  const referenceDate = new Date();
+  const rangeStart = new Date(Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth() - (months - 1), 1));
+
+  const [paidPayrolls, reimbursedExpenses] = await Promise.all([
+    prisma.payroll.findMany({ where: { companyId, status: 'PAID', paymentDate: { gte: rangeStart } }, select: { paymentDate: true, netTotal: true } }),
+    prisma.employeeExpense.findMany({
+      where: { companyId, status: 'REIMBURSED', reimbursedAt: { gte: rangeStart } },
+      select: { reimbursedAt: true, amount: true },
+    }),
+  ]);
+
+  return buildCostTrend(paidPayrolls, reimbursedExpenses, months, referenceDate);
+}
+
+module.exports = { getDashboard, currentMonthRange, getObligationsSummary, getCostTrend };

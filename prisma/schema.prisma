@@ -1751,6 +1751,8 @@ enum AlertType {
   BANK_ACCOUNT_DISCONNECTED // agregado por Tesorería — una cuenta bancaria lleva más de 48h sin un extracto importado
   APPROVAL_PENDING // agregado en Fase 11 — una orden de pago quedó pendiente de un nivel de aprobación
   LIQUIDITY_RISK_FORECAST // agregado en Fase 12 — la Previsión de Liquidez detecta una semana con saldo proyectado negativo
+  PAYROLL_ACTION_PENDING // agregado por Personal — una nómina quedó lista para aprobar o aprobada sin pagar
+  EMPLOYEE_EXPENSE_ACTION_PENDING // agregado por Personal — un gasto de personal quedó pendiente de revisión o aprobado sin reembolsar
 }
 
 enum AlertSeverity {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { executiveDashboardApi } from '../api/reports';
 import { accountingReportsApi } from '../api/accounting';
 import { arInvoicesApi } from '../api/ar';
@@ -54,6 +54,13 @@ const QUICK_ACTIONS = [
   { key: 'new-product', label: '+ Nuevo Producto', roles: ['ADMIN', 'COLLABORATOR'], path: '/inventario/catalogo' },
   { key: 'new-customer', label: '+ Nuevo Cliente', roles: ['ADMIN', 'COLLABORATOR'], path: '/cuentas/clientes', state: { autoOpenCreate: true } },
   { key: 'new-vendor', label: '+ Nuevo Proveedor', roles: ['ADMIN', 'COLLABORATOR'], path: '/cuentas/proveedores' },
+  // Integración de Personal (sección 7 del pedido): mismos 3 accesos
+  // rápidos que ya tiene Personal > Resumen, ofrecidos también desde el
+  // Inicio para quien empieza su día ahí — mismos roles que ya exige el
+  // propio módulo (`core/rbac/module-access.js`: personal → ADMIN/FINANCE).
+  { key: 'new-employee', label: '+ Nuevo Empleado', roles: ['ADMIN', 'FINANCE'], path: '/personal/empleados', state: { autoOpenCreate: true } },
+  { key: 'new-payroll', label: '+ Nueva Nómina', roles: ['ADMIN', 'FINANCE'], path: '/personal/nomina', state: { autoOpenCreate: true } },
+  { key: 'new-personnel-expense', label: '+ Registrar Gasto de Personal', roles: ['ADMIN', 'FINANCE'], path: '/personal/gastos', state: { autoOpenCreate: true } },
 ];
 
 function lastMonths(count) {
@@ -167,6 +174,33 @@ function EstadoWidgets({ widgets, currency }) {
         }
         tone={burnRunway.data.runwayMonths ? 'warning' : 'positive'}
         hint="Meses de caja disponibles al ritmo actual de consumo."
+      />
+    );
+  }
+
+  // Integración de Personal con el Inicio: el widget `personal_summary`
+  // ya trae exactamente los mismos 6 números que Personal > Resumen
+  // (nada se recalcula acá) — se muestran solo 2, los más accionables
+  // (costo total y lo pendiente), cada uno con un enlace directo a la
+  // pantalla real donde se resuelve, mismo criterio que "cada indicador
+  // debe llevar a la pantalla correcta" del pedido de integración.
+  const personalSummary = widgets.find((w) => w.widgetKey === 'personal_summary');
+  if (personalSummary) {
+    const d = personalSummary.data;
+    const pendingTotal = Number(d.pendingPayroll) + Number(d.pendingExpenses);
+    cards.push(
+      <StatCard
+        key="personal-cost"
+        label="Costo de personal del período"
+        value={<Amount value={d.totalPersonnelCost} currency={currency} />}
+        hint={<Link to="/personal/resumen">Ver Personal →</Link>}
+      />,
+      <StatCard
+        key="personal-pending"
+        label="Nómina y gastos pendientes"
+        value={<Amount value={pendingTotal} currency={currency} />}
+        tone={pendingTotal > 0 ? 'warning' : 'positive'}
+        hint={<Link to="/personal/nomina">Ver Nómina →</Link>}
       />
     );
   }
@@ -463,7 +497,7 @@ export default function DashboardPage() {
   // Colaborador, que no ve finanzas) no debe mostrar el encabezado de
   // la sección igual — quedaría flotando sin nada debajo. Mismos
   // widgetKeys que ya lee `EstadoWidgets` más abajo.
-  const hasEstadoWidgets = widgets.some((w) => ['finance_summary', 'ebitda', 'burn_rate_runway'].includes(w.widgetKey));
+  const hasEstadoWidgets = widgets.some((w) => ['finance_summary', 'ebitda', 'burn_rate_runway', 'personal_summary'].includes(w.widgetKey));
   const showEstadoSection = isDashboardLoading || dashboardError || hasEstadoWidgets;
   const activeAlertsWidget = widgets.find((w) => w.widgetKey === 'active_alerts');
   const liquidityWidget = widgets.find((w) => w.widgetKey === 'liquidity_forecast');

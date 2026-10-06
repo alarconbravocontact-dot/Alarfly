@@ -17,6 +17,8 @@ export const ALERT_TYPE_LINKS = {
   BANK_ACCOUNT_DISCONNECTED: '/tesoreria/cuentas',
   APPROVAL_PENDING: '/tesoreria/pagos',
   LIQUIDITY_RISK_FORECAST: '/finanzas/liquidez',
+  PAYROLL_ACTION_PENDING: '/personal/nomina',
+  EMPLOYEE_EXPENSE_ACTION_PENDING: '/personal/gastos',
 };
 
 export function alertLink(type) {

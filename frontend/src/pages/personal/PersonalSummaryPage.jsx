@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { personalDashboardApi } from '../../api/personal';
+import { personalDashboardApi, personalAlertsApi } from '../../api/personal';
 import { ApiError } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
 import { useCurrency } from '../../context/CurrencyContext';
 import StatCard from '../../components/StatCard';
+import MetricTrendChart from '../../components/MetricTrendChart';
 
 // Sección 17 del prompt del módulo: solo los 6 números pedidos, sin
 // gráficos — y los 3 accesos rápidos pedidos explícitamente.
@@ -18,6 +19,28 @@ export default function PersonalSummaryPage() {
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [trend, setTrend] = useState(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState('');
+  const [scanError, setScanError] = useState('');
+
+  async function handleScan() {
+    setIsScanning(true);
+    setScanMessage('');
+    setScanError('');
+    try {
+      const result = await personalAlertsApi.scan();
+      setScanMessage(
+        result.createdCount > 0
+          ? `Se generaron ${result.createdCount} alerta(s) nuevas — revísalas en la campana de notificaciones.`
+          : 'No hay nómina ni gastos de personal con una acción nueva pendiente de avisar.'
+      );
+    } catch (err) {
+      setScanError(err instanceof ApiError ? err.message : 'No se pudo escanear las acciones pendientes.');
+    } finally {
+      setIsScanning(false);
+    }
+  }
 
   useEffect(() => {
     personalDashboardApi
@@ -25,6 +48,10 @@ export default function PersonalSummaryPage() {
       .then(setData)
       .catch((err) => setError(err instanceof ApiError ? err.message : 'No se pudo cargar el resumen de Personal.'))
       .finally(() => setIsLoading(false));
+    personalDashboardApi
+      .getTrend(6)
+      .then(setTrend)
+      .catch(() => setTrend(null));
   }, []);
 
   return (
@@ -41,10 +68,19 @@ export default function PersonalSummaryPage() {
           <button type="button" className="btn btn-small" onClick={() => navigate('/personal/gastos', { state: { autoOpenCreate: true } })}>
             + Registrar gasto
           </button>
+          {/* Alertas (sección 6 del pedido de integración): mismo
+              patrón ya usado en Clientes de Cuentas por Cobrar
+              ("Escanear cobranza atrasada") — dispara a mano el mismo
+              escaneo que ya corre solo todos los días a las 7:20am. */}
+          <button type="button" className="btn btn-small" onClick={handleScan} disabled={isScanning}>
+            {isScanning ? 'Escaneando…' : 'Escanear pendientes'}
+          </button>
         </div>
       </div>
 
       {error && <p className="alert-box alert-box-error">{error}</p>}
+      {scanMessage && <p className="alert-box alert-box-success">{scanMessage}</p>}
+      {scanError && <p className="alert-box alert-box-error">{scanError}</p>}
 
       <section className="form-grid">
         <StatCard label="Empleados activos" value={isLoading ? '—' : data.activeEmployeeCount} isLoading={isLoading} />
@@ -81,6 +117,18 @@ export default function PersonalSummaryPage() {
           isLoading={isLoading}
         />
       </section>
+
+      {/* Analítica (sección 4 del pedido de integración): evolución del
+          costo de personal de los últimos 6 meses — mismo componente
+          genérico ya usado por Métricas del Negocio, sin construir un
+          módulo BI nuevo. Costo real (nómina pagada + gastos
+          reembolsados), nunca lo aprobado-sin-ejecutar. */}
+      {trend && trend.some((entry) => Number(entry.value) > 0) && (
+        <div style={{ marginTop: 24 }}>
+          <h3 className="field-label">Evolución del costo de personal</h3>
+          <MetricTrendChart entries={trend} />
+        </div>
+      )}
     </div>
   );
 }

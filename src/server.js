@@ -9,6 +9,7 @@ const inventoryAlertsCron = require('./modules/inventory/services/inventory-aler
 const arCollectionsCron = require('./modules/accounts-receivable/services/ar-collections.cron');
 const advancedAnalyticsCron = require('./modules/advanced-analytics/services/advanced-analytics.cron');
 const arRecurringCron = require('./modules/accounts-receivable/services/ar-recurring.cron');
+const personalAlertsCron = require('./modules/personal/services/personal-alerts.cron');
 
 app.listen(config.port, () => {
   console.log(`Alarfly corriendo en el puerto ${config.port}`);
@@ -25,3 +26,4 @@ inventoryAlertsCron.schedule();
 arCollectionsCron.schedule();
 advancedAnalyticsCron.schedule();
 arRecurringCron.schedule();
+personalAlertsCron.schedule();

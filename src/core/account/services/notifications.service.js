@@ -17,6 +17,8 @@ const ALERT_TYPE_LABELS = {
   BANK_ACCOUNT_DISCONNECTED: 'Cuenta bancaria desconectada',
   APPROVAL_PENDING: 'Aprobación pendiente',
   LIQUIDITY_RISK_FORECAST: 'Riesgo de liquidez proyectado',
+  PAYROLL_ACTION_PENDING: 'Nómina pendiente de acción',
+  EMPLOYEE_EXPENSE_ACTION_PENDING: 'Gasto de personal pendiente de acción',
 };
 
 // Todo tipo de alerta que el usuario nunca configuró aparece con los

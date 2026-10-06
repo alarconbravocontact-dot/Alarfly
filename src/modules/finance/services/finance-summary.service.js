@@ -15,6 +15,16 @@ const debtsService = require('../../treasury/services/debts.service');
 const paymentOrdersService = require('../../treasury/services/payment-orders.service');
 const liquidityForecastService = require('../../treasury/services/liquidity-forecast.service');
 const agingService = require('../../reports/services/aging.service');
+const personalDashboardService = require('../../personal/services/personal-dashboard.service');
+
+// Roles con acceso real al módulo Personal (core/rbac/module-access.js
+// — `personal: ['ADMIN', 'FINANCE']`). Finanzas es visible para más
+// roles que Personal (incluye COLLABORATOR/ACCOUNTANT), así que la
+// obligación de nómina/gastos de personal solo se agrega a la
+// respuesta cuando quien pregunta ya tiene acceso real a Personal —
+// nunca se "relaja" el acceso a Personal exponiendo sus montos por
+// una puerta distinta a la que ya lo protege.
+const PERSONAL_ROLES = ['ADMIN', 'FINANCE'];
 
 const { Decimal } = Prisma;
 
@@ -63,17 +73,23 @@ async function getCommittedPaymentOrdersTotal(companyId) {
 // Resumen financiero (sección 7): responde en una sola llamada las
 // preguntas que hoy exigían visitar Tesorería + Reportes + Deuda por
 // separado. Cada campo documenta explícitamente de qué servicio viene.
-async function getFinanceSummary(companyId) {
+async function getFinanceSummary(companyId, role) {
   const company = await prisma.company.findUnique({ where: { id: companyId } });
   const asOfDate = new Date();
 
-  const [cashPosition, receivablesAging, payablesAging, loans, committed, liquidityForecast] = await Promise.all([
+  const [cashPosition, receivablesAging, payablesAging, loans, committed, liquidityForecast, personnelObligations] = await Promise.all([
     treasuryAccountsService.getConsolidatedCashPosition(companyId, asOfDate),
     agingService.getReceivablesAging(companyId, asOfDate),
     agingService.getPayablesAging(companyId, asOfDate),
     getOutstandingLoansTotal(companyId, company.baseCurrency, asOfDate),
     getCommittedPaymentOrdersTotal(companyId),
     liquidityForecastService.getLiquidityForecast(companyId, { weeks: 8 }),
+    // Obligaciones de nómina/gastos de personal: ya reconocidas en el
+    // Ledger (ver core/ledger.postEntry en payroll.service/
+    // employee-expenses.service), todavía sin una PaymentOrder —
+    // `totalPayable` de arriba no las incluye porque solo agrega
+    // ApBill, y Personal nunca escribe esa tabla (no se duplica AP).
+    PERSONAL_ROLES.includes(role) ? personalDashboardService.getObligationsSummary(companyId) : Promise.resolve(null),
   ]);
 
   // "Cuánto espero cobrar/pagar en lo inmediato" (a diferencia del saldo
@@ -116,6 +132,16 @@ async function getFinanceSummary(companyId) {
     expectedNearTermOutflows: nearTermOutflows,
     firstNegativeWeek: liquidityForecast.firstNegativeWeek,
     missingExchangeRates: [...cashPosition.missingExchangeRates, ...loans.missingRates],
+    // ¿Cuánto debo de nómina/gastos de personal? `null` para un rol sin
+    // acceso a Personal (Colaborador/Contador) — ver PERSONAL_ROLES
+    // arriba. Las obligaciones YA están reconocidas en el Ledger
+    // (core/ledger.postEntry, cuentas de pasivo configuradas en
+    // PersonalSettings); acá solo se leen y se suman, sin recalcular
+    // ni duplicar ese asiento.
+    personnelObligations: personnelObligations && {
+      payrollPendingPayment: personnelObligations.payrollPendingPayment.total,
+      expensesPendingReimbursement: personnelObligations.expensesPendingReimbursement.total,
+    },
   };
 }
 

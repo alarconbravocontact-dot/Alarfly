@@ -128,6 +128,32 @@ export default function ResumenPage() {
           </section>
         </div>
 
+        {/* Integración de Personal (sección 3 del pedido de integración
+            transversal): visible solo si el backend la incluyó, que
+            solo pasa si el rol de quien pregunta ya tiene acceso real a
+            Personal (ADMIN/FINANCE) — para Colaborador/Contador,
+            `summary.personnelObligations` llega `null` y esta sección
+            no se muestra, sin relajar el permiso real de Personal. */}
+        {summary?.personnelObligations && (
+          <div className="finance-summary-group">
+            <p className="finance-summary-group-title">Obligaciones de personal</p>
+            <section className="dashboard-stats">
+              <StatCard
+                label="Nómina aprobada, pendiente de pago"
+                value={formatCurrency(summary.personnelObligations.payrollPendingPayment, currency)}
+                tone={Number(summary.personnelObligations.payrollPendingPayment) > 0 ? 'warning' : 'positive'}
+                hint={<Link to="/personal/nomina">Ver Nómina →</Link>}
+              />
+              <StatCard
+                label="Gastos aprobados, pendientes de reembolso"
+                value={formatCurrency(summary.personnelObligations.expensesPendingReimbursement, currency)}
+                tone={Number(summary.personnelObligations.expensesPendingReimbursement) > 0 ? 'warning' : 'positive'}
+                hint={<Link to="/personal/gastos">Ver Gastos →</Link>}
+              />
+            </section>
+          </div>
+        )}
+
         {summary?.firstNegativeWeek && (
           <p className="alert-box alert-box-error" style={{ marginTop: 16 }}>
             El saldo proyectado se vuelve negativo la semana del{' '}

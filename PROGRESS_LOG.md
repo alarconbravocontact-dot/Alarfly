@@ -9448,3 +9448,104 @@ de diseño a recordar.
 Ficha → Nómina → Gastos → Finanzas → Auditoría verificado de extremo a
 extremo. No se construyó un ERP de RR.HH. ni una segunda versión del
 módulo.
+
+## Integración transversal del módulo Personal (2026-10-06)
+
+Trabajo puntual de integración (no una fase nueva, no una reconstrucción
+del módulo): a pedido explícito, se conectó el módulo Personal ya
+cerrado (Fichas/Nómina/Gastos) con las áreas transversales que ya
+existían — Dashboard, Finanzas, Analítica, Control y Alertas —
+siguiendo la regla "¿existe? → ¿funciona? → ¿reutilizar? → ¿extender?
+→ ¿fusionar? → solo si no existe, crear".
+
+### Auditoría quirúrgica (solo los puntos de integración, no el proyecto completo)
+Se inspeccionaron puntualmente: el registro de widgets del Dashboard
+(`reports/services/dashboard.service.js`, con `DashboardWidgetPreference`
+— el usuario decide qué ve), la capa de lectura de Finanzas
+(`finance/services/finance-summary.service.js`, que ya agrega Tesorería
++AR+AP+Deuda en una sola respuesta), el motor de alertas (`core/alerts`,
+dos patrones ya establecidos: "escanear y reconciliar" de AR/Inventario/
+Fiscal, y "evento síncrono" de `APPROVAL_PENDING` en Tesorería) y la
+conexión ya existente de Personal con `Dimension`/`FpaDimension` (ya
+etiquetaba sus asientos desde el módulo original). **Hallazgo
+descartado explícitamente** (documentado, no convertido en tarea
+nueva): `payPayroll`/`reimburseExpense` crean la `PaymentOrder` en
+`DRAFT` sin llamar a `submitForApproval` — se confirmó que es
+exactamente el mismo patrón que ya usa `createPaymentOrderForVendorBills`
+(AP↔Tesorería), no un defecto de Personal.
+
+### Backend
+2 valores nuevos en el enum `AlertType` (`PAYROLL_ACTION_PENDING`,
+`EMPLOYEE_EXPENSE_ACTION_PENDING`, migración 100% aditiva) — **ninguna
+tabla nueva**. `personal-dashboard.rules.js` (nuevo, función pura
+`buildCostTrend`, mismo patrón que `ar-invoices.rules.buildSalesTrend`)
++ `personal-dashboard.service.js` ganó `getObligationsSummary`/
+`getCostTrend` (sin tocar `getDashboard` ya existente).
+`personal-alerts.service.js` (nuevo, `scanPendingActions`, patrón
+"escanear y reconciliar") + su cron (7:20am) + endpoint manual
+`POST /personal/alerts/scan`. `finance-summary.service.getFinanceSummary`
+ganó un segundo parámetro opcional `role` — retrocompatible con sus 3
+llamadores existentes (`insights.service`, el widget `finance_summary`
+del Dashboard, `glossary.service`), que siguen funcionando igual sin
+pasarlo. `reports/services/dashboard.service.js` ganó el widget
+`personal_summary` (`roles: ['ADMIN','FINANCE']`). **Cero cambios** a
+`payroll.service.js`/`employee-expenses.service.js`.
+
+### Frontend
+`DashboardPage.jsx`: 2 tarjetas de Personal en "Estado general" (con
+enlaces reales) + 3 acciones rápidas nuevas, gateadas a ADMIN/FINANCE.
+`finance/ResumenPage.jsx`: sección "Obligaciones de personal" —
+**solo se renderiza si el backend la incluyó** (null para roles sin
+acceso a Personal, nunca se relaja el permiso por una puerta distinta).
+`personal/PersonalSummaryPage.jsx`: botón "Escanear pendientes" +
+gráfico "Evolución del costo de personal" (reutiliza `MetricTrendChart`,
+el mismo componente genérico de Métricas del Negocio — cero
+componentes nuevos).
+
+### Verificación real (Postgres + los 2 servidores corriendo)
+Flujo financiero completo de punta a punta: nómina creada dentro de un
+periodo abierto → calculada → revisada → aprobada (maker-checker real,
+segundo usuario) → asiento balanceado (700.00=700.00) → escaneo generó
+la alerta "aprobada, pendiente de pago" → `GET /finance/summary` reflejó
+`payrollPendingPayment: 700` exacto, mismo número que
+`GET /personal/dashboard`. Gasto de personal registrado → alerta de
+"pendiente de revisión" generada → visible en el Centro de
+Notificaciones con su enlace correcto. Escaneo confirmado idempotente
+(segunda corrida: 0 alertas nuevas). **Aislamiento multiempresa**:
+empresa nueva registrada desde cero (`POST /auth/signup`) — widget del
+Dashboard y `personnelObligations` de Finanzas en 0 (no los datos de
+Empresa Demo), acceso por ID directo a una nómina ajena → 404, listado
+vacío, escaneo sin crear nada, Centro de Notificaciones sin alertas
+ajenas. Rol Contador (acceso a Finanzas, SIN acceso a Personal):
+`personnelObligations` llega `null`, la sección no se muestra, y se
+confirmó explícitamente que `totalPayable` (CxP de AP) nunca incluyó
+montos de Personal (sin doble conteo). Playwright de punta a punta
+(Financiero y Contador) + responsive 390/768/escritorio en las 3
+pantallas tocadas — 0 overflow horizontal.
+
+### Tests
+11 tests unitarios nuevos (`personal-dashboard.rules.test.js` 4,
+`personal-dashboard.service.test.js` 2, `personal-alerts.service.test.js`
+5), 790/790 en total, sin regresiones. `npm run lint` backend: 0
+errores. Frontend: mismo baseline de 9 warnings preexistentes, build
+limpio.
+
+### Qué NO se modificó, documentado explícitamente
+El gate de Tesorería no se amplió. `listAlertsForUser` no ganó
+filtrado por rol/módulo — se confirmó que ningún tipo de alerta de
+ningún módulo lo tiene hoy (comportamiento transversal preexistente,
+Personal se integró idéntico al resto, ni más ni menos expuesto;
+cambiar esto sería arquitectura nueva, fuera de alcance). No se
+construyó un insight con evidencia para Personal ni una pantalla de
+"costo por departamento/sucursal" — los asientos de Personal ya están
+etiquetados con `Dimension`/`FpaDimension` desde el módulo original,
+así que cualquier reporte genérico por dimensión ya los incluye sin
+código adicional.
+
+### Documentación
+`PERSONAL_INTEGRATION_FINAL.md` (nuevo, complementa a
+`PERSONAL_MODULE_FINAL.md` sin duplicarlo): auditoría, qué se
+modificó/reutilizó, verificación real, qué no se tocó y por qué.
+
+**Personal: IMPLEMENTADO → INTEGRADO → PROBADO → AUDITADO →
+DOCUMENTADO → CERRADO.**

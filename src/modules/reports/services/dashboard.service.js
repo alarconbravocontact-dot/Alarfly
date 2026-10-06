@@ -22,6 +22,7 @@ const alertsService = require('../../../core/alerts/alerts.service');
 const financeSummaryService = require('../../finance/services/finance-summary.service');
 const liquidityForecastService = require('../../treasury/services/liquidity-forecast.service');
 const insightsService = require('./insights.service');
+const personalDashboardService = require('../../personal/services/personal-dashboard.service');
 
 // `roles: null` = visible para cualquier rol autenticado (ej. alertas,
 // que ya son visibles para todos en la campana de notificaciones desde
@@ -130,6 +131,22 @@ const WIDGET_DEFINITIONS = [
   // documentado ("el Dashboard debe consumir las alertas, no crear
   // dashboardAlerts.service.js"). Sin `roles`: visible para cualquier
   // rol, igual que la campana de notificaciones del topbar.
+  // Integración de Personal con el Inicio (Dashboard/Panel principal):
+  // los mismos 6 números que ya muestra Personal > Resumen
+  // (`personal-dashboard.service.getDashboard`, sin recalcular nada),
+  // registrados como UN widget más — el usuario decide si lo quiere
+  // ver, igual que cualquier otro widget de esta lista (nunca forzado).
+  // `roles` calza con `core/rbac/module-access.js` (`personal:
+  // ['ADMIN','FINANCE']`) para no ofrecerle a un rol sin acceso un
+  // widget que la API de todas formas le va a negar.
+  {
+    key: 'personal_summary',
+    label: 'Personal',
+    category: 'estado',
+    type: 'metric',
+    roles: ['ADMIN', 'FINANCE'],
+    compute: async (companyId) => personalDashboardService.getDashboard(companyId),
+  },
   {
     key: 'active_alerts',
     label: 'Requiere tu Atención',

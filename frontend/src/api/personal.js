@@ -36,6 +36,11 @@ export const personalSettingsApi = {
 
 export const personalDashboardApi = {
   get: () => api.get('/personal/dashboard'),
+  getTrend: (months) => api.get('/personal/dashboard/trend', { months }),
+};
+
+export const personalAlertsApi = {
+  scan: () => api.post('/personal/alerts/scan'),
 };
 
 // Bug real: el gate de Tesorería (ADMIN/COLLABORATOR) no deja pasar a

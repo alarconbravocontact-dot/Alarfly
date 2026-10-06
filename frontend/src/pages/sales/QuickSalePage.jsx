@@ -351,7 +351,7 @@ export default function QuickSalePage() {
             {formError.includes('periodo contable') && (
               <>
                 {' '}
-                <Link to="/contabilidad/periodos">Abre el periodo en Contabilidad →</Link>
+                <Link to="/contabilidad/configuracion">Abre el periodo en Contabilidad →</Link>
               </>
             )}
           </p>

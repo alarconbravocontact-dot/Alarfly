@@ -5,15 +5,16 @@
 // JSX) para que ningún Layout mezcle un export de componente con un
 // export de datos — evita la advertencia de Fast Refresh de React.
 
+// Simplificación pedida explícitamente por el usuario (piloto de
+// "menos pestañas/clics", 2026-10-06): Periodos y Tasas de Cambio
+// (baja frecuencia de uso) se fusionaron en una sola pestaña
+// "Configuración" — de 5 pestañas a 4. Plan de Cuentas/Asientos/
+// Reportes (alta frecuencia) quedan igual.
 export const ACCOUNTING_TABS = [
-  { to: '/contabilidad/cuentas', label: 'Plan de Cuentas' },
+  { to: '/contabilidad/cuentas', label: 'Cuentas' },
   { to: '/contabilidad/asientos', label: 'Asientos Contables' },
   { to: '/contabilidad/reportes', label: 'Reportes' },
-  { to: '/contabilidad/periodos', label: 'Periodos' },
-  // Fase 6: el backend de tasas de cambio (registrar/listar, BCV o
-  // manual) ya existía desde Fase 1/3 pero nunca tuvo pantalla —
-  // "Tasas de Cambio" lo conecta, sin agregar ningún endpoint nuevo.
-  { to: '/contabilidad/tasas-de-cambio', label: 'Tasas de Cambio' },
+  { to: '/contabilidad/configuracion', label: 'Configuración' },
 ];
 
 export const TREASURY_TABS = [

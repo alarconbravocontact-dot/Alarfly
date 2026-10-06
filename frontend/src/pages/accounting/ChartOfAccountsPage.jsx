@@ -1,19 +1,33 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { accountsApi, accountTemplatesApi } from '../../api/accounting';
+import { accountsApi, accountTemplatesApi, accountingReportsApi } from '../../api/accounting';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import HelpTooltip from '../../components/HelpTooltip';
 import StatusSeal from '../../core/ui/StatusSeal';
-import EmptyState from '../../core/ui/EmptyState';
+import DataTable from '../../core/ui/DataTable';
+import RecordDrawer from '../../core/ui/RecordDrawer';
+import { formatCurrency, formatDate } from '../../utils/format';
+
+// Simplificación pedida explícitamente por el usuario (piloto de
+// "menos jerarquía visual", 2026-10-06): las cuentas se siguen
+// guardando exactamente igual por dentro (padre/hijo, el backend no
+// cambió en nada), pero en pantalla ya no se ven como un árbol que se
+// expande/contrae — son una lista plana, con buscador y filtro por
+// tipo, igual que cualquier otra tabla de la app. Se quitaron: el
+// árbol recursivo (`AccountRow`), expandir/contraer, la indentación
+// por profundidad y "Ver solo esta cuenta" — toda esa complejidad
+// visual desapareció, no solo se escondió.
 
 const ACCOUNT_TYPES = [
-  { value: 'ASSET', label: 'Activo', icon: '◆' },
-  { value: 'LIABILITY', label: 'Pasivo', icon: '◇' },
-  { value: 'EQUITY', label: 'Patrimonio', icon: '▲' },
-  { value: 'INCOME', label: 'Ingreso', icon: '●' },
-  { value: 'EXPENSE', label: 'Gasto', icon: '○' },
+  { value: 'ASSET', label: 'Activo' },
+  { value: 'LIABILITY', label: 'Pasivo' },
+  { value: 'EQUITY', label: 'Patrimonio' },
+  { value: 'INCOME', label: 'Ingreso' },
+  { value: 'EXPENSE', label: 'Gasto' },
 ];
+
+const TYPE_LABEL = Object.fromEntries(ACCOUNT_TYPES.map((t) => [t.value, t.label]));
 
 const EMPTY_FORM = {
   code: '',
@@ -25,101 +39,12 @@ const EMPTY_FORM = {
   description: '',
 };
 
-function flattenTree(nodes, depth = 0, out = []) {
+function flattenTree(nodes, out = []) {
   for (const node of nodes) {
-    out.push({ ...node, depth });
-    if (node.children?.length) flattenTree(node.children, depth + 1, out);
+    out.push(node);
+    if (node.children?.length) flattenTree(node.children, out);
   }
   return out;
-}
-
-// Ruta real desde la raíz del árbol hasta una cuenta (para la miga de
-// pan jerárquica cuando el usuario "enfoca" una rama) — no viene del
-// backend porque el árbol solo trae `children`, nunca un `parentId`
-// resuelto hacia arriba.
-function findAccountPath(nodes, id, path = []) {
-  for (const node of nodes) {
-    const nextPath = [...path, node];
-    if (node.id === id) return nextPath;
-    if (node.children?.length) {
-      const found = findAccountPath(node.children, id, nextPath);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-function AccountRow({ account, depth, collapsedIds, onToggle, canManage, onToggleActive, onDelete, rowErrors, onFocus }) {
-  const hasChildren = account.children?.length > 0;
-  const isCollapsed = collapsedIds.has(account.id);
-  const rowError = rowErrors[account.id];
-
-  return (
-    <>
-      <div className={`account-tree-row${account.isActive ? '' : ' is-inactive'}`}>
-        {Array.from({ length: depth }).map((_, i) => (
-          <span key={i} className="account-tree-guide" />
-        ))}
-        {hasChildren ? (
-          <button
-            type="button"
-            className="account-tree-toggle"
-            onClick={() => onToggle(account.id)}
-            aria-label={isCollapsed ? 'Expandir' : 'Contraer'}
-            aria-expanded={!isCollapsed}
-          >
-            {isCollapsed ? '▸' : '▾'}
-          </button>
-        ) : (
-          <span className="account-tree-toggle is-spacer">▸</span>
-        )}
-        <span className="account-tree-code">{account.code}</span>
-        <span className="account-tree-name">{account.name}</span>
-        <div className="account-tree-meta">
-          <span className="account-tree-meta-item">{account.normalBalance === 'DEBIT' ? 'Débito' : 'Crédito'}</span>
-          <StatusSeal status={account.isActive ? 'active' : 'inactive'} label={account.isActive ? 'Activa' : 'Inactiva'} />
-          {hasChildren && (
-            <button type="button" className="btn btn-small" onClick={() => onFocus(account)}>
-              Ver solo esta cuenta
-            </button>
-          )}
-          {canManage && (
-            <div className="btn-row">
-              <button type="button" className="btn btn-small" onClick={() => onToggleActive(account)}>
-                {account.isActive ? 'Desactivar' : 'Activar'}
-              </button>
-              <button type="button" className="btn btn-small btn-danger" onClick={() => onDelete(account)}>
-                Eliminar
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-      {rowError && (
-        <p className="alert-box alert-box-error" style={{ margin: '6px 0' }}>
-          {rowError}
-        </p>
-      )}
-      {hasChildren && !isCollapsed && (
-        <div>
-          {account.children.map((child) => (
-            <AccountRow
-              key={child.id}
-              account={child}
-              depth={depth + 1}
-              collapsedIds={collapsedIds}
-              onToggle={onToggle}
-              canManage={canManage}
-              onToggleActive={onToggleActive}
-              onDelete={onDelete}
-              rowErrors={rowErrors}
-              onFocus={onFocus}
-            />
-          ))}
-        </div>
-      )}
-    </>
-  );
 }
 
 export default function ChartOfAccountsPage() {
@@ -130,27 +55,29 @@ export default function ChartOfAccountsPage() {
   const [tree, setTree] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [collapsedIds, setCollapsedIds] = useState(() => new Set());
   const [rowErrors, setRowErrors] = useState({});
-  const [focusedId, setFocusedId] = useState(null);
+
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  // F17-E2: bug real de severidad alta encontrado con una empresa
-  // nueva de verdad — el servicio de plantillas ya existía completo
-  // (es lo que usa `prisma/seed.js`), pero nunca tuvo ninguna
-  // pantalla. Sin esto, una empresa nueva no tenía NINGUNA forma de
-  // conseguir un plan de cuentas salvo crear cada cuenta a mano, una
-  // por una — y sin plan de cuentas no se puede crear ni una cuenta
-  // bancaria, ni una venta, ni nada que dependa de una cuenta
-  // contable real.
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [isApplyingTemplate, setIsApplyingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState('');
+
+  // Detalle contextual (drawer): seleccionar una cuenta en la lista NO
+  // navega a otra pantalla ni reinicia el buscador/filtro — ese estado
+  // (search/typeFilter arriba) vive en este mismo componente, así que
+  // abrir/cerrar el drawer nunca lo toca.
+  const [selectedAccountId, setSelectedAccountId] = useState(null);
+  const [ledger, setLedger] = useState(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerError, setLedgerError] = useState('');
 
   const loadTree = useCallback(async () => {
     setIsLoading(true);
@@ -203,29 +130,58 @@ export default function ChartOfAccountsPage() {
   }
 
   const flatAccounts = useMemo(() => flattenTree(tree), [tree]);
-  const sectionsByType = useMemo(() => {
-    const groups = new Map();
-    for (const node of tree) {
-      if (!groups.has(node.type)) groups.set(node.type, []);
-      groups.get(node.type).push(node);
-    }
-    return groups;
-  }, [tree]);
+  const accountById = useMemo(() => new Map(flatAccounts.map((a) => [a.id, a])), [flatAccounts]);
 
-  // Ruta jerárquica real cuando el usuario "enfoca" una rama del árbol
-  // ("Ver solo esta cuenta") — cada nivel es clicable para volver a un
-  // ancestro sin perder de vista cómo se llegó ahí, distinto de la
-  // miga de pan genérica de navegación entre pantallas.
-  const focusedPath = focusedId ? findAccountPath(tree, focusedId) : null;
-  const focusedNode = focusedPath ? focusedPath[focusedPath.length - 1] : null;
-
-  function toggleCollapsed(id) {
-    setCollapsedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  const visibleAccounts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return flatAccounts.filter((a) => {
+      if (typeFilter && a.type !== typeFilter) return false;
+      if (q && !a.code.toLowerCase().includes(q) && !a.name.toLowerCase().includes(q)) return false;
+      return true;
     });
+  }, [flatAccounts, search, typeFilter]);
+
+  const selectedAccount = selectedAccountId ? accountById.get(selectedAccountId) : null;
+  const selectedIndex = selectedAccountId
+    ? visibleAccounts.findIndex((a) => a.id === selectedAccountId)
+    : -1;
+
+  useEffect(() => {
+    if (!selectedAccountId) {
+      setLedger(null);
+      return;
+    }
+    let cancelled = false;
+    setLedgerLoading(true);
+    setLedgerError('');
+    accountingReportsApi
+      .generalLedger(selectedAccountId)
+      .then((data) => {
+        if (!cancelled) setLedger(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setLedgerError(err instanceof ApiError ? err.message : 'No se pudieron cargar los movimientos.');
+      })
+      .finally(() => {
+        if (!cancelled) setLedgerLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAccountId]);
+
+  function openAccountDetail(account) {
+    setSelectedAccountId(account.id);
+  }
+
+  function closeAccountDetail() {
+    setSelectedAccountId(null);
+  }
+
+  function navigateAccountDetail(delta) {
+    if (selectedIndex === -1) return;
+    const nextAccount = visibleAccounts[selectedIndex + delta];
+    if (nextAccount) setSelectedAccountId(nextAccount.id);
   }
 
   async function handleCreate(event) {
@@ -278,11 +234,71 @@ export default function ChartOfAccountsPage() {
     }
   }
 
+  const columns = useMemo(
+    () => [
+      { key: 'code', label: 'Código', value: (a) => a.code, defaultWidth: 90 },
+      { key: 'name', label: 'Nombre', value: (a) => a.name, defaultWidth: 200 },
+      { key: 'type', label: 'Tipo', value: (a) => TYPE_LABEL[a.type] || a.type, defaultWidth: 110 },
+      {
+        key: 'normalBalance',
+        label: 'Saldo normal',
+        value: (a) => (a.normalBalance === 'DEBIT' ? 'Débito' : 'Crédito'),
+        defaultWidth: 110,
+      },
+      {
+        key: 'parent',
+        label: 'Depende de',
+        value: (a) => (a.parentId ? accountById.get(a.parentId)?.name || '' : ''),
+        render: (a) => (a.parentId ? accountById.get(a.parentId)?.name || '—' : '—'),
+        defaultWidth: 160,
+      },
+      {
+        key: 'status',
+        label: 'Estado',
+        value: (a) => (a.isActive ? 'Activa' : 'Inactiva'),
+        render: (a) => <StatusSeal status={a.isActive ? 'active' : 'inactive'} label={a.isActive ? 'Activa' : 'Inactiva'} />,
+        defaultWidth: 120,
+      },
+      {
+        key: 'actions',
+        label: '',
+        exportable: false,
+        render: (a) => (
+          <div>
+            <div className="btn-row" style={{ flexWrap: 'nowrap' }}>
+              <button type="button" className="btn btn-small" onClick={() => openAccountDetail(a)}>
+                Ver detalle
+              </button>
+              {canManage && (
+                <>
+                  <button type="button" className="btn btn-small" onClick={() => handleToggleActive(a)}>
+                    {a.isActive ? 'Desactivar' : 'Activar'}
+                  </button>
+                  <button type="button" className="btn btn-small btn-danger" onClick={() => handleDelete(a)}>
+                    Eliminar
+                  </button>
+                </>
+              )}
+            </div>
+            {rowErrors[a.id] && (
+              <p className="alert-box alert-box-error" style={{ marginTop: 6 }}>
+                {rowErrors[a.id]}
+              </p>
+            )}
+          </div>
+        ),
+        defaultWidth: 260,
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [accountById, canManage, rowErrors]
+  );
+
   return (
     <div className="page">
       <div className="panel">
         <div className="panel-header">
-          <h2>Árbol de cuentas</h2>
+          <h2>Cuentas</h2>
           {canManage && (
             <button type="button" className="btn btn-primary btn-small" onClick={() => setIsFormOpen((v) => !v)}>
               {isFormOpen ? 'Cancelar' : '+ Nueva cuenta'}
@@ -337,13 +353,13 @@ export default function ChartOfAccountsPage() {
               <label className="field">
                 <span className="field-label">
                   Cuenta padre (opcional)
-                  <HelpTooltip text="Si esta cuenta es una subdivisión de otra más general (ej. “Bancos” dentro de “Activo Corriente”), selecciónala aquí para que aparezca anidada en el árbol." />
+                  <HelpTooltip text="Si esta cuenta es una subdivisión de otra más general (ej. “Bancos” dentro de “Activo Corriente”), selecciónala aquí." />
                 </span>
                 <select value={form.parentId} onChange={(e) => setForm({ ...form, parentId: e.target.value })}>
                   <option value="">Sin cuenta padre</option>
                   {flatAccounts.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {'—'.repeat(a.depth)} {a.code} · {a.name}
+                      {a.code} · {a.name}
                     </option>
                   ))}
                 </select>
@@ -373,111 +389,164 @@ export default function ChartOfAccountsPage() {
           </form>
         )}
 
-        {isLoading && <p className="text-muted">Cargando…</p>}
-        {!isLoading && loadError && <p className="alert-box alert-box-error">{loadError}</p>}
-        {!isLoading && !loadError && flatAccounts.length === 0 && (
-          <>
-            <EmptyState
-              icon="◆"
-              message="Todavía no registraste ninguna cuenta — crea la primera con “+ Nueva cuenta”, arriba."
-            />
-            {canManage && templates.length > 0 && (
-              <div className="panel" style={{ marginTop: 16 }}>
-                <p className="field-label">
-                  O empieza más rápido con una plantilla
-                  <HelpTooltip text="Una plantilla crea de una vez un plan de cuentas completo y ya organizado (activos, pasivos, patrimonio, ingresos y gastos), para que no tengas que crear cada cuenta a mano. Se puede editar después." />
-                </p>
-                <div className="btn-row" style={{ marginTop: 8 }}>
-                  <select value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)}>
-                    {templates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="button" className="btn btn-primary" onClick={handleApplyTemplate} disabled={isApplyingTemplate}>
-                    {isApplyingTemplate ? 'Aplicando…' : 'Aplicar plantilla'}
-                  </button>
-                </div>
-                {templateError && (
-                  <p className="alert-box alert-box-error" style={{ marginTop: 12 }}>
-                    {templateError}
-                  </p>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {!isLoading && !loadError && flatAccounts.length > 0 && focusedNode && (
-          <nav className="ui-breadcrumb" aria-label="Ruta en el árbol de cuentas" style={{ marginBottom: 16 }}>
-            <span className="ui-breadcrumb-item">
-              <button type="button" className="ui-breadcrumb-link btn-as-link" onClick={() => setFocusedId(null)}>
-                Árbol de cuentas
-              </button>
-              <span className="ui-breadcrumb-sep" aria-hidden="true">›</span>
-            </span>
-            {focusedPath.map((node, i) => (
-              <span key={node.id} className="ui-breadcrumb-item">
-                {i < focusedPath.length - 1 ? (
-                  <button type="button" className="ui-breadcrumb-link btn-as-link" onClick={() => setFocusedId(node.id)}>
-                    {node.code} · {node.name}
-                  </button>
-                ) : (
-                  <span className="ui-breadcrumb-current">{node.code} · {node.name}</span>
-                )}
-                {i < focusedPath.length - 1 && (
-                  <span className="ui-breadcrumb-sep" aria-hidden="true">›</span>
-                )}
-              </span>
-            ))}
-          </nav>
-        )}
-
-        {!isLoading && !loadError && flatAccounts.length > 0 && focusedNode && (
-          <AccountRow
-            account={focusedNode}
-            depth={0}
-            collapsedIds={collapsedIds}
-            onToggle={toggleCollapsed}
-            canManage={canManage}
-            onToggleActive={handleToggleActive}
-            onDelete={handleDelete}
-            rowErrors={rowErrors}
-            onFocus={(acc) => setFocusedId(acc.id)}
-          />
-        )}
-
-        {!isLoading &&
-          !loadError &&
-          !focusedNode &&
-          ACCOUNT_TYPES.map((typeMeta) => {
-            const roots = sectionsByType.get(typeMeta.value);
-            if (!roots || roots.length === 0) return null;
-            return (
-              <div key={typeMeta.value}>
-                <p className="section-title">
-                  <span className="section-title-icon">{typeMeta.icon}</span>
-                  {typeMeta.label}
-                </p>
-                {roots.map((root) => (
-                  <AccountRow
-                    key={root.id}
-                    account={root}
-                    depth={0}
-                    collapsedIds={collapsedIds}
-                    onToggle={toggleCollapsed}
-                    canManage={canManage}
-                    onToggleActive={handleToggleActive}
-                    onDelete={handleDelete}
-                    rowErrors={rowErrors}
-                    onFocus={(acc) => setFocusedId(acc.id)}
-                  />
+        {!isLoading && !loadError && flatAccounts.length === 0 && canManage && templates.length > 0 && (
+          <div className="panel" style={{ marginBottom: 16 }}>
+            <p className="field-label">
+              Empieza más rápido con una plantilla
+              <HelpTooltip text="Una plantilla crea de una vez un plan de cuentas completo y ya organizado (activos, pasivos, patrimonio, ingresos y gastos), para que no tengas que crear cada cuenta a mano. Se puede editar después." />
+            </p>
+            <div className="btn-row" style={{ marginTop: 8 }}>
+              <select value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)}>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
                 ))}
-              </div>
-            );
-          })}
+              </select>
+              <button type="button" className="btn btn-primary" onClick={handleApplyTemplate} disabled={isApplyingTemplate}>
+                {isApplyingTemplate ? 'Aplicando…' : 'Aplicar plantilla'}
+              </button>
+            </div>
+            {templateError && (
+              <p className="alert-box alert-box-error" style={{ marginTop: 12 }}>
+                {templateError}
+              </p>
+            )}
+          </div>
+        )}
+
+        {!isLoading && !loadError && flatAccounts.length > 0 && (
+          <div className="btn-row" style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+            <input
+              type="search"
+              placeholder="Buscar por código o nombre…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ minWidth: 240 }}
+            />
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+              <option value="">Todos los tipos</option>
+              {ACCOUNT_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {!isLoading && loadError && <p className="alert-box alert-box-error">{loadError}</p>}
+
+        <DataTable
+          tableKey="chart-of-accounts"
+          columns={columns}
+          data={visibleAccounts}
+          rowKey={(a) => a.id}
+          isLoading={isLoading}
+          emptyIcon="◆"
+          emptyMessage={
+            flatAccounts.length === 0
+              ? 'Todavía no registraste ninguna cuenta — crea la primera con “+ Nueva cuenta”, arriba.'
+              : 'Ningún resultado con esta búsqueda/filtro.'
+          }
+          exportTitle="Plan de Cuentas"
+        />
       </div>
+
+      <RecordDrawer
+        isOpen={Boolean(selectedAccount)}
+        onClose={closeAccountDetail}
+        title={selectedAccount ? `${selectedAccount.code} · ${selectedAccount.name}` : ''}
+        subtitle={selectedAccount ? TYPE_LABEL[selectedAccount.type] : ''}
+        onNavigate={navigateAccountDetail}
+        hasPrev={selectedIndex > 0}
+        hasNext={selectedIndex !== -1 && selectedIndex < visibleAccounts.length - 1}
+        footer={
+          selectedAccount && canManage ? (
+            <div style={{ width: '100%' }}>
+              <div className="btn-row">
+                <button type="button" className="btn btn-small" onClick={() => handleToggleActive(selectedAccount)}>
+                  {selectedAccount.isActive ? 'Desactivar' : 'Activar'}
+                </button>
+                <button type="button" className="btn btn-small btn-danger" onClick={() => handleDelete(selectedAccount)}>
+                  Eliminar
+                </button>
+              </div>
+              {rowErrors[selectedAccount.id] && (
+                <p className="alert-box alert-box-error" style={{ marginTop: 10 }}>
+                  {rowErrors[selectedAccount.id]}
+                </p>
+              )}
+            </div>
+          ) : null
+        }
+        summary={
+          selectedAccount && (
+            <div>
+              <div className="form-grid" style={{ marginBottom: 20 }}>
+                <div className="field">
+                  <span>Tipo</span>
+                  <p>{TYPE_LABEL[selectedAccount.type]}</p>
+                </div>
+                <div className="field">
+                  <span>Saldo normal</span>
+                  <p>{selectedAccount.normalBalance === 'DEBIT' ? 'Débito' : 'Crédito'}</p>
+                </div>
+                <div className="field">
+                  <span>Depende de</span>
+                  <p>{selectedAccount.parentId ? accountById.get(selectedAccount.parentId)?.name || '—' : '—'}</p>
+                </div>
+                <div className="field">
+                  <span>Estado</span>
+                  <p>
+                    <StatusSeal
+                      status={selectedAccount.isActive ? 'active' : 'inactive'}
+                      label={selectedAccount.isActive ? 'Activa' : 'Inactiva'}
+                    />
+                  </p>
+                </div>
+                <div className="field">
+                  <span>Saldo actual</span>
+                  <p>
+                    <strong>{ledger ? formatCurrency(ledger.closingBalance) : '—'}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <h3 style={{ marginBottom: 8 }}>Movimientos</h3>
+              {ledgerLoading && <p>Cargando movimientos…</p>}
+              {!ledgerLoading && ledgerError && <p className="alert-box alert-box-error">{ledgerError}</p>}
+              {!ledgerLoading && !ledgerError && ledger && ledger.movements.length === 0 && (
+                <p className="field-label">Esta cuenta todavía no tiene movimientos.</p>
+              )}
+              {!ledgerLoading && !ledgerError && ledger && ledger.movements.length > 0 && (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Descripción</th>
+                      <th>Debe</th>
+                      <th>Haber</th>
+                      <th>Saldo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ledger.movements.map((m, idx) => (
+                      <tr key={`${m.entryId}-${idx}`}>
+                        <td>{formatDate(new Date(m.date))}</td>
+                        <td>{m.description}</td>
+                        <td className="num">{formatCurrency(m.debit)}</td>
+                        <td className="num">{formatCurrency(m.credit)}</td>
+                        <td className="num">{formatCurrency(m.balance)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )
+        }
+      />
     </div>
   );
 }

@@ -186,6 +186,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* Habilidad de plataforma instalada (ui-ux-pro-max), regla crítica de
+     Touch & Interaction: mínimo 44×44px de objetivo táctil — se fija con
+     min-height/min-width explícitos (no solo padding) para que se
+     cumpla sin importar cuánto texto lleve el botón, en TODAS las
+     variantes (small/base/large) y en toda la plataforma a la vez,
+     ya que esta es la única hoja de estilos compartida por los 13
+     módulos. Cambio pedido explícitamente como transversal, no por
+     módulo. */
+  min-height: 44px;
+  min-width: 44px;
   padding: 9px 16px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border-strong);
@@ -234,6 +244,11 @@
 }
 
 .btn-small {
+  /* Sigue siendo el botón "compacto" en términos de ancho/padding
+     horizontal (una tabla densa de escritorio lo sigue necesitando),
+     pero el alto mínimo real de 44px (heredado de .btn de arriba) ya
+     no se reduce — solo se angosta, nunca se achica verticalmente
+     por debajo del objetivo táctil. */
   padding: 6px 12px;
   font-size: 12px;
 }

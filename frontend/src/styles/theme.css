@@ -10,7 +10,14 @@
   /* Texto: "Hueso" (principal) y "Plomo" (secundario) — nunca #fff puro */
   --color-text-primary: #edeff2;
   --color-text-secondary: #8b93a1;
-  --color-text-muted: #6b7280;
+  /* Habilidad de plataforma instalada (ui-ux-pro-max), Accessibility
+     (CRÍTICO): contraste mínimo 4.5:1 para texto normal. El valor
+     anterior (#6b7280) daba 4.02:1 sobre --color-bg y 3.72:1 sobre
+     --color-surface — no pasaba. Este valor da 5.11:1 / 4.72:1 en los
+     mismos fondos, sigue leyéndose "apagado" (más oscuro que
+     --color-text-secondary) pero ya es legible. Token único y
+     compartido: el fix aplica a toda la plataforma a la vez. */
+  --color-text-muted: #7c8392;
 
   /* Marca (Fase 10 — reemplaza el acento dorado "Sello" anterior por
      un rojo vino intenso y controlado, decisión de marca confirmada
@@ -159,7 +166,10 @@
 
   --color-text-primary: #1e1c18;
   --color-text-secondary: #5c574a;
-  --color-text-muted: #8a8371;
+  /* Mismo fix de contraste que el tema oscuro (ver arriba): #8a8371
+     daba 3.43:1 sobre --color-bg y 3.68:1 sobre --color-surface, por
+     debajo del mínimo 4.5:1. Este valor da 5.01:1 / 5.37:1. */
+  --color-text-muted: #706858;
 
   /* Rojo vino más oscuro que en el tema oscuro, para tener contraste
      real sobre el fondo hueso claro — mismo criterio que ya usaba el

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { accountsApi, journalEntriesApi } from '../../api/accounting';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -9,6 +9,7 @@ import StatusSeal from '../../core/ui/StatusSeal';
 import EmptyState from '../../core/ui/EmptyState';
 import EntityAutocomplete from '../../core/ui/EntityAutocomplete';
 import QuickCreateModal from '../../core/ui/QuickCreateModal';
+import RecordDrawer from '../../core/ui/RecordDrawer';
 import { recentlyUsedApi } from '../../api/recently-used';
 import GlossaryTerm from '../../core/ui/GlossaryTerm';
 import { fpaDimensionsApi } from '../../api/fpa';
@@ -69,8 +70,12 @@ export default function JournalEntriesPage() {
   const [entries, setEntries] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [expandedId, setExpandedId] = useState(null);
-  const [expandedEntry, setExpandedEntry] = useState(null);
+  // Detalle contextual (drawer): consultar un asiento NO navega a otra
+  // pantalla ni reinicia la lista — cerrarlo devuelve exactamente a la
+  // misma lista de "Asientos registrados" tal como estaba.
+  const [selectedEntryId, setSelectedEntryId] = useState(null);
+  const [selectedEntryDetail, setSelectedEntryDetail] = useState(null);
+  const [selectedEntryError, setSelectedEntryError] = useState('');
   const [actionError, setActionError] = useState({});
   // F17-E11: dimensiones de FP&A disponibles para etiquetar una línea —
   // necesarias para que el reporte de Desviaciones de FP&A pueda
@@ -158,26 +163,50 @@ export default function JournalEntriesPage() {
     }
   }
 
-  async function toggleExpand(entry) {
-    if (expandedId === entry.id) {
-      setExpandedId(null);
-      setExpandedEntry(null);
-      return;
-    }
-    setExpandedId(entry.id);
-    try {
-      const full = await journalEntriesApi.getOne(entry.id);
-      setExpandedEntry(full);
-    } catch {
-      setExpandedEntry(null);
-    }
+  function openEntryDetail(entry) {
+    setSelectedEntryId(entry.id);
   }
 
-  async function refreshExpandedEntry() {
-    if (!expandedId) return;
+  function closeEntryDetail() {
+    setSelectedEntryId(null);
+  }
+
+  function navigateEntryDetail(delta) {
+    const index = entries.findIndex((e) => e.id === selectedEntryId);
+    if (index === -1) return;
+    const next = entries[index + delta];
+    if (next) setSelectedEntryId(next.id);
+  }
+
+  useEffect(() => {
+    if (!selectedEntryId) {
+      setSelectedEntryDetail(null);
+      setSelectedEntryError('');
+      return;
+    }
+    let cancelled = false;
+    setSelectedEntryError('');
+    journalEntriesApi
+      .getOne(selectedEntryId)
+      .then((full) => {
+        if (!cancelled) setSelectedEntryDetail(full);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setSelectedEntryDetail(null);
+          setSelectedEntryError(err instanceof ApiError ? err.message : 'No se pudo cargar el detalle del asiento.');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEntryId]);
+
+  async function refreshSelectedEntryDetail() {
+    if (!selectedEntryId) return;
     try {
-      const full = await journalEntriesApi.getOne(expandedId);
-      setExpandedEntry(full);
+      const full = await journalEntriesApi.getOne(selectedEntryId);
+      setSelectedEntryDetail(full);
     } catch {
       // deja el detalle como estaba si falla el refresco
     }
@@ -191,7 +220,7 @@ export default function JournalEntriesPage() {
     try {
       await fpaDimensionsApi.tagLine(lineId, fpaDimensionId);
       setTagSelection((prev) => ({ ...prev, [lineId]: '' }));
-      await refreshExpandedEntry();
+      await refreshSelectedEntryDetail();
     } catch (err) {
       setTagError((prev) => ({
         ...prev,
@@ -207,7 +236,7 @@ export default function JournalEntriesPage() {
     setTagError((prev) => ({ ...prev, [lineId]: '' }));
     try {
       await fpaDimensionsApi.untagLine(tagId);
-      await refreshExpandedEntry();
+      await refreshSelectedEntryDetail();
     } catch (err) {
       setTagError((prev) => ({
         ...prev,
@@ -245,6 +274,11 @@ export default function JournalEntriesPage() {
       if (action === 'reverse') await journalEntriesApi.reverse(entry.id, {});
       if (action === 'remove') await journalEntriesApi.remove(entry.id);
       await loadAll();
+      if (action === 'remove' && selectedEntryId === entry.id) {
+        closeEntryDetail();
+      } else if (selectedEntryId === entry.id) {
+        await refreshSelectedEntryDetail();
+      }
     } catch (err) {
       setActionError((prev) => ({
         ...prev,
@@ -397,144 +431,216 @@ export default function JournalEntriesPage() {
               {entries.map((entry) => {
                 const total = entry.lines.reduce((sum, l) => sum + Number(l.debit), 0);
                 return (
-                  <Fragment key={entry.id}>
-                    <tr>
-                      <td>{entry.entryNumber}</td>
-                      <td>{formatDate(new Date(entry.date))}</td>
-                      <td>{entry.description}</td>
-                      <td className="num">{formatCurrency(total)}</td>
-                      <td>
-                        <StatusSeal tone={STATUS_SEAL_TONE[entry.status]} label={STATUS_LABELS[entry.status]} />
-                      </td>
-                      <td>
-                        <div className="btn-row">
-                          <button type="button" className="btn btn-small" onClick={() => toggleExpand(entry)}>
-                            {expandedId === entry.id ? 'Ocultar' : 'Ver detalle'}
+                  <tr key={entry.id}>
+                    <td>{entry.entryNumber}</td>
+                    <td>{formatDate(new Date(entry.date))}</td>
+                    <td>{entry.description}</td>
+                    <td className="num">{formatCurrency(total)}</td>
+                    <td>
+                      <StatusSeal tone={STATUS_SEAL_TONE[entry.status]} label={STATUS_LABELS[entry.status]} />
+                    </td>
+                    <td>
+                      <div className="btn-row">
+                        <button type="button" className="btn btn-small" onClick={() => openEntryDetail(entry)}>
+                          Ver detalle
+                        </button>
+                        {canRecord && entry.status === 'DRAFT' && (
+                          <button type="button" className="btn btn-small" onClick={() => runAction(entry, 'submit')}>
+                            Enviar a aprobación
                           </button>
-                          {canRecord && entry.status === 'DRAFT' && (
-                            <button type="button" className="btn btn-small" onClick={() => runAction(entry, 'submit')}>
-                              Enviar a aprobación
-                            </button>
-                          )}
-                          {canApprove && entry.status === 'PENDING_APPROVAL' && (
-                            <button type="button" className="btn btn-small" onClick={() => runAction(entry, 'approve')}>
-                              Aprobar
-                            </button>
-                          )}
-                          {canRecord && entry.status === 'APPROVED' && (
-                            <button type="button" className="btn btn-small" onClick={() => runAction(entry, 'reverse')}>
-                              Reversar
-                            </button>
-                          )}
-                          {canRecord && entry.status === 'DRAFT' && (
-                            <button type="button" className="btn btn-small btn-danger" onClick={() => runAction(entry, 'remove')}>
-                              Eliminar
-                            </button>
-                          )}
-                        </div>
-                        {actionError[entry.id] && (
-                          <p className="alert-box alert-box-error" style={{ marginTop: 6 }}>
-                            {actionError[entry.id]}
-                          </p>
                         )}
-                      </td>
-                    </tr>
-                    {expandedId === entry.id && expandedEntry && (
-                      <tr>
-                        <td colSpan={6}>
-                          <table className="data-table">
-                            <thead>
-                              <tr>
-                                <th>Cuenta</th>
-                                <th className="num">Débito</th>
-                                <th className="num">Crédito</th>
-                                <th>Descripción</th>
-                                <th>
-                                  <span className="field-label">
-                                    Dimensión FP&amp;A
-                                    <HelpTooltip text="Etiqueta esta línea con una dimensión (ej. 'Ventas Generales') para que el reporte de Desviaciones de FP&A pueda comparar este movimiento real contra lo presupuestado." />
-                                  </span>
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {expandedEntry.lines.map((line) => {
-                                const tags = line.fpaDimensionTags || [];
-                                return (
-                                  <tr key={line.id}>
-                                    <td>
-                                      {line.account.code} · {line.account.name}
-                                    </td>
-                                    <td className="num">{formatCurrency(line.debit)}</td>
-                                    <td className="num">{formatCurrency(line.credit)}</td>
-                                    <td>{line.description || '—'}</td>
-                                    <td>
-                                      {tags.length > 0 ? (
-                                        <div className="btn-row" style={{ flexWrap: 'wrap', gap: 4 }}>
-                                          {tags.map((tag) => (
-                                            <span key={tag.id} className="btn-row" style={{ gap: 4 }}>
-                                              <StatusSeal tone="neutral" label={tag.fpaDimension?.name || '—'} />
-                                              {canTagDimension && (
-                                                <button
-                                                  type="button"
-                                                  className="btn btn-small btn-danger"
-                                                  disabled={isTagging[line.id]}
-                                                  onClick={() => handleUntagLine(line.id, tag.id)}
-                                                >
-                                                  Quitar
-                                                </button>
-                                              )}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      ) : canTagDimension ? (
-                                        <div className="btn-row" style={{ gap: 4 }}>
-                                          <select
-                                            value={tagSelection[line.id] || ''}
-                                            onChange={(e) =>
-                                              setTagSelection((prev) => ({ ...prev, [line.id]: e.target.value }))
-                                            }
-                                          >
-                                            <option value="">Elegir dimensión…</option>
-                                            {fpaDimensions.map((dim) => (
-                                              <option key={dim.id} value={dim.id}>
-                                                {dim.name}
-                                              </option>
-                                            ))}
-                                          </select>
-                                          <button
-                                            type="button"
-                                            className="btn btn-small"
-                                            disabled={!tagSelection[line.id] || isTagging[line.id]}
-                                            onClick={() => handleTagLine(line.id)}
-                                          >
-                                            Etiquetar
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <span className="text-muted">Sin etiqueta</span>
-                                      )}
-                                      {tagError[line.id] && (
-                                        <p className="alert-box alert-box-error" style={{ marginTop: 4 }}>
-                                          {tagError[line.id]}
-                                        </p>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                        {canApprove && entry.status === 'PENDING_APPROVAL' && (
+                          <button type="button" className="btn btn-small" onClick={() => runAction(entry, 'approve')}>
+                            Aprobar
+                          </button>
+                        )}
+                        {canRecord && entry.status === 'APPROVED' && (
+                          <button type="button" className="btn btn-small" onClick={() => runAction(entry, 'reverse')}>
+                            Reversar
+                          </button>
+                        )}
+                        {canRecord && entry.status === 'DRAFT' && (
+                          <button type="button" className="btn btn-small btn-danger" onClick={() => runAction(entry, 'remove')}>
+                            Eliminar
+                          </button>
+                        )}
+                      </div>
+                      {actionError[entry.id] && (
+                        <p className="alert-box alert-box-error" style={{ marginTop: 6 }}>
+                          {actionError[entry.id]}
+                        </p>
+                      )}
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>
           </table>
         )}
       </div>
+
+      <RecordDrawer
+        isOpen={Boolean(selectedEntryId)}
+        onClose={closeEntryDetail}
+        title={selectedEntryDetail ? `Asiento N.º ${selectedEntryDetail.entryNumber}` : 'Asiento'}
+        subtitle={selectedEntryDetail ? selectedEntryDetail.description : ''}
+        onNavigate={navigateEntryDetail}
+        hasPrev={entries.findIndex((e) => e.id === selectedEntryId) > 0}
+        hasNext={
+          entries.findIndex((e) => e.id === selectedEntryId) !== -1 &&
+          entries.findIndex((e) => e.id === selectedEntryId) < entries.length - 1
+        }
+        footer={
+          selectedEntryDetail ? (
+            <div style={{ width: '100%' }}>
+              <div className="btn-row">
+                {canRecord && selectedEntryDetail.status === 'DRAFT' && (
+                  <button type="button" className="btn btn-small" onClick={() => runAction(selectedEntryDetail, 'submit')}>
+                    Enviar a aprobación
+                  </button>
+                )}
+                {canApprove && selectedEntryDetail.status === 'PENDING_APPROVAL' && (
+                  <button type="button" className="btn btn-small" onClick={() => runAction(selectedEntryDetail, 'approve')}>
+                    Aprobar
+                  </button>
+                )}
+                {canRecord && selectedEntryDetail.status === 'APPROVED' && (
+                  <button type="button" className="btn btn-small" onClick={() => runAction(selectedEntryDetail, 'reverse')}>
+                    Reversar
+                  </button>
+                )}
+                {canRecord && selectedEntryDetail.status === 'DRAFT' && (
+                  <button
+                    type="button"
+                    className="btn btn-small btn-danger"
+                    onClick={() => runAction(selectedEntryDetail, 'remove')}
+                  >
+                    Eliminar
+                  </button>
+                )}
+              </div>
+              {actionError[selectedEntryDetail.id] && (
+                <p className="alert-box alert-box-error" style={{ marginTop: 10 }}>
+                  {actionError[selectedEntryDetail.id]}
+                </p>
+              )}
+            </div>
+          ) : null
+        }
+        summary={
+          <div>
+            {selectedEntryError && <p className="alert-box alert-box-error">{selectedEntryError}</p>}
+            {!selectedEntryError && !selectedEntryDetail && <p className="text-muted">Cargando…</p>}
+            {selectedEntryDetail && (
+              <>
+                <div className="form-grid" style={{ marginBottom: 20 }}>
+                  <div className="field">
+                    <span>Fecha</span>
+                    <p>{formatDate(new Date(selectedEntryDetail.date))}</p>
+                  </div>
+                  <div className="field">
+                    <span>Estado</span>
+                    <p>
+                      <StatusSeal
+                        tone={STATUS_SEAL_TONE[selectedEntryDetail.status]}
+                        label={STATUS_LABELS[selectedEntryDetail.status]}
+                      />
+                    </p>
+                  </div>
+                  <div className="field">
+                    <span>Referencia</span>
+                    <p>N.º {selectedEntryDetail.entryNumber}</p>
+                  </div>
+                </div>
+
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Cuenta</th>
+                      <th className="num">Débito</th>
+                      <th className="num">Crédito</th>
+                      <th>Descripción</th>
+                      <th>
+                        <span className="field-label">
+                          Dimensión FP&amp;A
+                          <HelpTooltip text="Etiqueta esta línea con una dimensión (ej. 'Ventas Generales') para que el reporte de Desviaciones de FP&A pueda comparar este movimiento real contra lo presupuestado." />
+                        </span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedEntryDetail.lines.map((line) => {
+                      const tags = line.fpaDimensionTags || [];
+                      return (
+                        <tr key={line.id}>
+                          <td>
+                            {line.account.code} · {line.account.name}
+                          </td>
+                          <td className="num">{formatCurrency(line.debit)}</td>
+                          <td className="num">{formatCurrency(line.credit)}</td>
+                          <td>{line.description || '—'}</td>
+                          <td>
+                            {tags.length > 0 ? (
+                              <div className="btn-row" style={{ flexWrap: 'wrap', gap: 4 }}>
+                                {tags.map((tag) => (
+                                  <span key={tag.id} className="btn-row" style={{ gap: 4 }}>
+                                    <StatusSeal tone="neutral" label={tag.fpaDimension?.name || '—'} />
+                                    {canTagDimension && (
+                                      <button
+                                        type="button"
+                                        className="btn btn-small btn-danger"
+                                        disabled={isTagging[line.id]}
+                                        onClick={() => handleUntagLine(line.id, tag.id)}
+                                      >
+                                        Quitar
+                                      </button>
+                                    )}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : canTagDimension ? (
+                              <div className="btn-row" style={{ gap: 4 }}>
+                                <select
+                                  value={tagSelection[line.id] || ''}
+                                  onChange={(e) =>
+                                    setTagSelection((prev) => ({ ...prev, [line.id]: e.target.value }))
+                                  }
+                                >
+                                  <option value="">Elegir dimensión…</option>
+                                  {fpaDimensions.map((dim) => (
+                                    <option key={dim.id} value={dim.id}>
+                                      {dim.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  className="btn btn-small"
+                                  disabled={!tagSelection[line.id] || isTagging[line.id]}
+                                  onClick={() => handleTagLine(line.id)}
+                                >
+                                  Etiquetar
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-muted">Sin etiqueta</span>
+                            )}
+                            {tagError[line.id] && (
+                              <p className="alert-box alert-box-error" style={{ marginTop: 4 }}>
+                                {tagError[line.id]}
+                              </p>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </>
+            )}
+          </div>
+        }
+      />
 
       {quickCreateAccount && (
         <QuickCreateModal

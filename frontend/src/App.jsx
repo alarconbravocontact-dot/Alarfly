@@ -31,8 +31,7 @@ const AccountingLayout = lazy(() => import('./pages/accounting/AccountingLayout'
 const ChartOfAccountsPage = lazy(() => import('./pages/accounting/ChartOfAccountsPage'));
 const JournalEntriesPage = lazy(() => import('./pages/accounting/JournalEntriesPage'));
 const ReportsPage = lazy(() => import('./pages/accounting/ReportsPage'));
-const PeriodsPage = lazy(() => import('./pages/accounting/PeriodsPage'));
-const TasasDeCambioPage = lazy(() => import('./pages/accounting/TasasDeCambioPage'));
+const ConfiguracionPage = lazy(() => import('./pages/accounting/ConfiguracionPage'));
 const TreasuryLayout = lazy(() => import('./pages/treasury/TreasuryLayout'));
 const CashPositionPage = lazy(() => import('./pages/treasury/CashPositionPage'));
 const ReconciliationPage = lazy(() => import('./pages/treasury/ReconciliationPage'));
@@ -183,8 +182,7 @@ function App() {
               <Route path="cuentas" element={<ChartOfAccountsPage />} />
               <Route path="asientos" element={<JournalEntriesPage />} />
               <Route path="reportes" element={<ReportsPage />} />
-              <Route path="periodos" element={<PeriodsPage />} />
-              <Route path="tasas-de-cambio" element={<TasasDeCambioPage />} />
+              <Route path="configuracion" element={<ConfiguracionPage />} />
             </Route>
             <Route path="/tesoreria" element={<TreasuryLayout />}>
               <Route index element={<Navigate to="cuentas" replace />} />

@@ -9549,3 +9549,151 @@ modificó/reutilizó, verificación real, qué no se tocó y por qué.
 
 **Personal: IMPLEMENTADO → INTEGRADO → PROBADO → AUDITADO →
 DOCUMENTADO → CERRADO.**
+
+---
+
+## Piloto — Nueva Arquitectura de Navegación y Contexto en Contabilidad (2026-10-06)
+
+**Estado: PILOTO COMPLETO — alcance deliberadamente limitado a
+Contabilidad, no propagado a ningún otro módulo todavía.**
+
+### Objetivo
+
+Resolver un problema distinto al de los pilotos visuales anteriores
+(lista plana de cuentas, fusión de Periodos+Tasas, 44px táctil, WCAG):
+este piloto ataca la **navegación**, no la apariencia. Contabilidad se
+sentía como una colección de pantallas administrativas aisladas —
+consultar una cuenta o un asiento exigía saltar fuera de la lista,
+perdiendo el buscador/filtro/posición al volver. Cero cambios de
+backend (Ledger, asientos, cuentas, periodos, tasas, RBAC, auditoría,
+reglas financieras intactas); todo lo que sigue es exclusivamente
+frontend, reutilizando componentes y endpoints ya existentes.
+
+### Auditoría previa (solo Contabilidad)
+
+4 pantallas reales bajo `/contabilidad/*`: `ChartOfAccountsPage`
+(lista plana + formulario de creación, sin ninguna vista de detalle —
+las acciones "Activar/Eliminar" eran la única interacción por fila),
+`JournalEntriesPage` (expandía el detalle de un asiento como una
+segunda fila de tabla anidada dentro de la misma tabla — ya no
+navegaba a otra pantalla, pero mezclaba visualmente lista y detalle en
+el mismo nivel, sin un patrón reutilizable para otras pantallas),
+`ConfiguracionPage` (Periodos y Tasas de Cambio apiladas verticalmente
+en una sola pantalla larga, sin ninguna sub-navegación), `ReportsPage`
+(pantalla de filtros + resultado — genuinamente necesita su propio
+espacio, confirmado como caso válido de "página completa" por la regla
+de arquitectura: no se tocó).
+
+### Patrón adoptado: detalle contextual con `RecordDrawer`
+
+`core/ui/RecordDrawer.jsx` ya existía en el proyecto (construido para
+Facturas de Venta/Compra, Feature R) pero Contabilidad nunca lo usaba
+— es exactamente el mecanismo que pedía este piloto: un panel que se
+desliza desde el borde derecho sin desmontar la lista de atrás, con
+navegación por teclado (↑/↓) entre registros consecutivos de la MISMA
+lista filtrada, "Expandir a pantalla completa" para el caso que
+necesite más espacio, y cierre con Escape/clic afuera/botón ×. Se
+decidió **no inventar un segundo mecanismo** para Contabilidad — usar
+el mismo componente que ya usa AR/AP establece un único patrón
+transversal de "cómo se ve un detalle contextual en toda la
+plataforma", en vez de que cada módulo invente el suyo.
+
+**Regla de decisión aplicada** (page vs. drawer vs. modal), documentada
+aquí porque es la que debe reutilizarse al propagar el patrón:
+1. ¿Se puede resolver sin salir de la lista? → drawer de detalle
+   (consultar una cuenta, consultar un asiento, ver movimientos/líneas).
+2. ¿Es una operación real con su propio flujo (filtros, rango de
+   fechas, exportar)? → página completa, pero siempre dentro del layout
+   del módulo (mismas pestañas, mismo breadcrumb corto) — nunca se
+   sintió necesario forzarla a drawer (Reportes).
+3. ¿Es una confirmación o una acción puntual de una sola pieza? → modal
+   (ya cubierto por `ConfirmContext`, sin cambios en este piloto).
+
+### Qué se construyó
+
+**`ChartOfAccountsPage.jsx`**: cada fila ganó un botón "Ver detalle"
+que abre un `RecordDrawer` con Tipo/Saldo normal/Depende de/Estado y
+**Saldo actual + Movimientos reales** — reutilizando
+`accountingReportsApi.generalLedger(accountId)` (el mismo endpoint que
+ya usa el drill-down de Reportes; ningún cálculo nuevo). Activar/
+Desactivar/Eliminar quedaron disponibles también desde el pie del
+drawer. El buscador y el filtro por tipo viven en el estado del
+componente padre, nunca se tocan al abrir/cerrar el drawer — cerrar
+devuelve exactamente a la misma búsqueda, mismo filtro, mismas filas.
+
+**`JournalEntriesPage.jsx`**: el patrón de fila-anidada-expandida se
+reemplazó por el mismo `RecordDrawer`, con navegación ↑/↓ entre los
+asientos de la lista. El detalle conserva intactas las dos piezas más
+delicadas de la pantalla: el etiquetado de líneas con dimensiones de
+FP&A (`fpaDimensionsApi.tagLine/untagLine`, con su gate de rol
+`ADMIN`/`FINANCE` distinto al de registrar) y las acciones
+maker-checker (Enviar a aprobación/Aprobar/Reversar/Eliminar), ahora
+disponibles tanto en la fila de la lista (acción rápida sin abrir el
+detalle) como en el pie del drawer (para quien ya está revisando el
+detalle). Eliminar un asiento cierra el drawer solo si era el asiento
+abierto; cualquier otra acción refresca el detalle en el mismo lugar
+sin cerrarlo. El formulario de creación (arriba, con líneas dinámicas,
+`EntityAutocomplete`/creación rápida de cuenta) no se tocó — ya era una
+experiencia continua dentro del mismo contexto de Asientos, sin
+modales ni pantallas intermedias.
+
+**`ConfiguracionPage.jsx`**: ganó sub-navegación interna ("Periodos" /
+"Tasas de cambio") con la misma clase `.module-tab` que ya usa, por
+ejemplo, el selector Entrada/Salida/Ajuste de Inventario — sin
+componente nuevo, sin ruta nueva (`/contabilidad/configuracion` sigue
+siendo una sola ruta). Antes se veían las dos secciones apiladas
+siempre; ahora se ve una a la vez, con menos peso por pantalla. Ningún
+cambio en `PeriodsSection`/`FxRatesSection` por dentro.
+
+**Breadcrumb**: ya estaba en su forma más corta posible
+(`ModuleBreadcrumb` arma "Inicio › Contabilidad [› pestaña]" a partir
+de la misma lista de pestañas del Layout) — confirmado con Playwright
+que nunca pasa de 2-3 niveles; no necesitó cambios.
+
+### Antes / después
+
+Antes: buscar una cuenta → abrir su detalle significaba, en el mejor
+caso, desplazarse a una fila expandida que convivía con la tabla
+(Asientos) o no tener detalle en absoluto (Cuentas, solo botones de
+acción sueltos). Después: buscar → "Ver detalle" → panel contextual
+con toda la información relevante → cerrar → la lista sigue exactamente
+donde estaba (mismo texto de búsqueda, mismo filtro, misma cantidad de
+filas) — confirmado automatizado, no solo visual.
+
+### Verificación real
+
+Playwright contra los dos servidores reales y Postgres real: búsqueda
+"banco" en Cuentas → drawer con título "1110 · Bancos", sección
+"Movimientos" y "Saldo actual" visibles → cerrado con el botón × → el
+buscador conservó exactamente "banco" y la misma cuenta siguió siendo
+la única fila visible; reabierto y cerrado con Escape, mismo resultado.
+En Asientos (26 registros reales), el drawer mostró la tabla de líneas
+completa con la columna "Dimensión FP&A" intacta. En Configuración, la
+sub-pestaña "Tasas de cambio" mostró su contenido y ocultó "Periodos
+contables" por completo (y viceversa). Responsive confirmado sin
+desbordamiento horizontal a 390px (el drawer ocupa el 100% del ancho,
+según ya preveía `RecordDrawer.css`) y 768px (420px fijo). 790/790
+tests de backend sin regresiones (cambio exclusivamente de frontend),
+`npm run lint` del frontend sin advertencias nuevas (mismo baseline de
+9 `only-export-components` en archivos de contexto), `npm run build`
+limpio.
+
+### Qué NO se hizo (alcance respetado a propósito)
+
+No se tocó ningún color, tipografía, tamaño de botón ni contraste —
+ese trabajo ya estaba cerrado en el piloto visual anterior y el
+usuario pidió explícitamente no repetirlo. No se eliminó ninguna
+función ni información: todo lo que tenía la fila expandida de
+Asientos (líneas, débito/crédito, etiquetado FP&A, las 4 acciones de
+flujo) sigue presente, solo que dentro del drawer en vez de una fila
+anidada. `ReportsPage` conservó su página completa — la regla explícita
+del piloto es "no eliminar páginas por principio", y Reportes es un
+caso genuino de pantalla propia (filtros, rango de fechas, exportar).
+**El patrón NO se propagó a Tesorería, FP&A, AR/AP, Inventario, Fiscal
+ni ningún otro módulo en este piloto** — queda documentado aquí mismo
+como el patrón de referencia a reutilizar cuando el usuario pida
+extenderlo, pero Contabilidad es, por ahora, el único módulo que lo
+usa.
+
+**Contabilidad — Piloto de navegación: IMPLEMENTADO → VERIFICADO →
+DOCUMENTADO → CERRADO (sin propagar).**

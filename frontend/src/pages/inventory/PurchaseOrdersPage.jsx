@@ -9,6 +9,7 @@ import { formatCurrency, formatDate, toIsoDate } from '../../utils/format';
 import HelpTooltip from '../../components/HelpTooltip';
 import StatusSeal from '../../core/ui/StatusSeal';
 import EmptyState from '../../core/ui/EmptyState';
+import RecordDrawer from '../../core/ui/RecordDrawer';
 
 const STATUS_LABELS = {
   DRAFT: 'Borrador',
@@ -52,8 +53,10 @@ export default function PurchaseOrdersPage() {
   const [scanMessage, setScanMessage] = useState('');
   const [isScanning, setIsScanning] = useState(false);
 
-  const [expandedId, setExpandedId] = useState(null);
-  const [expandedOrder, setExpandedOrder] = useState(null);
+  // Detalle contextual (drawer): consultar/trabajar una orden de compra
+  // NO navega a otra pantalla ni reinicia la lista.
+  const [selectedOrderId, setSelectedOrderId] = useState(null);
+  const [selectedOrder, setSelectedOrder] = useState(null);
   const [actionError, setActionError] = useState({});
   const [isReceiving, setIsReceiving] = useState(false);
   const [receiveDate, setReceiveDate] = useState(toIsoDate(new Date()));
@@ -152,20 +155,52 @@ export default function PurchaseOrdersPage() {
     }
   }
 
-  async function toggleExpand(order) {
-    if (expandedId === order.id) {
-      setExpandedId(null);
-      setExpandedOrder(null);
+  function openOrderDetail(order) {
+    setIsReceiving(false);
+    setSelectedOrderId(order.id);
+  }
+
+  function closeOrderDetail() {
+    setSelectedOrderId(null);
+    setIsReceiving(false);
+  }
+
+  function navigateOrderDetail(delta) {
+    const index = orders.findIndex((o) => o.id === selectedOrderId);
+    if (index === -1) return;
+    const next = orders[index + delta];
+    if (next) {
       setIsReceiving(false);
+      setSelectedOrderId(next.id);
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedOrderId) {
+      setSelectedOrder(null);
       return;
     }
-    setExpandedId(order.id);
-    setIsReceiving(false);
+    let cancelled = false;
+    purchaseOrdersApi
+      .getOne(selectedOrderId)
+      .then((full) => {
+        if (!cancelled) setSelectedOrder(full);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedOrder(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrderId]);
+
+  async function refreshSelectedOrder() {
+    if (!selectedOrderId) return;
     try {
-      const full = await purchaseOrdersApi.getOne(order.id);
-      setExpandedOrder(full);
+      const full = await purchaseOrdersApi.getOne(selectedOrderId);
+      setSelectedOrder(full);
     } catch {
-      setExpandedOrder(null);
+      // deja el detalle como estaba si falla el refresco
     }
   }
 
@@ -174,8 +209,7 @@ export default function PurchaseOrdersPage() {
     try {
       await purchaseOrdersApi.submit(order.id);
       await loadAll();
-      const full = await purchaseOrdersApi.getOne(order.id);
-      setExpandedOrder(full);
+      await refreshSelectedOrder();
     } catch (err) {
       setActionError((prev) => ({ ...prev, [order.id]: err instanceof ApiError ? err.message : 'No se pudo enviar la orden.' }));
     }
@@ -193,8 +227,7 @@ export default function PurchaseOrdersPage() {
     try {
       await purchaseOrdersApi.cancel(order.id);
       await loadAll();
-      setExpandedId(null);
-      setExpandedOrder(null);
+      closeOrderDetail();
     } catch (err) {
       setActionError((prev) => ({ ...prev, [order.id]: err instanceof ApiError ? err.message : 'No se pudo cancelar la orden.' }));
     }
@@ -202,7 +235,7 @@ export default function PurchaseOrdersPage() {
 
   async function handleReceive(order) {
     setActionError((prev) => ({ ...prev, [order.id]: '' }));
-    const receipts = expandedOrder.lines
+    const receipts = selectedOrder.lines
       .filter((l) => receiveQuantities[l.id])
       .map((l) => ({ lineId: l.id, quantityReceived: Number(receiveQuantities[l.id]) }));
     if (receipts.length === 0) {
@@ -214,8 +247,7 @@ export default function PurchaseOrdersPage() {
       setIsReceiving(false);
       setReceiveQuantities({});
       await loadAll();
-      const full = await purchaseOrdersApi.getOne(order.id);
-      setExpandedOrder(full);
+      await refreshSelectedOrder();
     } catch (err) {
       setActionError((prev) => ({ ...prev, [order.id]: err instanceof ApiError ? err.message : 'No se pudo recibir la orden.' }));
     }
@@ -367,8 +399,8 @@ export default function PurchaseOrdersPage() {
                     <StatusSeal tone={STATUS_SEAL_TONE[o.status]} label={STATUS_LABELS[o.status]} />
                   </td>
                   <td>
-                    <button type="button" className="btn btn-small" onClick={() => toggleExpand(o)}>
-                      {expandedId === o.id ? 'Ocultar' : 'Ver detalle'}
+                    <button type="button" className="btn btn-small" onClick={() => openOrderDetail(o)}>
+                      Ver detalle
                     </button>
                   </td>
                 </tr>
@@ -376,105 +408,120 @@ export default function PurchaseOrdersPage() {
             </tbody>
           </table>
         )}
+      </div>
 
-        {expandedOrder && (
-          <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--color-border)' }}>
-            <p className="section-title">
-              Orden — {expandedOrder.warehouse.name} ({STATUS_LABELS[expandedOrder.status]})
-            </p>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Producto</th>
-                  <th className="num">Pedido</th>
-                  <th className="num">Recibido</th>
-                  <th className="num">Costo estimado</th>
-                  {isReceiving && <th className="num">Recibir ahora</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {expandedOrder.lines.map((l) => (
-                  <tr key={l.id}>
-                    <td>{variantMap.get(l.variantId) || l.variantId}</td>
-                    <td className="num">{l.quantityOrdered}</td>
-                    <td className="num">{l.quantityReceived}</td>
-                    <td className="num">{l.unitCost != null ? formatCurrency(l.unitCost) : '—'}</td>
-                    {isReceiving && (
-                      <td className="num">
-                        <input
-                          type="number"
-                          step="0.0001"
-                          min="0"
-                          value={receiveQuantities[l.id] || ''}
-                          onChange={(e) => setReceiveQuantities((prev) => ({ ...prev, [l.id]: e.target.value }))}
-                          style={{ width: 90, background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '4px 8px' }}
-                        />
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {isReceiving && (
-              <div className="form-grid" style={{ marginTop: 12 }}>
-                <label className="field">
-                  <span>Fecha de recepción</span>
-                  <input type="date" value={receiveDate} onChange={(e) => setReceiveDate(e.target.value)} />
-                </label>
-                <label className="field">
-                  <span className="field-label">
-                    Cuenta contrapartida
-                    <HelpTooltip text="La cuenta contable de dónde viene esta compra (ej. Cuentas por Pagar si fue a crédito, o Bancos si se pagó de contado)." />
-                  </span>
-                  <select value={receiveAccountId} onChange={(e) => setReceiveAccountId(e.target.value)} required>
-                    <option value="">Selecciona una cuenta</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.code} · {a.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+      <RecordDrawer
+        isOpen={Boolean(selectedOrder)}
+        onClose={closeOrderDetail}
+        title={selectedOrder ? `Orden — ${selectedOrder.warehouse.name}` : 'Orden de compra'}
+        subtitle={selectedOrder ? STATUS_LABELS[selectedOrder.status] : ''}
+        onNavigate={navigateOrderDetail}
+        hasPrev={orders.findIndex((o) => o.id === selectedOrderId) > 0}
+        hasNext={
+          orders.findIndex((o) => o.id === selectedOrderId) !== -1 &&
+          orders.findIndex((o) => o.id === selectedOrderId) < orders.length - 1
+        }
+        footer={
+          selectedOrder ? (
+            <div style={{ width: '100%' }}>
+              <div className="btn-row">
+                {canManage && selectedOrder.status === 'DRAFT' && (
+                  <button type="button" className="btn btn-primary btn-small" onClick={() => handleSubmitOrder(selectedOrder)}>
+                    Enviar orden
+                  </button>
+                )}
+                {canManage && (selectedOrder.status === 'SUBMITTED' || selectedOrder.status === 'PARTIALLY_RECEIVED') && !isReceiving && (
+                  <button type="button" className="btn btn-primary btn-small" onClick={() => setIsReceiving(true)}>
+                    Recibir mercancía
+                  </button>
+                )}
+                {isReceiving && (
+                  <>
+                    <button type="button" className="btn btn-primary btn-small" onClick={() => handleReceive(selectedOrder)}>
+                      Confirmar recepción
+                    </button>
+                    <button type="button" className="btn btn-small" onClick={() => setIsReceiving(false)}>
+                      Cancelar
+                    </button>
+                  </>
+                )}
+                {canManage && selectedOrder.status !== 'RECEIVED' && selectedOrder.status !== 'CANCELLED' && !isReceiving && (
+                  <button type="button" className="btn btn-small btn-danger" onClick={() => handleCancelOrder(selectedOrder)}>
+                    Cancelar orden
+                  </button>
+                )}
               </div>
-            )}
-
-            {actionError[expandedOrder.id] && (
-              <p className="alert-box alert-box-error" style={{ marginTop: 12 }}>
-                {actionError[expandedOrder.id]}
-              </p>
-            )}
-
-            <div className="btn-row" style={{ marginTop: 12 }}>
-              {canManage && expandedOrder.status === 'DRAFT' && (
-                <button type="button" className="btn btn-primary btn-small" onClick={() => handleSubmitOrder(expandedOrder)}>
-                  Enviar orden
-                </button>
-              )}
-              {canManage && (expandedOrder.status === 'SUBMITTED' || expandedOrder.status === 'PARTIALLY_RECEIVED') && !isReceiving && (
-                <button type="button" className="btn btn-primary btn-small" onClick={() => setIsReceiving(true)}>
-                  Recibir mercancía
-                </button>
-              )}
-              {isReceiving && (
-                <>
-                  <button type="button" className="btn btn-primary btn-small" onClick={() => handleReceive(expandedOrder)}>
-                    Confirmar recepción
-                  </button>
-                  <button type="button" className="btn btn-small" onClick={() => setIsReceiving(false)}>
-                    Cancelar
-                  </button>
-                </>
-              )}
-              {canManage && expandedOrder.status !== 'RECEIVED' && expandedOrder.status !== 'CANCELLED' && !isReceiving && (
-                <button type="button" className="btn btn-small btn-danger" onClick={() => handleCancelOrder(expandedOrder)}>
-                  Cancelar orden
-                </button>
+              {actionError[selectedOrder.id] && (
+                <p className="alert-box alert-box-error" style={{ marginTop: 10 }}>
+                  {actionError[selectedOrder.id]}
+                </p>
               )}
             </div>
-          </div>
-        )}
-      </div>
+          ) : null
+        }
+        summary={
+          selectedOrder && (
+            <div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th className="num">Pedido</th>
+                    <th className="num">Recibido</th>
+                    <th className="num">Costo estimado</th>
+                    {isReceiving && <th className="num">Recibir ahora</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedOrder.lines.map((l) => (
+                    <tr key={l.id}>
+                      <td>{variantMap.get(l.variantId) || l.variantId}</td>
+                      <td className="num">{l.quantityOrdered}</td>
+                      <td className="num">{l.quantityReceived}</td>
+                      <td className="num">{l.unitCost != null ? formatCurrency(l.unitCost) : '—'}</td>
+                      {isReceiving && (
+                        <td className="num">
+                          <input
+                            type="number"
+                            step="0.0001"
+                            min="0"
+                            value={receiveQuantities[l.id] || ''}
+                            onChange={(e) => setReceiveQuantities((prev) => ({ ...prev, [l.id]: e.target.value }))}
+                            style={{ width: 90, background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '4px 8px' }}
+                          />
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {isReceiving && (
+                <div className="form-grid" style={{ marginTop: 12 }}>
+                  <label className="field">
+                    <span>Fecha de recepción</span>
+                    <input type="date" value={receiveDate} onChange={(e) => setReceiveDate(e.target.value)} />
+                  </label>
+                  <label className="field">
+                    <span className="field-label">
+                      Cuenta contrapartida
+                      <HelpTooltip text="La cuenta contable de dónde viene esta compra (ej. Cuentas por Pagar si fue a crédito, o Bancos si se pagó de contado)." />
+                    </span>
+                    <select value={receiveAccountId} onChange={(e) => setReceiveAccountId(e.target.value)} required>
+                      <option value="">Selecciona una cuenta</option>
+                      {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.code} · {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
+            </div>
+          )
+        }
+      />
     </div>
   );
 }

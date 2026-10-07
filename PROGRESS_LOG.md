@@ -9697,3 +9697,85 @@ usa.
 
 **Contabilidad — Piloto de navegación: IMPLEMENTADO → VERIFICADO →
 DOCUMENTADO → CERRADO (sin propagar).**
+
+---
+
+## Continuación — Extender `RecordDrawer` a Inventario (2026-10-07)
+
+**Estado: BLOQUE COMPLETO.**
+
+### Diagnóstico previo (EXISTE → FUNCIONA → REUTILIZAR → EXTENDER)
+
+Antes de tocar código se auditó dónde vive hoy cada patrón de detalle
+contextual en todo el frontend (`grep` de `RecordDrawer` vs. de
+`expandedId`/fila anidada). Hallazgo real: **Inventario no estaba tan
+alineado con AR/AP y Contabilidad como se asumía** — 4 de sus 8
+pantallas (`CatalogPage`, `PhysicalCountsPage`, `PurchaseOrdersPage`,
+`LotsPage`) seguían con el patrón antiguo (fila anidada o un panel de
+detalle fijo debajo de la lista), el mismo que ya se había eliminado
+de Asientos en el piloto anterior. Tesorería, Fiscal, Ventas, Auditoría
+y Análisis Avanzados tienen el mismo patrón antiguo pero **no se
+tocaron** — el usuario solo nombró AR/AP, Inventario y Contabilidad
+como referencia de coherencia, así que el bloque se acotó a Inventario,
+documentando el resto como pendiente futuro explícito.
+
+### Qué se hizo
+
+Las 4 pantallas migraron a `RecordDrawer` (componente ya existente,
+sin cambios) con el mismo patrón ya validado: botón "Ver detalle"/"Ver
+variantes"/"Ver trazabilidad" abre el drawer sin desmontar la lista,
+navegación ↑/↓ entre registros, cerrar preserva exactamente la lista
+(incluido el filtro de fecha de vencimiento de `LotsPage`). Todas las
+acciones existentes se conservaron intactas dentro del drawer:
+maker-checker de Conteos Físicos (enviar/aprobar/rechazar, con el
+aviso de "tú registraste este conteo" y el enlace a configurar la
+cuenta de ajustes si falta), el ciclo completo de Órdenes de Compra
+(enviar/recibir mercancía con su propio sub-formulario de fecha+cuenta
+contrapartida/cancelar), y agregar una variante nueva a un producto.
+En Conteos y Órdenes de Compra, además, se aprovechó la migración para
+que las 3 acciones (enviar/aprobar-rechazar/recibir) **refresquen el
+detalle en el mismo lugar** en vez de solo refrescar la lista de atrás
+(mismo criterio ya aplicado a Asientos en el piloto anterior — antes
+el detalle se quedaba con datos obsoletos hasta cerrarlo y reabrirlo).
+
+### Backend
+
+Cero cambios — ninguna ruta, modelo ni regla de negocio se tocó.
+
+### Verificación real
+
+Playwright contra los dos servidores reales y Postgres real: en
+Catálogo, "Ver variantes" abrió el drawer con la tabla de variantes
+real y Escape lo cerró; en Órdenes de Compra, el drawer mostró "Orden —
+Almacén Fase 3" con sus líneas reales. Se creó un Conteo Físico real
+vía API (`POST /inventory/physical-counts`) para poder probar el
+drawer con datos reales de verdad: mostró la tabla de líneas editable
+y el botón "Enviar conteo" en el pie del drawer; cerrado con el botón
+×, la lista de Conteos conservó exactamente la misma fila (1 antes,
+1 después). Responsive confirmado sin desbordamiento horizontal a
+390px. 790/790 tests de backend (789 + 1 que falló solo en la corrida
+en paralelo por la reinicialización de Postgres a mitad de sesión,
+re-verificado 10/10 en aislamiento — no es una regresión real).
+`npm run lint`/`npm run build` del frontend limpios, mismo baseline de
+9 advertencias preexistentes.
+
+### Qué NO se hizo
+
+El conteo físico de prueba creado para la verificación quedó en estado
+`DRAFT` sin resolver (el módulo no tiene un endpoint de borrado de
+conteos, por diseño — es parte del registro auditable de maker-checker,
+igual que un asiento o una orden; resolverlo con aprobar/rechazar
+habría dejado su propio rastro de auditoría, peor que dejarlo como una
+foto de stock sin usar). Tesorería, Fiscal, Ventas, Auditoría y
+Análisis Avanzados **siguen con el patrón antiguo** — no se propagó
+ahí; es el siguiente bloque real pendiente si se pide continuar. Se
+detectó además que `CLAUDE.md` describe una versión más vieja del
+proyecto (404 tests, roles `ADMIN/ACCOUNTANT/FINANCE/COLLABORATOR`)
+que no coincide con el estado real (790 tests, módulos `finance`/
+`personal`/`affiliates`/`sales` ya existen) — `PROGRESS_LOG.md` es la
+bitácora que sí está al día; no se corrigió `CLAUDE.md` sin que se
+pida explícitamente.
+
+**Inventario — Extensión del patrón de navegación: IMPLEMENTADO →
+VERIFICADO → DOCUMENTADO → CERRADO (sin propagar a los módulos
+restantes).**

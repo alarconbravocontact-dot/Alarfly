@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { productsApi, productCategoriesApi, unitsOfMeasureApi } from '../../api/inventory';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -7,6 +7,7 @@ import StatusSeal from '../../core/ui/StatusSeal';
 import EmptyState from '../../core/ui/EmptyState';
 import ConditionalField from '../../core/ui/ConditionalField';
 import { evaluateCondition } from '../../utils/conditionEvaluator';
+import RecordDrawer from '../../core/ui/RecordDrawer';
 
 const VALUATION_LABELS = { FIFO: 'FIFO', LIFO: 'LIFO', WEIGHTED_AVERAGE: 'Promedio ponderado' };
 
@@ -41,7 +42,9 @@ export default function CatalogPage() {
   const [units, setUnits] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [expandedId, setExpandedId] = useState(null);
+  // Detalle contextual (drawer): ver las variantes de un producto NO
+  // navega a otra pantalla ni reinicia la lista.
+  const [selectedProductId, setSelectedProductId] = useState(null);
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_PRODUCT_FORM);
@@ -149,8 +152,21 @@ export default function CatalogPage() {
     }
   }
 
-  function toggleExpand(product) {
-    setExpandedId((prev) => (prev === product.id ? null : product.id));
+  const selectedProduct = selectedProductId ? products.find((p) => p.id === selectedProductId) : null;
+
+  function openProductDetail(product) {
+    setSelectedProductId(product.id);
+  }
+
+  function closeProductDetail() {
+    setSelectedProductId(null);
+  }
+
+  function navigateProductDetail(delta) {
+    const index = products.findIndex((p) => p.id === selectedProductId);
+    if (index === -1) return;
+    const next = products[index + delta];
+    if (next) setSelectedProductId(next.id);
   }
 
   // Fase 2 (maestros): el backend y el cliente HTTP ya tenían el
@@ -375,76 +391,87 @@ export default function CatalogPage() {
             </thead>
             <tbody>
               {products.map((p) => (
-                <Fragment key={p.id}>
-                  <tr>
-                    <td>{p.sku}</td>
-                    <td>{p.name}</td>
-                    <td>{p.category?.name || '—'}</td>
-                    <td>{p.valuationMethod ? VALUATION_LABELS[p.valuationMethod] : 'Heredado'}</td>
+                <tr key={p.id}>
+                  <td>{p.sku}</td>
+                  <td>{p.name}</td>
+                  <td>{p.category?.name || '—'}</td>
+                  <td>{p.valuationMethod ? VALUATION_LABELS[p.valuationMethod] : 'Heredado'}</td>
+                  <td>
+                    <StatusSeal status={p.isActive ? 'active' : 'inactive'} label={p.isActive ? 'Activo' : 'Inactivo'} />
+                  </td>
+                  <td>
+                    <button type="button" className="btn btn-small" onClick={() => openProductDetail(p)}>
+                      Ver variantes
+                    </button>
+                  </td>
+                  {canManage && (
                     <td>
-                      <StatusSeal status={p.isActive ? 'active' : 'inactive'} label={p.isActive ? 'Activo' : 'Inactivo'} />
-                    </td>
-                    <td>
-                      <button type="button" className="btn btn-small" onClick={() => toggleExpand(p)}>
-                        {expandedId === p.id ? 'Ocultar' : 'Ver variantes'}
+                      <button type="button" className="btn btn-small" onClick={() => handleToggleProductActive(p)}>
+                        {p.isActive ? 'Desactivar' : 'Activar'}
                       </button>
+                      {rowErrors[p.id] && (
+                        <p className="alert-box alert-box-error" style={{ marginTop: 6 }}>
+                          {rowErrors[p.id]}
+                        </p>
+                      )}
                     </td>
-                    {canManage && (
-                      <td>
-                        <button type="button" className="btn btn-small" onClick={() => handleToggleProductActive(p)}>
-                          {p.isActive ? 'Desactivar' : 'Activar'}
-                        </button>
-                        {rowErrors[p.id] && (
-                          <p className="alert-box alert-box-error" style={{ marginTop: 6 }}>
-                            {rowErrors[p.id]}
-                          </p>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                  {expandedId === p.id && (
-                    <tr>
-                      <td colSpan={canManage ? 7 : 6}>
-                        <table className="data-table">
-                          <thead>
-                            <tr>
-                              <th>SKU de variante</th>
-                              <th>Estado</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {p.variants.map((v) => (
-                              <tr key={v.id}>
-                                <td>{v.sku}</td>
-                                <td>
-                                  <StatusSeal status={v.isActive ? 'active' : 'inactive'} label={v.isActive ? 'Activa' : 'Inactiva'} />
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        {canManage && (
-                          <div className="btn-row" style={{ marginTop: 8, alignItems: 'center' }}>
-                            <input
-                              placeholder="SKU de la nueva variante"
-                              value={variantForms[p.id]?.sku || ''}
-                              onChange={(e) => updateVariantForm(p.id, { sku: e.target.value })}
-                              style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '6px 9px' }}
-                            />
-                            <button type="button" className="btn btn-small" onClick={() => handleAddVariant(p)}>
-                              + Agregar variante
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
                   )}
-                </Fragment>
+                </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      <RecordDrawer
+        isOpen={Boolean(selectedProduct)}
+        onClose={closeProductDetail}
+        title={selectedProduct ? `${selectedProduct.sku} · ${selectedProduct.name}` : ''}
+        subtitle={selectedProduct ? 'Variantes' : ''}
+        onNavigate={navigateProductDetail}
+        hasPrev={products.findIndex((p) => p.id === selectedProductId) > 0}
+        hasNext={
+          products.findIndex((p) => p.id === selectedProductId) !== -1 &&
+          products.findIndex((p) => p.id === selectedProductId) < products.length - 1
+        }
+        summary={
+          selectedProduct && (
+            <div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>SKU de variante</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedProduct.variants.map((v) => (
+                    <tr key={v.id}>
+                      <td>{v.sku}</td>
+                      <td>
+                        <StatusSeal status={v.isActive ? 'active' : 'inactive'} label={v.isActive ? 'Activa' : 'Inactiva'} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {canManage && (
+                <div className="btn-row" style={{ marginTop: 12, alignItems: 'center' }}>
+                  <input
+                    placeholder="SKU de la nueva variante"
+                    value={variantForms[selectedProduct.id]?.sku || ''}
+                    onChange={(e) => updateVariantForm(selectedProduct.id, { sku: e.target.value })}
+                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '6px 9px' }}
+                  />
+                  <button type="button" className="btn btn-small" onClick={() => handleAddVariant(selectedProduct)}>
+                    + Agregar variante
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        }
+      />
     </div>
   );
 }

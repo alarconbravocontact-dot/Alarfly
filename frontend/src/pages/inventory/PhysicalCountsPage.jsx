@@ -8,6 +8,7 @@ import { formatDate } from '../../utils/format';
 import HelpTooltip from '../../components/HelpTooltip';
 import StatusSeal from '../../core/ui/StatusSeal';
 import EmptyState from '../../core/ui/EmptyState';
+import RecordDrawer from '../../core/ui/RecordDrawer';
 
 const STATUS_LABELS = { DRAFT: 'Borrador', PENDING_APPROVAL: 'Pendiente de aprobación', APPROVED: 'Aprobado', REJECTED: 'Rechazado' };
 const STATUS_SEAL_TONE = { DRAFT: 'neutral', PENDING_APPROVAL: 'warning', APPROVED: 'positive', REJECTED: 'negative' };
@@ -28,8 +29,11 @@ export default function PhysicalCountsPage() {
   const [startError, setStartError] = useState('');
   const [isStarting, setIsStarting] = useState(false);
 
-  const [expandedId, setExpandedId] = useState(null);
-  const [expandedCount, setExpandedCount] = useState(null);
+  // Detalle contextual (drawer): consultar/trabajar un conteo NO navega
+  // a otra pantalla ni reinicia la lista — cerrarlo vuelve exactamente
+  // al mismo lugar.
+  const [selectedCountId, setSelectedCountId] = useState(null);
+  const [selectedCount, setSelectedCount] = useState(null);
   const [editedLines, setEditedLines] = useState({});
   const [actionError, setActionError] = useState({});
   const [rejectingId, setRejectingId] = useState(null);
@@ -81,35 +85,64 @@ export default function PhysicalCountsPage() {
     }
   }
 
-  async function toggleExpand(count) {
-    if (expandedId === count.id) {
-      setExpandedId(null);
-      setExpandedCount(null);
+  function openCountDetail(count) {
+    setSelectedCountId(count.id);
+  }
+
+  function closeCountDetail() {
+    setSelectedCountId(null);
+  }
+
+  function navigateCountDetail(delta) {
+    const index = counts.findIndex((c) => c.id === selectedCountId);
+    if (index === -1) return;
+    const next = counts[index + delta];
+    if (next) setSelectedCountId(next.id);
+  }
+
+  useEffect(() => {
+    if (!selectedCountId) {
+      setSelectedCount(null);
       return;
     }
-    setExpandedId(count.id);
+    let cancelled = false;
+    physicalCountsApi
+      .getOne(selectedCountId)
+      .then((full) => {
+        if (cancelled) return;
+        setSelectedCount(full);
+        const initial = {};
+        for (const line of full.lines) initial[line.id] = line.countedQuantity;
+        setEditedLines(initial);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCountId]);
+
+  async function refreshSelectedCount() {
+    if (!selectedCountId) return;
     try {
-      const full = await physicalCountsApi.getOne(count.id);
-      setExpandedCount(full);
-      const initial = {};
-      for (const line of full.lines) initial[line.id] = line.countedQuantity;
-      setEditedLines(initial);
+      const full = await physicalCountsApi.getOne(selectedCountId);
+      setSelectedCount(full);
     } catch {
-      setExpandedCount(null);
+      // deja el detalle como estaba si falla el refresco
     }
   }
 
   async function handleSubmitCount(count) {
     setActionError((prev) => ({ ...prev, [count.id]: '' }));
     try {
-      const lines = expandedCount.lines.map((l) => ({
+      const lines = selectedCount.lines.map((l) => ({
         variantId: l.variantId,
         countedQuantity: Number(editedLines[l.id] ?? l.countedQuantity),
       }));
       await physicalCountsApi.submit(count.id, lines);
       await loadAll();
-      setExpandedId(null);
-      setExpandedCount(null);
+      await refreshSelectedCount();
     } catch (err) {
       setActionError((prev) => ({ ...prev, [count.id]: err instanceof ApiError ? err.message : 'No se pudo enviar el conteo.' }));
     }
@@ -126,6 +159,7 @@ export default function PhysicalCountsPage() {
     try {
       await physicalCountsApi.approve(count.id);
       await loadAll();
+      await refreshSelectedCount();
     } catch (err) {
       setActionError((prev) => ({ ...prev, [count.id]: err instanceof ApiError ? err.message : 'No se pudo aprobar el conteo.' }));
     }
@@ -142,6 +176,7 @@ export default function PhysicalCountsPage() {
       setRejectingId(null);
       setRejectionReason('');
       await loadAll();
+      await refreshSelectedCount();
     } catch (err) {
       setActionError((prev) => ({ ...prev, [count.id]: err instanceof ApiError ? err.message : 'No se pudo rechazar el conteo.' }));
     }
@@ -202,8 +237,8 @@ export default function PhysicalCountsPage() {
                     <StatusSeal tone={STATUS_SEAL_TONE[c.status]} label={STATUS_LABELS[c.status]} />
                   </td>
                   <td>
-                    <button type="button" className="btn btn-small" onClick={() => toggleExpand(c)}>
-                      {expandedId === c.id ? 'Ocultar' : 'Ver detalle'}
+                    <button type="button" className="btn btn-small" onClick={() => openCountDetail(c)}>
+                      Ver detalle
                     </button>
                   </td>
                 </tr>
@@ -211,112 +246,129 @@ export default function PhysicalCountsPage() {
             </tbody>
           </table>
         )}
+      </div>
 
-        {expandedCount && (
-          <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--color-border)' }}>
-            <p className="section-title">
-              Conteo — {expandedCount.warehouse.name} ({STATUS_LABELS[expandedCount.status]})
-            </p>
-            {expandedCount.rejectionReason && (
-              <p className="alert-box alert-box-error" style={{ marginBottom: 12 }}>
-                Rechazado: {expandedCount.rejectionReason}
-              </p>
-            )}
-            {expandedCount.lines.length === 0 && <EmptyState icon="○" message="Este almacén no tenía existencias al iniciar el conteo." />}
-            {expandedCount.lines.length > 0 && (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Producto</th>
-                    <th className="num">Cantidad en sistema</th>
-                    <th className="num">Cantidad contada</th>
-                    <th className="num">Diferencia</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {expandedCount.lines.map((l) => {
-                    const countedValue = editedLines[l.id] ?? l.countedQuantity;
-                    const difference = Number(countedValue) - Number(l.systemQuantity);
-                    return (
-                      <tr key={l.id}>
-                        <td>{variantMap.get(l.variantId) || l.variantId}</td>
-                        <td className="num">{l.systemQuantity}</td>
-                        <td className="num">
-                          {expandedCount.status === 'DRAFT' && canManage ? (
-                            <input
-                              type="number"
-                              step="0.0001"
-                              min="0"
-                              value={countedValue}
-                              onChange={(e) => setEditedLines((prev) => ({ ...prev, [l.id]: e.target.value }))}
-                              style={{ width: 100, background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '4px 8px' }}
-                            />
-                          ) : (
-                            l.countedQuantity
-                          )}
-                        </td>
-                        <td className="num" style={{ color: difference !== 0 ? 'var(--color-warning)' : undefined }}>
-                          {difference}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-
-            {actionError[expandedCount.id] && (
-              <p className="alert-box alert-box-error" style={{ marginTop: 12 }}>
-                {actionError[expandedCount.id]}
-                {actionError[expandedCount.id].includes('Ajustes de Inventario') && (
+      <RecordDrawer
+        isOpen={Boolean(selectedCount)}
+        onClose={closeCountDetail}
+        title={selectedCount ? `Conteo — ${selectedCount.warehouse.name}` : 'Conteo'}
+        subtitle={selectedCount ? STATUS_LABELS[selectedCount.status] : ''}
+        onNavigate={navigateCountDetail}
+        hasPrev={counts.findIndex((c) => c.id === selectedCountId) > 0}
+        hasNext={
+          counts.findIndex((c) => c.id === selectedCountId) !== -1 &&
+          counts.findIndex((c) => c.id === selectedCountId) < counts.length - 1
+        }
+        footer={
+          selectedCount ? (
+            <div style={{ width: '100%' }}>
+              <div className="btn-row">
+                {selectedCount.status === 'DRAFT' && canManage && (
+                  <button type="button" className="btn btn-primary btn-small" onClick={() => handleSubmitCount(selectedCount)}>
+                    Enviar conteo
+                  </button>
+                )}
+                {selectedCount.status === 'PENDING_APPROVAL' && canApprove && selectedCount.countedByUserId !== user.id && (
                   <>
-                    {' '}
-                    <Link to="/inventario/stock">Configúrala ahí →</Link>
+                    <button type="button" className="btn btn-primary btn-small" onClick={() => handleApprove(selectedCount)}>
+                      Aprobar
+                    </button>
+                    {rejectingId !== selectedCount.id && (
+                      <button type="button" className="btn btn-small btn-danger" onClick={() => setRejectingId(selectedCount.id)}>
+                        Rechazar
+                      </button>
+                    )}
                   </>
                 )}
-              </p>
-            )}
-
-            <div className="btn-row" style={{ marginTop: 12 }}>
-              {expandedCount.status === 'DRAFT' && canManage && (
-                <button type="button" className="btn btn-primary btn-small" onClick={() => handleSubmitCount(expandedCount)}>
-                  Enviar conteo
-                </button>
-              )}
-              {expandedCount.status === 'PENDING_APPROVAL' && canApprove && expandedCount.countedByUserId === user.id && (
-                <p className="text-muted" style={{ marginTop: 12 }}>
+              </div>
+              {selectedCount.status === 'PENDING_APPROVAL' && canApprove && selectedCount.countedByUserId === user.id && (
+                <p className="text-muted" style={{ marginTop: 10 }}>
                   Tú registraste este conteo — otra persona distinta debe aprobarlo (maker-checker).
                 </p>
               )}
-              {expandedCount.status === 'PENDING_APPROVAL' && canApprove && expandedCount.countedByUserId !== user.id && (
-                <>
-                  <button type="button" className="btn btn-primary btn-small" onClick={() => handleApprove(expandedCount)}>
-                    Aprobar
+              {rejectingId === selectedCount.id && (
+                <div className="btn-row" style={{ marginTop: 10 }}>
+                  <input
+                    placeholder="Motivo del rechazo"
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '6px 9px' }}
+                  />
+                  <button type="button" className="btn btn-small btn-danger" onClick={() => handleReject(selectedCount)}>
+                    Confirmar rechazo
                   </button>
-                  {rejectingId !== expandedCount.id && (
-                    <button type="button" className="btn btn-small btn-danger" onClick={() => setRejectingId(expandedCount.id)}>
-                      Rechazar
-                    </button>
-                  )}
-                  {rejectingId === expandedCount.id && (
+                </div>
+              )}
+              {actionError[selectedCount.id] && (
+                <p className="alert-box alert-box-error" style={{ marginTop: 10 }}>
+                  {actionError[selectedCount.id]}
+                  {actionError[selectedCount.id].includes('Ajustes de Inventario') && (
                     <>
-                      <input
-                        placeholder="Motivo del rechazo"
-                        value={rejectionReason}
-                        onChange={(e) => setRejectionReason(e.target.value)}
-                        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '6px 9px' }}
-                      />
-                      <button type="button" className="btn btn-small btn-danger" onClick={() => handleReject(expandedCount)}>
-                        Confirmar rechazo
-                      </button>
+                      {' '}
+                      <Link to="/inventario/stock">Configúrala ahí →</Link>
                     </>
                   )}
-                </>
+                </p>
               )}
             </div>
-          </div>
-        )}
-      </div>
+          ) : null
+        }
+        summary={
+          selectedCount && (
+            <div>
+              {selectedCount.rejectionReason && (
+                <p className="alert-box alert-box-error" style={{ marginBottom: 12 }}>
+                  Rechazado: {selectedCount.rejectionReason}
+                </p>
+              )}
+              {selectedCount.lines.length === 0 && (
+                <EmptyState icon="○" message="Este almacén no tenía existencias al iniciar el conteo." />
+              )}
+              {selectedCount.lines.length > 0 && (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Producto</th>
+                      <th className="num">Cantidad en sistema</th>
+                      <th className="num">Cantidad contada</th>
+                      <th className="num">Diferencia</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedCount.lines.map((l) => {
+                      const countedValue = editedLines[l.id] ?? l.countedQuantity;
+                      const difference = Number(countedValue) - Number(l.systemQuantity);
+                      return (
+                        <tr key={l.id}>
+                          <td>{variantMap.get(l.variantId) || l.variantId}</td>
+                          <td className="num">{l.systemQuantity}</td>
+                          <td className="num">
+                            {selectedCount.status === 'DRAFT' && canManage ? (
+                              <input
+                                type="number"
+                                step="0.0001"
+                                min="0"
+                                value={countedValue}
+                                onChange={(e) => setEditedLines((prev) => ({ ...prev, [l.id]: e.target.value }))}
+                                style={{ width: 100, background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '4px 8px' }}
+                              />
+                            ) : (
+                              l.countedQuantity
+                            )}
+                          </td>
+                          <td className="num" style={{ color: difference !== 0 ? 'var(--color-warning)' : undefined }}>
+                            {difference}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )
+        }
+      />
     </div>
   );
 }

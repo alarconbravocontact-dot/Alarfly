@@ -222,6 +222,10 @@ model Company {
   personalSettings PersonalSettings?
   payrolls         Payroll[]
   employeeExpenses EmployeeExpense[]
+
+  // Membresía (planes + checkout): una sola membresía por empresa, la
+  // propia empresa es la titular (no el usuario) — ver Membership.
+  membership Membership?
 }
 
 model User {
@@ -373,6 +377,17 @@ model User {
   employeeExpensesRegistered EmployeeExpense[] @relation("EmployeeExpenseRegisteredBy")
   employeeExpensesApproved   EmployeeExpense[] @relation("EmployeeExpenseApprovedBy")
   employeeExpensesReimbursed EmployeeExpense[] @relation("EmployeeExpenseReimbursedBy")
+
+  // Membresía: la administración de pagos de membresía es PLATAFORMA
+  // (cruza empresas), mismo criterio ya usado para
+  // `isAffiliateProgramAdmin` — no reutiliza ese mismo flag porque son
+  // responsabilidades distintas (uno aprueba comisiones de afiliados,
+  // este confirma pagos de suscripción); seteable solo por seed/DB
+  // directa, igual que el otro.
+  isMembershipAdmin Boolean @default(false)
+
+  membershipPaymentsSubmitted MembershipPayment[] @relation("MembershipPaymentSubmittedBy")
+  membershipPaymentsReviewed  MembershipPayment[] @relation("MembershipPaymentReviewedBy")
 
   @@index([companyId])
 }
@@ -4318,6 +4333,114 @@ model AffiliateProgramSettings {
   referenceAmount Decimal  @default(25) @db.Decimal(14, 2)
   currency        String   @default("USD")
   updatedAt       DateTime @updatedAt
+}
+
+// =====================================================================
+// CORE / MEMBRESÍA — src/core/membership
+// Planes + checkout de la suscripción de la propia empresa a Alarfly
+// (distinto de AR/AP, que es lo que los CLIENTES de la empresa le pagan
+// a ELLA). Decisión comercial ya tomada y documentada (F16,
+// LANDING_MASTER_STRATEGY.md): un solo plan, $25/mes, 7 días de prueba
+// — por eso `Plan` es una tabla real (no un valor fijo en código),
+// lista para un segundo plan el día que se decida, pero hoy solo existe
+// una fila real. No existe ningún proveedor de pago integrado todavía
+// (decisión pendiente del usuario, documentada) — el pago es manual
+// (comprobante + revisión humana), mismo patrón ya usado por
+// `ArPayment`/`ApPayment` con Zelle/Pago Móvil/transferencia.
+// =====================================================================
+
+model Plan {
+  id   String @id @default(cuid())
+  code String @unique
+
+  name              String
+  priceAmount       Decimal @db.Decimal(12, 2)
+  currency          String  @default("USD")
+  billingPeriodDays Int     @default(30)
+  trialDays         Int     @default(7)
+  // Lista de beneficios para mostrar en la pantalla de Planes — solo
+  // presentación, nunca se evalúa como lógica de permisos.
+  features          Json
+  isActive          Boolean @default(true)
+  createdAt         DateTime @default(now())
+
+  memberships Membership[]
+}
+
+enum MembershipStatus {
+  TRIALING
+  PENDING_PAYMENT
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+model Membership {
+  id        String  @id @default(cuid())
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  planId    String
+  plan      Plan    @relation(fields: [planId], references: [id])
+
+  status MembershipStatus @default(TRIALING)
+
+  // Solo tiene sentido mientras status = ACTIVE: hasta cuándo cubre el
+  // último pago confirmado. El fin de la prueba gratis NO se duplica
+  // acá — ya vive en Company.trialEndsAt (un solo dueño de la verdad
+  // por dato, ver docs/ARQUITECTURA_MAESTRA.md sección 2).
+  currentPeriodEnd DateTime?
+  cancelledAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payments MembershipPayment[]
+}
+
+enum MembershipPaymentStatus {
+  PENDING_REVIEW
+  CONFIRMED
+  REJECTED
+}
+
+model MembershipPayment {
+  id           String     @id @default(cuid())
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  // "Foto" del monto/moneda real del plan al momento de pagar — nunca
+  // viene del frontend, el servidor lo resuelve desde Plan (mismo
+  // criterio que ya usa AffiliateCommission.rateValue). Así, si el
+  // precio del plan cambia después, este registro histórico no cambia.
+  amount   Decimal @db.Decimal(12, 2)
+  currency String
+
+  method        String // "ZELLE" | "PAGO_MOVIL" | "TRANSFERENCIA" | "BINANCE" | "OTRO"
+  referenceNote String?
+
+  proofFileName      String?
+  proofMimeType      String?
+  proofSizeBytes     Int?
+  proofContentBase64 String? // mismo criterio de siempre: no hay almacenamiento de archivos real todavía
+
+  // Evita duplicar el mismo intento de pago por doble clic/refresh/
+  // reintento — el frontend genera un identificador una sola vez por
+  // intento de checkout y lo reenvía igual si el usuario insiste.
+  idempotencyKey String @unique
+
+  requestedByUserId String
+  requestedByUser   User   @relation("MembershipPaymentSubmittedBy", fields: [requestedByUserId], references: [id])
+
+  status MembershipPaymentStatus @default(PENDING_REVIEW)
+
+  reviewedByUserId String?
+  reviewedByUser   User?     @relation("MembershipPaymentReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt       DateTime?
+  reviewNote       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([membershipId, status])
 }
 
 // ---- Web pública: formulario de contacto (Cierre Web/SEO) ----

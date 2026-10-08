@@ -38,6 +38,8 @@ const jobsRoutes = require('./core/jobs/jobs.routes');
 const affiliatesRoutes = require('./core/affiliates/affiliates.routes');
 const affiliateAdminRoutes = require('./core/affiliates/affiliate-admin.routes');
 const contactRoutes = require('./core/contact/contact.routes');
+const membershipRoutes = require('./core/membership/membership.routes');
+const membershipAdminRoutes = require('./core/membership/membership-admin.routes');
 const personalRoutes = require('./modules/personal/routes');
 const errorHandler = require('./core/middlewares/errorHandler');
 const requestId = require('./core/middlewares/requestId');
@@ -119,6 +121,8 @@ app.use('/audit-log', auditLogRoutes);
 app.use('/jobs', jobsRoutes);
 app.use('/affiliates', affiliatesRoutes);
 app.use('/affiliate-admin', affiliateAdminRoutes);
+app.use('/membership', membershipRoutes);
+app.use('/membership-admin', membershipAdminRoutes);
 app.use('/contact', contactRoutes);
 app.use('/personal', personalRoutes);
 

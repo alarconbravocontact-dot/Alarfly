@@ -72,12 +72,13 @@ async function seedCompanyAndUsers() {
 
   await prisma.user.createMany({
     data: [
-      // Fase Afiliados: el Admin Demo también queda como el primer
-      // administrador de plataforma del programa de afiliados — mismo
-      // criterio que ya usa el proyecto para cualquier "primer
-      // administrador de algo sensible" (ej. Niveles de Acceso): no hay
-      // un camino self-service para volverse el primero, se otorga acá.
-      { companyId: company.id, name: 'Admin Demo', email: 'admin@demo.alarfly.com', passwordHash, role: 'ADMIN', isAffiliateProgramAdmin: true },
+      // Fase Afiliados / Membresía: el Admin Demo también queda como el
+      // primer administrador de plataforma de ambos programas (afiliados
+      // y membresías) — mismo criterio que ya usa el proyecto para
+      // cualquier "primer administrador de algo sensible" (ej. Niveles
+      // de Acceso): no hay un camino self-service para volverse el
+      // primero, se otorga acá.
+      { companyId: company.id, name: 'Admin Demo', email: 'admin@demo.alarfly.com', passwordHash, role: 'ADMIN', isAffiliateProgramAdmin: true, isMembershipAdmin: true },
       { companyId: company.id, name: 'Contador Demo', email: 'contador@demo.alarfly.com', passwordHash, role: 'ACCOUNTANT' },
       { companyId: company.id, name: 'Financiero Demo', email: 'financiero@demo.alarfly.com', passwordHash, role: 'FINANCE' },
       { companyId: company.id, name: 'Colaborador Demo', email: 'colaborador@demo.alarfly.com', passwordHash, role: 'COLLABORATOR' },

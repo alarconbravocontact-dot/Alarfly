@@ -9779,3 +9779,182 @@ pida explícitamente.
 **Inventario — Extensión del patrón de navegación: IMPLEMENTADO →
 VERIFICADO → DOCUMENTADO → CERRADO (sin propagar a los módulos
 restantes).**
+
+---
+
+## Membresía — Selección de Plan + Checkout (2026-10-08)
+
+**Estado: COMPLETO — con la limitación honesta ya documentada del
+proyecto: no hay proveedor de pago real integrado (decisión pendiente
+del usuario). El pago es manual, con comprobante y revisión humana.**
+
+### Auditoría previa (obligatoria antes de codificar)
+
+Confirmado con `grep` exhaustivo sobre `prisma/schema.prisma` y todo
+`src/`: no existía ningún modelo `Plan`/`Membership`/`Subscription`/
+`Billing`, ninguna integración de pago (Stripe/PayPal/MercadoPago/
+etc.), cero webhooks, cero rutas de checkout. `Company` solo tenía
+`trialStartedAt`/`trialEndsAt` (informativo, nunca bloqueaba nada). El
+único `PaymentMethod` existente es por-empresa y sirve para que los
+CLIENTES de una empresa le paguen a ELLA — no reutilizable para que la
+empresa le pague a Alarfly (distinción confirmada explícitamente antes
+de tocar nada). La Landing (`#precio`) solo tenía texto de marketing
+($25/mes, 7 días de prueba — una decisión comercial ya tomada y
+documentada en `LANDING_MASTER_STRATEGY.md`, F16), con su CTA apuntando
+directo a `/registro`, sin ningún paso de selección de plan ni pago.
+`AffiliateCommissionEventType` (solo `SIGNUP` hoy) ya estaba
+deliberadamente reservado para un futuro evento de pago real — no se
+conectó en esta pieza (fuera del alcance pedido).
+
+Dos decisiones genuinamente de negocio se confirmaron con el usuario
+antes de escribir código (`AskUserQuestion`): **un solo plan** (el real
+ya documentado, $25/mes + 7 días de prueba — no los 2 planes de
+ejemplo del pedido, que eran solo ilustrativos) y **pago manual con
+comprobante** (mismo patrón ya usado por AR/AP con Zelle/Pago Móvil/
+transferencia), ya que no existe ningún proveedor de pago elegido.
+
+### Implementado
+
+**Backend** (`src/core/membership/`, vive en `core/` por ser
+infraestructura de plataforma — la relación empresa↔Alarfly, no un
+módulo de negocio de la empresa — mismo criterio que `core/affiliates`):
+`Plan` (tabla real, hoy una sola fila — lista para un segundo plan si
+se decide más adelante), `Membership` (una por empresa, `status`:
+TRIALING/PENDING_PAYMENT/ACTIVE/PAST_DUE/CANCELLED), `MembershipPayment`
+(comprobante + revisión, `status`: PENDING_REVIEW/CONFIRMED/REJECTED).
+`membership.rules.js` (función pura `computeEffectiveStatus`, 14 tests)
+deriva el estado real sin nunca inventar uno. `membership.service.js`:
+`getOrCreateMembership` (perezoso — una empresa sin `trialEndsAt`,
+creada antes de este módulo, arranca `ACTIVE` directo, sin inventarle
+una prueba retroactiva), `submitPayment` (**el precio/plan/moneda
+SIEMPRE se resuelven del servidor desde el `Plan` real — nunca se leen
+del body**, idempotente por `idempotencyKey` único), `decidePayment`
+(maker-checker de plataforma: aprobar activa y fija
+`currentPeriodEnd`; rechazar nunca activa nada, y — bug real
+encontrado y corregido durante la verificación, ver abajo — nunca
+degrada una membresía que otro pago ya activó). Administración
+cruzada (`membership-admin.*`, mismo patrón que
+`core/affiliates/affiliate-admin.*`): flag `User.isMembershipAdmin`
+(seteable solo por seed/DB directa, igual que
+`isAffiliateProgramAdmin`), middleware `requireMembershipAdmin`.
+
+**Frontend** (`frontend/src/pages/membership/`): `MembershipPage.jsx`
+— UNA sola pantalla con pasos internos (nunca varias rutas): resumen de
+estado (plan real, sello de estado, días de prueba restantes, CTA) →
+checkout de una sola pantalla (resumen de membresía + datos de pago +
+confirmación juntos, "Mantener siempre visible Plan+Precio+Total+
+Acción" cumplido) → tras enviar, vuelve al resumen mostrando
+"Comprobante en revisión" (nunca "pago exitoso" — sería falso sin una
+confirmación real) → historial de pagos con sus 3 estados.
+`MembershipAdminPage.jsx`: lista de comprobantes pendientes, ver el
+comprobante (imagen inline o descarga de PDF), confirmar/rechazar con
+nota, usando `useConfirm()` para la acción irreversible. Rutas nuevas
+(ninguna de la lista prohibida): `/membresia`, `/admin/membresias` —
+mismo patrón de ruta suelta bajo `AppLayout` que ya usa
+`/admin/afiliados`. Ítem de menú "Mi Membresía" (visible para
+cualquier rol, de solo lectura) y "Administración de Membresías"
+(solo si `isMembershipAdmin`), mismo patrón de `amIAdmin()` ya usado
+por Afiliados.
+
+### Reutilizado (nada se duplicó)
+
+`core/audit` (cada envío/confirmación/rechazo queda auditado, sin un
+segundo sistema de auditoría). El patrón completo de
+`core/affiliates/affiliate-admin.*` (middleware de plataforma cruzada,
+`am-i-admin`, estructura de rutas) — replicado 1:1 para membresías.
+El patrón de comprobante en base64 (`JuntaMessage`/documentos de
+Fiscal/Caja Chica) — mismo criterio, "no hay almacenamiento de
+archivos real todavía". El validador Zod + `validate` middleware ya
+existente (los errores de validación ya salen como mensaje claro, no
+un error técnico crudo, sin tener que construir nada nuevo para eso).
+`ConfirmContext`, `StatusSeal`, `EmptyState`, `.data-table`/`.btn-*`/
+`.form-grid` de `module.css` — cero CSS nuevo salvo la tarjeta de plan
+y el layout del checkout, que no existían.
+
+### Seguridad (verificado con pruebas reales, no solo código)
+
+Confirmado con `curl` directo: un intento de enviar `amount: 0.01`,
+`planId` falso, `currency: "VES"` y `status: "CONFIRMED"` desde el
+cliente fue completamente ignorado — el pago se guardó con el precio
+real del plan ($25 USD) y el estado inicial correcto
+(`PENDING_REVIEW`); Zod descarta cualquier campo no declarado en el
+esquema antes de que llegue al servicio, y el servicio nunca lee esos
+campos del body aunque llegaran. Un usuario `COLLABORATOR` recibió 403
+al intentar enviar un pago y al intentar entrar a la administración
+cruzada, pero sí pudo consultar el estado de su propia membresía
+(200, solo lectura). El doble clic en "Pagar y activar membresía"
+confirmado con Playwright: solo una fila nueva en el historial, nunca
+dos, gracias al `idempotencyKey` único generado una sola vez por
+intento de checkout.
+
+### Bug real encontrado y corregido durante la verificación
+
+`decidePayment` rechazaba un comprobante viejo/duplicado recalculando
+el estado de la membresía desde cero (`TRIALING` como base), sin
+revisar primero si la membresía YA estaba `ACTIVE` por otro pago ya
+confirmado — un comprobante duplicado rechazado DESPUÉS de que otro
+activara la membresía la degradaba de vuelta a `TRIALING` por error.
+Reproducido real: se envió un comprobante de prueba por `curl` (parte
+de la verificación de seguridad) mientras la empresa estaba en
+`TRIALING`, luego se confirmó un segundo comprobante real (vía
+Playwright) que activó la membresía, y al rechazar el primero
+(duplicado, ya irrelevante) la membresía volvía a `TRIALING` — se
+confirmó el bug contra Postgres real antes de corregirlo. Corregido:
+el rechazo solo recalcula el estado de la membresía si esta sigue en
+`PENDING_PAYMENT` (es decir, si el rechazo de verdad es lo único que
+la tenía esperando) — nunca si ya es `ACTIVE`/`CANCELLED` por otra vía.
+Test de regresión agregado (`membership.service.test.js`) y
+reverificado contra Postgres real: rechazar el duplicado ya no tocó
+la membresía `ACTIVE`.
+
+### Verificación real (los dos servidores reales + Postgres real)
+
+Flujo completo con una empresa real nueva (registrada vía
+`POST /auth/signup`, trial real de 7 días, no la empresa demo): Mi
+Membresía mostró "En período de prueba" con el plan real y 7 días
+restantes → "Activar membresía ahora" → checkout de una sola pantalla
+→ rechazado sin comprobante con mensaje claro → comprobante real
+(imagen) adjuntado y enviado con doble clic → 1 sola fila en el
+historial, estado "Comprobante en revisión", mensaje honesto de "tu
+pago está siendo procesado". Lado de plataforma: el Administrador de
+plataforma (`admin@demo.alarfly.com`, con `isMembershipAdmin` otorgado)
+vio el comprobante real (imagen inline) en `/admin/membresias`,
+confirmó el pago con `useConfirm()`, y la membresía de la empresa de
+prueba pasó a `ACTIVE` con `currentPeriodEnd` 30 días después. 0
+errores de consola (aparte del bloqueo conocido de Google Fonts).
+Responsive sin desbordamiento horizontal a 390px/768px.
+
+### Tests
+
+28 tests unitarios nuevos (`membership.rules.test.js` 14,
+`membership.service.test.js` 14, con Prisma mockeado — incluye el
+test de regresión del bug de arriba), 818/818 tests de backend en
+total sin regresiones. `npm run lint` backend 0 errores; frontend
+mismo baseline de 9 advertencias preexistentes. `npm run build`
+limpio.
+
+### Pendientes (documentados, no construidos sin que se pida)
+
+**Proveedor de pago real**: sigue sin decidirse (Stripe/Paddle/
+MercadoPago/etc.) — el pago manual con comprobante es la arquitectura
+honesta para hoy, lista para conectar un webhook real cuando se elija
+uno (el estado `PENDING_PAYMENT`/`PENDING_REVIEW` ya es exactamente el
+punto de conexión). **Cupones/descuentos**: no existía ninguna
+infraestructura previa — no se construyó ninguna (ver sección 15 del
+pedido: "si no existe, no crear un sistema completo solo para esto").
+**Cancelación de membresía**: el estado `CANCELLED` existe en el
+modelo (section 20 lo pedía como mínimo), pero no se construyó un
+flujo de cancelación — no fue pedido explícitamente en esta pieza.
+**Múltiples planes**: el modelo `Plan` ya es una tabla real lista para
+una segunda fila — agregar un plan Pro el día que se decida es
+agregar una fila, no rediseñar nada. **Evento de comisión de afiliado
+por pago real**: `AffiliateCommissionEventType` sigue reservado para
+esto (ya documentado desde Fase Afiliados) — no se conectó en esta
+pieza, fuera del alcance pedido. Empresa de prueba creada durante la
+verificación (`Empresa Prueba Membresía`) quedó en la base de datos
+real con su membresía ya `ACTIVE` — mismo criterio que otras piezas de
+este proyecto, que documentan y dejan los datos de prueba reales en
+vez de fabricar un entorno aparte.
+
+**Membresía — Selección de Plan + Checkout: IMPLEMENTADO → VERIFICADO
+→ DOCUMENTADO → CERRADO.**

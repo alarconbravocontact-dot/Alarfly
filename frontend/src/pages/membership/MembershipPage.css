@@ -1,0 +1,101 @@
+/* Solo lo que no existía ya en module.css: la tarjeta de plan y el
+   layout del checkout. Todo lo demás (botones, tablas, formularios,
+   sellos de estado) reutiliza las clases compartidas de siempre. */
+
+.membership-plan-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  max-width: 420px;
+}
+
+.membership-plan-card.is-highlighted {
+  border-color: var(--color-brand-strong);
+}
+
+.membership-plan-name {
+  font-family: var(--font-family-serif);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.membership-plan-price {
+  font-family: var(--font-family-serif);
+  font-size: 2rem;
+  margin: 0 0 8px;
+}
+
+.membership-plan-period {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-family: var(--font-family);
+}
+
+.membership-plan-features {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-3) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Checkout: en desktop, membresía y datos de pago lado a lado
+   (sección 18 — "pueden aprovechar el espacio disponible"); en
+   mobile, siempre apilado en el orden Plan → Precio → Resumen → Pago. */
+.membership-checkout-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+@media (max-width: 768px) {
+  .membership-checkout-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.membership-summary-box,
+.membership-payment-box {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.membership-summary-list {
+  margin: var(--space-3) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.membership-summary-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.membership-summary-list dt {
+  color: var(--color-text-secondary);
+}
+
+.membership-summary-list dd {
+  margin: 0;
+  text-align: right;
+}
+
+.membership-summary-total {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.membership-confirm-box {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+}
+
+.membership-active-box p {
+  margin: 0 0 4px;
+}

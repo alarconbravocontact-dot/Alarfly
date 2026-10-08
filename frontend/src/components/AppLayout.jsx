@@ -6,6 +6,7 @@ import { useCurrency } from '../context/CurrencyContext';
 import { usePinnedItems } from '../context/PinnedItemsContext';
 import { accessLevelsApi } from '../api/access-levels';
 import { affiliateAdminApi } from '../api/affiliate-admin';
+import { membershipAdminApi } from '../api/membership-admin';
 import { panelPreferencesApi } from '../api/panel-preferences';
 import {
   FINANCE_TABS,
@@ -115,6 +116,7 @@ export default function AppLayout() {
   const { items: pinnedItems, unpin } = usePinnedItems();
   const [hasAccessLevelsAccess, setHasAccessLevelsAccess] = useState(user?.role === 'ADMIN');
   const [hasAffiliateAdminAccess, setHasAffiliateAdminAccess] = useState(false);
+  const [hasMembershipAdminAccess, setHasMembershipAdminAccess] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   // Bug real encontrado en la validación visual de F16 (E18): medido
@@ -260,6 +262,23 @@ export default function AppLayout() {
     };
   }, []);
 
+  // Membresía: mismo criterio que afiliados — `isMembershipAdmin` no
+  // viaja en el JWT, se pregunta fresco al entrar.
+  useEffect(() => {
+    let isMounted = true;
+    membershipAdminApi
+      .amIAdmin()
+      .then((result) => {
+        if (isMounted) setHasMembershipAdminAccess(result.isAdmin);
+      })
+      .catch(() => {
+        if (isMounted) setHasMembershipAdminAccess(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const configItems = [];
   if (hasAccessLevelsAccess) configItems.push({ to: '/niveles-de-acceso', label: 'Niveles de Acceso', icon: '⚿' });
   // Visible para CUALQUIER rol (nunca gateado por canAccessModule, ver
@@ -268,6 +287,11 @@ export default function AppLayout() {
   // es un programa aparte al que cualquier persona puede sumarse.
   configItems.push({ to: '/afiliados', label: 'Programa de Afiliados', icon: '◎' });
   if (hasAffiliateAdminAccess) configItems.push({ to: '/admin/afiliados', label: 'Administración de Afiliados', icon: '⚑' });
+  // Visible para cualquier rol (consultar el estado de la propia
+  // membresía es de solo lectura; solo ADMIN ve el botón de activar
+  // dentro de la pantalla misma — ver MembershipPage.jsx).
+  configItems.push({ to: '/membresia', label: 'Mi Membresía', icon: '♦' });
+  if (hasMembershipAdminAccess) configItems.push({ to: '/admin/membresias', label: 'Administración de Membresías', icon: '⚑' });
 
   const navAreas = NAV_AREAS.map((group) => {
     if (group.area === 'Control' && user?.role === 'ADMIN') {

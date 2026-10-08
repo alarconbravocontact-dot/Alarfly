@@ -102,6 +102,8 @@ const AnalysisReportsArchivePage = lazy(() => import('./modules/analisis-avanzad
 const BenchmarkingPage = lazy(() => import('./modules/analisis-avanzados/BenchmarkingPage'));
 const AffiliateDashboardPage = lazy(() => import('./pages/affiliates/AffiliateDashboardPage'));
 const AffiliateAdminPage = lazy(() => import('./pages/affiliates/AffiliateAdminPage'));
+const MembershipPage = lazy(() => import('./pages/membership/MembershipPage'));
+const MembershipAdminPage = lazy(() => import('./pages/membership/MembershipAdminPage'));
 const AccountLayout = lazy(() => import('./core/account/AccountLayout'));
 const ProfileSection = lazy(() => import('./core/account/ProfileSection'));
 const SecuritySection = lazy(() => import('./core/account/SecuritySection'));
@@ -271,6 +273,8 @@ function App() {
             <Route path="/niveles-de-acceso" element={<NivelesAccesoPage />} />
             <Route path="/auditoria" element={<AuditTrailPage />} />
             <Route path="/admin/afiliados" element={<AffiliateAdminPage />} />
+            <Route path="/membresia" element={<MembershipPage />} />
+            <Route path="/admin/membresias" element={<MembershipAdminPage />} />
             <Route path="/mi-cuenta" element={<AccountLayout />}>
               <Route index element={<Navigate to="perfil" replace />} />
               <Route path="perfil" element={<ProfileSection />} />

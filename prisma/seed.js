@@ -1,3 +1,4 @@
+require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const prisma = require('../src/core/database/prisma');
 const templatesService = require('../src/modules/accounting/services/account-templates.service');
